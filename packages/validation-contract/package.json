@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run generate:schema",
     "generate:schema": "tsx src/generate-schema.ts",
+    "conformance:report": "tsx src/conformance-report.ts",
     "test": "vitest run",
     "check": "npm run build && npm test"
   },

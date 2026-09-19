@@ -1,4 +1,5 @@
 import { TextDecoder } from "node:util";
+import { MAX_OUTPUT_LIMIT_BYTES } from "./schema.js";
 
 export const REDACTION_MARKER = "[REDACTED]" as const;
 export const OUTPUT_TRUNCATION_MARKER = "\n[… output truncated …]\n" as const;
@@ -35,7 +36,7 @@ function replaceSensitiveAssignments(text: string, replacement: string): Redacti
   let redacted = false;
   // Quoted values are handled first so punctuation and spaces remain readable.
   output = output.replace(
-    /(\b(?:token|password|passwd|secret|authorization|auth|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|credential)\b\s*[:=]\s*)(["'])(.*?)\2/giu,
+    /(\b(?:token|password|passwd|secret|authorization|auth|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|private[ _-]?key|credential)\b\s*[:=]\s*)(["'])([\s\S]*?)\2/giu,
     (_match, prefix: string, quote: string) => {
       redacted = true;
       return `${prefix}${quote}${replacement}${quote}`;
@@ -49,13 +50,102 @@ function replaceSensitiveAssignments(text: string, replacement: string): Redacti
     },
   );
   output = output.replace(
-    /(\b(?:token|password|passwd|secret|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|credential)\b\s*[:=]\s*)([^\s,;&"'\u001b]+)/giu,
+    /(\b(?:token|password|passwd|secret|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|private[ _-]?key|credential)\b\s*[:=]\s*)([^\s,;&"'\u001b]+)/giu,
     (_match, prefix: string) => {
       redacted = true;
       return `${prefix}${replacement}`;
     },
   );
   return { text: output, redacted };
+}
+
+interface SensitiveAssignmentState {
+  mode: "quoted" | "unquoted";
+  quote?: string;
+}
+
+const sensitiveAssignmentStart = /\b(?:token|password|passwd|secret|authorization|auth|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|private[ _-]?key|credential)\b\s*[:=]\s*(?:(Bearer)\s+)?(["'])?/iu;
+
+function findUnescapedQuote(text: string, quote: string): number {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== quote) {
+      continue;
+    }
+    let backslashes = 0;
+    for (let previous = index - 1; previous >= 0 && text[previous] === "\\"; previous -= 1) {
+      backslashes += 1;
+    }
+    if (backslashes % 2 === 0) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Scrub sensitive assignments without retaining an unbounded value while a
+ * stream is split across chunks. Known secrets are still handled by the
+ * ordinary redactor, which has its own bounded look-behind.
+ */
+function redactSensitiveAssignmentsStreaming(
+  text: string,
+  state: SensitiveAssignmentState | undefined,
+  replacement: string,
+): { text: string; state: SensitiveAssignmentState | undefined; redacted: boolean } {
+  let offset = 0;
+  let current = state;
+  let redacted = false;
+  let output = "";
+  while (offset < text.length) {
+    if (current?.mode === "quoted" && current.quote !== undefined) {
+      const closingQuote = findUnescapedQuote(text.slice(offset), current.quote);
+      if (closingQuote < 0) {
+        redacted = true;
+        return { text: output, state: current, redacted };
+      }
+      output += text.slice(offset + closingQuote, offset + closingQuote + 1);
+      offset += closingQuote + 1;
+      current = undefined;
+      continue;
+    }
+    if (current?.mode === "unquoted") {
+      const delimiter = /[\s,;&"'`<>()[\]{}\u001b]/u.exec(text.slice(offset));
+      if (delimiter === null) {
+        redacted = true;
+        return { text: output, state: current, redacted };
+      }
+      output += text.slice(offset + delimiter.index, offset + delimiter.index + 1);
+      offset += delimiter.index + 1;
+      current = undefined;
+      continue;
+    }
+
+    const match = sensitiveAssignmentStart.exec(text.slice(offset));
+    if (match === null) {
+      output += text.slice(offset);
+      break;
+    }
+    const start = offset + match.index;
+    const valueStart = start + match[0].length;
+    output += text.slice(offset, valueStart);
+    output += replacement;
+    redacted = true;
+    const quote = match[2];
+    if (quote !== undefined) {
+      current = { mode: "quoted", quote };
+      offset = valueStart;
+      continue;
+    }
+
+    const delimiter = /[\s,;&"'`<>()[\]{}\u001b]/u.exec(text.slice(valueStart));
+    if (delimiter === null) {
+      current = { mode: "unquoted" };
+      return { text: output, state: current, redacted };
+    }
+    offset = valueStart + delimiter.index;
+    current = undefined;
+  }
+  return { text: output, state: current, redacted };
 }
 
 export function redactText(text: string, options: RedactionOptions = {}): RedactionResult {
@@ -68,12 +158,18 @@ export function redactText(text: string, options: RedactionOptions = {}): Redact
 export function normalizeDisplayOutput(text: string): string {
   // CSI and the common single-character ANSI escape forms are removed before
   // the result is displayed or sent to another application boundary.
-  const withoutAnsi = text.replace(/\u001B(?:\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/gu, "");
+  const withoutAnsi = text
+    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gu, "")
+    .replace(/\u001B(?:\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/gu, "");
   const normalizedNewlines = withoutAnsi.replace(/\r\n?/gu, "\n");
   return [...normalizedNewlines]
     .filter((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
-      return character === "\n" || character === "\t" || codePoint >= 0x20;
+      return (
+        character === "\n" ||
+        character === "\t" ||
+        (codePoint >= 0x20 && !(codePoint >= 0x7f && codePoint <= 0x9f))
+      );
     })
     .join("");
 }
@@ -130,6 +226,7 @@ export class StreamAccumulator {
   private readonly knownSecrets: readonly string[];
   private readonly replacement: string;
   private readonly redactor: (text: string) => RedactionResult;
+  private readonly streamSensitiveAssignments: boolean;
   private readonly lookbehindBytes: number;
   private pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   private retained: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -141,14 +238,16 @@ export class StreamAccumulator {
   private redacted = false;
   private truncated = false;
   private redactionFailed = false;
+  private sensitiveAssignmentState: SensitiveAssignmentState | undefined;
 
   public constructor(options: StreamAccumulatorOptions) {
-    if (!Number.isInteger(options.limitBytes) || options.limitBytes < 1) {
-      throw new RangeError("limitBytes must be a positive integer");
+    if (!Number.isInteger(options.limitBytes) || options.limitBytes < 1 || options.limitBytes > MAX_OUTPUT_LIMIT_BYTES) {
+      throw new RangeError(`limitBytes must be an integer from 1 through ${MAX_OUTPUT_LIMIT_BYTES}`);
     }
     this.limitBytes = options.limitBytes;
     this.knownSecrets = [...(options.knownSecrets ?? [])];
     this.replacement = options.replacement ?? REDACTION_MARKER;
+    this.streamSensitiveAssignments = options.redactor === undefined;
     this.redactor = options.redactor ?? ((text) => redactText(text, { knownSecrets: this.knownSecrets, replacement: this.replacement }));
     const largestSecret = this.knownSecrets.reduce((largest, secret) => Math.max(largest, Buffer.byteLength(secret, "utf8")), 0);
     this.lookbehindBytes = Math.max(256, largestSecret + 64);
@@ -181,9 +280,15 @@ export class StreamAccumulator {
 
   private processPrefix(prefix: Uint8Array): void {
     try {
-      const result = this.redactor(new TextDecoder("utf-8").decode(prefix));
-      this.redacted ||= result.redacted;
-      const bytes = Buffer.from(result.text, "utf8");
+      const decoded = new TextDecoder("utf-8").decode(prefix);
+      const streamed = this.streamSensitiveAssignments
+        ? redactSensitiveAssignmentsStreaming(decoded, this.sensitiveAssignmentState, this.replacement)
+        : { text: decoded, state: this.sensitiveAssignmentState, redacted: false };
+      this.sensitiveAssignmentState = streamed.state;
+      const result = this.redactor(streamed.text);
+      const knownSecrets = replaceKnownSecrets(result.text, this.knownSecrets, this.replacement);
+      this.redacted ||= streamed.redacted || result.redacted || knownSecrets.redacted;
+      const bytes = Buffer.from(knownSecrets.text, "utf8");
       this.processedByteCount += bytes.length;
       this.appendProcessed(bytes);
     } catch {

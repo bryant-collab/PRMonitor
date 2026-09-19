@@ -228,7 +228,7 @@ export function createApprovalRecord(input: CreateApprovalInput): ApprovalRecord
   const repositoryId = requiredIdentity(input.repositoryId, "repositoryId");
   const profile = normalizeValidationProfile(input.profile);
   const contentHash = hashValidationProfile(profile);
-  return {
+  const record: ApprovalRecord = {
     authorizationType: "approval",
     approvalId: input.approvalId ?? stableRecordId("approval", repositoryId, contentHash, input.source),
     repositoryId,
@@ -238,6 +238,11 @@ export function createApprovalRecord(input: CreateApprovalInput): ApprovalRecord
     approvedAt: requiredIdentity(input.approvedAt, "approvedAt"),
     ...(input.approvedBy === undefined ? {} : { approvedBy: requiredIdentity(input.approvedBy, "approvedBy") }),
   };
+  const parsed = approvalRecordSchema.safeParse(record);
+  if (!parsed.success) {
+    throw new TypeError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+  }
+  return parsed.data;
 }
 
 export function createOneRunAuthorization(input: CreateOneRunAuthorizationInput): OneRunAuthorizationRecord {
@@ -245,7 +250,7 @@ export function createOneRunAuthorization(input: CreateOneRunAuthorizationInput)
   const operationId = requiredIdentity(input.operationId, "operationId");
   const profile = normalizeValidationProfile(input.profile);
   const contentHash = hashValidationProfile(profile);
-  return {
+  const record: OneRunAuthorizationRecord = {
     authorizationType: "one-run",
     authorizationId:
       input.authorizationId ?? stableRecordId("one-run", repositoryId, contentHash, operationId),
@@ -260,6 +265,11 @@ export function createOneRunAuthorization(input: CreateOneRunAuthorizationInput)
       : { authorizedBy: requiredIdentity(input.authorizedBy, "authorizedBy") }),
     ...(input.expiresAt === undefined ? {} : { expiresAt: requiredIdentity(input.expiresAt, "expiresAt") }),
   };
+  const parsed = oneRunAuthorizationSchema.safeParse(record);
+  if (!parsed.success) {
+    throw new TypeError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+  }
+  return parsed.data;
 }
 
 export type TrustFailureReason =
@@ -297,12 +307,27 @@ function isExpired(expiresAt: string | undefined, now: string | undefined): bool
   return Number.isFinite(expires) && Number.isFinite(current) && current >= expires;
 }
 
+function hasInvalidExpiration(expiresAt: string | undefined): boolean {
+  return expiresAt !== undefined && !Number.isFinite(Date.parse(expiresAt));
+}
+
 export function evaluateTrust(input: EvaluateTrustInput): TrustEvaluation {
-  const expectedHash = hashValidationProfile(input.profile);
-  const authorization = input.authorization;
-  if (authorization === undefined) {
+  let expectedHash: string;
+  try {
+    expectedHash = hashValidationProfile(input.profile);
+  } catch {
+    return { trusted: false, reason: "INVALID_AUTHORIZATION" };
+  }
+
+  if (input.authorization === undefined) {
     return { trusted: false, reason: "MISSING_AUTHORIZATION" };
   }
+
+  const parsedAuthorization = authorizationRecordSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return { trusted: false, reason: "INVALID_AUTHORIZATION" };
+  }
+  const authorization = parsedAuthorization.data;
 
   if (authorization.repositoryId !== input.repositoryId) {
     return { trusted: false, reason: "REPOSITORY_MISMATCH" };
@@ -326,6 +351,9 @@ export function evaluateTrust(input: EvaluateTrustInput): TrustEvaluation {
     }
     if (input.operationEnded === true) {
       return { trusted: false, reason: "AUTHORIZATION_EXPIRED" };
+    }
+    if (hasInvalidExpiration(authorization.expiresAt)) {
+      return { trusted: false, reason: "INVALID_AUTHORIZATION" };
     }
     if (isExpired(authorization.expiresAt, input.now)) {
       return { trusted: false, reason: "AUTHORIZATION_EXPIRED" };
@@ -448,13 +476,16 @@ export type ValidationResolution =
     };
 
 export interface ValidationWarning {
-  code: "NO_PROFILE" | "CONFIRMATION_REQUIRED" | "INVALID_PROFILE";
+  code: "NO_PROFILE" | "CONFIRMATION_REQUIRED" | "INVALID_PROFILE" | "VALIDATION_REVIEW_REQUIRED";
   title: string;
   message: string;
   remediation: string;
 }
 
-export function validationWarning(code: ValidationWarning["code"]): ValidationWarning {
+export function validationWarning(
+  code: ValidationWarning["code"],
+  details: { status?: string; reason?: string } = {},
+): ValidationWarning {
   switch (code) {
     case "NO_PROFILE":
       return {
@@ -477,6 +508,15 @@ export function validationWarning(code: ValidationWarning["code"]): ValidationWa
         message: "The selected validation profile cannot be used because one or more fields are invalid.",
         remediation: "Correct the reported profile fields and load the profile again.",
       };
+    case "VALIDATION_REVIEW_REQUIRED":
+      return {
+        code,
+        title: "Review validation before publication",
+        message: `Validation completed with status ${details.status ?? "not passing"}${
+          details.reason === undefined ? "" : ` (${details.reason})`
+        } and does not grant publication authority.`,
+        remediation: "Inspect the recorded validation evidence and make the separate explicit publication decision.",
+      };
   }
 }
 
@@ -493,9 +533,18 @@ function candidateEnvelope(input: CandidateInput | undefined): ProfileCandidate 
 export function resolveValidationProfile(input: ResolveValidationInput): ValidationResolution {
   const repositoryId = requiredIdentity(input.repositoryId, "repositoryId");
   const selected = [
-    { source: "one-run" as const, candidate: candidateEnvelope(input.oneRunOverride ?? input.oneRun) },
-    { source: "saved" as const, candidate: candidateEnvelope(input.savedProfile ?? input.saved) },
-    { source: "checked-in" as const, candidate: candidateEnvelope(input.checkedInProfile ?? input.checkedIn) },
+    {
+      source: "one-run" as const,
+      candidate: candidateEnvelope(input.oneRunOverride !== undefined ? input.oneRunOverride : input.oneRun),
+    },
+    {
+      source: "saved" as const,
+      candidate: candidateEnvelope(input.savedProfile !== undefined ? input.savedProfile : input.saved),
+    },
+    {
+      source: "checked-in" as const,
+      candidate: candidateEnvelope(input.checkedInProfile !== undefined ? input.checkedInProfile : input.checkedIn),
+    },
   ].find(({ candidate }) => candidate !== undefined);
 
   if (selected === undefined) {

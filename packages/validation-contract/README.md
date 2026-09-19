@@ -32,6 +32,11 @@ The checked-in interchange artifact is
 `npm run generate:validation-schema` to regenerate it; the package tests compare
 the committed artifact to the Zod source.
 
+Run `npm run report:validation-contract` for the deterministic fixture report.
+It exercises profile parsing, source resolution, trust confirmation content,
+bounded/redacted output, no-profile aggregation, and both downstream consumer
+labels without spawning a command.
+
 ## Downstream handoff
 
 - F01 incorporates this workspace and preserves the public exports and schema.
@@ -47,6 +52,9 @@ the committed artifact to the Zod source.
 - F18 and F23-F25 create snapshots and consume the same resolution, trust,
   path, timeout, redaction, aggregation, and warning behavior through the
   shared API.
+
+The JSON fixtures under `fixtures/` include a valid current snapshot and a
+tampered snapshot whose content hash is rejected before execution.
 
 No export grants publication authority. A validation result cannot commit,
 push, post a GitHub response, resolve a conversation, approve a review, or

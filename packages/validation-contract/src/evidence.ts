@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  canonicalPathKey,
+  isPathWithin,
   statusFromExit,
   transitionStepState,
   type ExitObservation,
@@ -90,8 +92,9 @@ export function isManualAttestationCurrent(
   attestation: ManualAttestation,
   current: { worktreePath: string; baselineRevision: string; currentRevision: string },
 ): boolean {
+  const platform = /^[A-Za-z]:[\\/]|^\\\\/u.test(current.worktreePath) ? "win32" : "posix";
   return (
-    attestation.worktreePath === current.worktreePath &&
+    canonicalPathKey(attestation.worktreePath, platform) === canonicalPathKey(current.worktreePath, platform) &&
     attestation.worktreeBaselineRevision === current.baselineRevision &&
     attestation.worktreeCurrentRevision === current.currentRevision
   );
@@ -114,7 +117,7 @@ export function manualAttestationView(
   };
 }
 
-const outputEvidenceSchema = z
+export const outputEvidenceSchema = z
   .object({
     text: z.string(),
     originalByteCount: z.number().int().nonnegative(),
@@ -127,9 +130,39 @@ const outputEvidenceSchema = z
     safe: z.boolean(),
     reason: z.literal("REDACTION_FAILURE").optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((evidence, context) => {
+    if (evidence.safe && evidence.reason !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "safe output cannot have a failure reason" });
+    }
+    if (!evidence.safe && evidence.reason !== "REDACTION_FAILURE") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "unsafe output must use reason REDACTION_FAILURE",
+      });
+    }
+    if (evidence.truncated && evidence.truncationMarker === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["truncationMarker"], message: "truncated output needs a marker" });
+    }
+    if (!evidence.truncated && evidence.truncationMarker !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["truncationMarker"],
+        message: "a truncation marker is only valid for truncated output",
+      });
+    }
+    const expectedOmitted = Math.max(0, evidence.processedByteCount - evidence.retainedByteCount);
+    if (evidence.omittedByteCount !== expectedOmitted) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["omittedByteCount"],
+        message: "omittedByteCount must equal processedByteCount minus retainedByteCount",
+      });
+    }
+  });
 
-const commandStepEvidenceSchema = z
+export const commandStepEvidenceSchema = z
   .object({
     kind: z.literal("command"),
     stepId: stableIdSchema,
@@ -146,9 +179,50 @@ const commandStepEvidenceSchema = z
     stdout: outputEvidenceSchema.optional(),
     stderr: outputEvidenceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((step, context) => {
+    if (step.status === "running" && step.startedAt === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["startedAt"], message: "running commands need startedAt" });
+    }
+    if (["passed", "failed", "interrupted"].includes(step.status) && step.completedAt === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["completedAt"], message: "completed commands need completedAt" });
+    }
+    if (["passed", "failed", "interrupted"].includes(step.status) && (step.stdout === undefined || step.stderr === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stdout"],
+        message: "completed commands need bounded stdout and stderr evidence",
+      });
+    }
+    if (["passed", "failed", "interrupted"].includes(step.status) && step.canonicalWorkingDirectory === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["canonicalWorkingDirectory"],
+        message: "executed commands need a canonical working directory",
+      });
+    }
+    if (step.status === "passed" && step.exitCode !== 0) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["exitCode"], message: "passed commands need observed exit code 0" });
+    }
+    if (step.status === "passed" && step.reason !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "passed commands cannot have a failure reason" });
+    }
+    if (step.status === "failed" && step.reason === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "failed commands need a machine-readable reason" });
+    }
+    if (step.status === "interrupted" && !["TIMED_OUT", "USER_CANCELLED", "APPLICATION_SHUTDOWN", "APPLICATION_RESTARTED"].includes(step.reason ?? "")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "interrupted commands need a timeout, cancellation, shutdown, or restart reason",
+      });
+    }
+    if (step.status === "not_run" && step.reason === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "not-run commands need a machine-readable reason" });
+    }
+  });
 
-const manualStepEvidenceSchema = z
+export const manualStepEvidenceSchema = z
   .object({
     kind: z.literal("manual"),
     stepId: stableIdSchema,
@@ -156,9 +230,30 @@ const manualStepEvidenceSchema = z
     reason: validationReasonSchema.optional(),
     attestation: manualAttestationSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((step, context) => {
+    if (step.attestation !== undefined && step.attestation.checkId !== step.stepId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["attestation", "checkId"],
+        message: "manual attestation checkId must match stepId",
+      });
+    }
+    if (step.status === "passed" && step.attestation?.outcome !== "verified") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["attestation"], message: "verified manual steps need a verified attestation" });
+    }
+    if (step.status === "failed" && step.attestation?.outcome !== "failed") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["attestation"], message: "failed manual steps need a failed attestation" });
+    }
+    if (step.status === "not_run" && step.attestation !== undefined && step.attestation.outcome !== "not_run") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["attestation"], message: "not-run manual steps need a not-run attestation" });
+    }
+  });
 
-export const validationStepEvidenceSchema = z.discriminatedUnion("kind", [
+// Refinements wrap each object in ZodEffects, so use a tagged union without
+// the discriminated-union helper here. The `kind` literals remain the runtime
+// discriminator while preserving the cross-field invariants above.
+export const validationStepEvidenceSchema = z.union([
   commandStepEvidenceSchema,
   manualStepEvidenceSchema,
 ]);
@@ -169,7 +264,7 @@ export type ValidationStepEvidence = z.infer<typeof validationStepEvidenceSchema
 
 export const validationWarningSchema = z
   .object({
-    code: z.enum(["NO_PROFILE", "CONFIRMATION_REQUIRED", "INVALID_PROFILE"]),
+    code: z.enum(["NO_PROFILE", "CONFIRMATION_REQUIRED", "INVALID_PROFILE", "VALIDATION_REVIEW_REQUIRED"]),
     title: z.string().min(1),
     message: z.string().min(1),
     remediation: z.string().min(1),
@@ -190,7 +285,54 @@ export const validationRunEvidenceSchema = z
     manualAttestations: z.array(manualAttestationSchema),
     warnings: z.array(validationWarningSchema),
   })
-  .strict();
+  .strict()
+  .superRefine((run, context) => {
+    const seen = new Set<string>();
+    run.steps.forEach((step, index) => {
+      if (seen.has(step.stepId)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps", index, "stepId"], message: "step IDs must be unique" });
+      }
+      seen.add(step.stepId);
+    });
+    const manualIds = new Set<string>();
+    run.manualAttestations.forEach((attestation, index) => {
+      if (manualIds.has(attestation.checkId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["manualAttestations", index, "checkId"],
+          message: "manual attestation check IDs must be unique",
+        });
+      }
+      manualIds.add(attestation.checkId);
+    });
+
+    const terminal = run.status !== "running";
+    if (terminal && run.completedAt === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["completedAt"], message: "completed runs need completedAt" });
+    }
+    if (run.status === "running" && run.completedAt !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["completedAt"], message: "running runs cannot have completedAt" });
+    }
+    if (run.status === "passed" && run.steps.some((step) => step.status !== "passed")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "passed runs need every step to be passed" });
+    }
+    if (run.status === "failed" && !run.steps.some((step) => step.status === "failed")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "failed runs need a failed step" });
+    }
+    if (
+      run.status === "interrupted" &&
+      !run.steps.some((step) => step.status === "interrupted") &&
+      run.reason !== "APPLICATION_RESTARTED"
+    ) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "interrupted runs need an interrupted step" });
+    }
+    if (run.status === "not_run" && run.steps.length > 0 && !run.steps.some((step) => step.status === "not_run")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "not-run runs need a not-run step" });
+    }
+    if (terminal && run.steps.some((step) => step.status === "pending" || step.status === "running")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "completed runs cannot contain pending or running steps" });
+    }
+  });
 
 export type ValidationRunEvidence = z.infer<typeof validationRunEvidenceSchema>;
 
@@ -289,7 +431,7 @@ export function createCommandStepEvidence(input: {
   const exit = statusFromExit(input.observation);
   const status: StepState = outputFailed ? "failed" : exit.status;
   const reason: ValidationReason | undefined = outputFailed ? "REDACTION_FAILURE" : exit.reason;
-  return {
+  const evidence: CommandStepEvidence = {
     kind: "command",
     stepId: input.prepared.stepId,
     status,
@@ -305,6 +447,11 @@ export function createCommandStepEvidence(input: {
     stdout,
     stderr,
   };
+  const parsed = commandStepEvidenceSchema.safeParse(evidence);
+  if (!parsed.success) {
+    throw new TypeError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+  }
+  return parsed.data;
 }
 
 export function stopRemainingSteps(
@@ -421,27 +568,87 @@ export function completeValidationRun(input: {
   if (input.run.status !== "running") {
     throw new TypeError("only a running validation run can be completed");
   }
-  const automated = input.steps.filter((step): step is CommandStepEvidence => step.kind === "command");
+  if (
+    input.steps.length !== input.run.steps.length ||
+    input.steps.some((step, index) => step.kind !== input.run.steps[index]?.kind || step.stepId !== input.run.steps[index]?.stepId)
+  ) {
+    throw new TypeError("completed validation steps must preserve the running run's ordered step identity");
+  }
+  const manualAttestations = [...(input.manualAttestations ?? [])];
+  const manualStepIds = new Set(input.steps.filter((step) => step.kind === "manual").map((step) => step.stepId));
+  if (manualAttestations.some((attestation) => !manualStepIds.has(attestation.checkId))) {
+    throw new TypeError("manual attestations must belong to a manual validation step");
+  }
+  const attestationsByCheckId = new Map(manualAttestations.map((attestation) => [attestation.checkId, attestation] as const));
+  const steps = input.steps.map((step): ValidationStepEvidence => {
+    if (step.kind !== "manual") {
+      return { ...step };
+    }
+    const attestation = attestationsByCheckId.get(step.stepId);
+    if (attestation === undefined) {
+      return { ...step };
+    }
+    const status = attestation.outcome === "verified" ? "passed" : attestation.outcome === "failed" ? "failed" : "not_run";
+    return {
+      ...step,
+      status,
+      attestation,
+      ...(status === "not_run" && step.reason === undefined ? { reason: "MANUAL_CHECK_NOT_RUN" as const } : {}),
+    };
+  });
+  const automated = steps.filter((step): step is CommandStepEvidence => step.kind === "command");
   const aggregate = aggregateValidationEvidence({
     automated,
-    manual: input.manualAttestations,
+    manual: manualAttestations,
     unavailableReason: input.unavailableReason,
   });
-  const hasUnattestedManualStep = input.steps.some(
+  let completedSteps = steps;
+  if (input.unavailableReason !== undefined) {
+    completedSteps = steps.map((step) =>
+      step.status === "pending" || step.status === "running"
+        ? { ...step, status: "not_run" as const, reason: input.unavailableReason }
+        : { ...step },
+    );
+  } else {
+    const firstIncomplete = steps.findIndex((step) => step.status === "pending" || step.status === "running");
+    if (firstIncomplete >= 0) {
+      const incomplete = steps[firstIncomplete];
+      if (incomplete?.status === "running") {
+        throw new TypeError("a running step must be interrupted or completed before the validation run can close");
+      }
+      completedSteps = steps.map((step, index) => {
+        if (index < firstIncomplete || index > firstIncomplete) {
+          return { ...step };
+        }
+        return {
+          ...step,
+          status: "not_run" as const,
+          reason: step.kind === "manual" ? "MANUAL_CHECK_NOT_RUN" as const : "PRIOR_STEP_STOPPED" as const,
+        };
+      });
+      completedSteps = stopRemainingSteps(completedSteps, firstIncomplete);
+    }
+  }
+  const hasUnattestedManualStep = completedSteps.some(
     (step) => step.kind === "manual" && (step.status === "pending" || step.status === "not_run"),
   );
   const finalStatus = aggregate.status === "passed" && hasUnattestedManualStep ? "not_run" : aggregate.status;
   const finalReason =
     aggregate.status === "passed" && hasUnattestedManualStep ? ("MANUAL_CHECK_NOT_RUN" as const) : aggregate.reason;
-  return {
+  const completed: ValidationRunEvidence = {
     ...input.run,
     status: finalStatus,
     ...(finalReason === undefined ? {} : { reason: finalReason }),
     completedAt: input.completedAt,
-    steps: input.steps.map((step) => ({ ...step })),
+    steps: completedSteps,
     manualAttestations: aggregate.manual,
     warnings: aggregate.warnings,
   };
+  const parsed = validationRunEvidenceSchema.safeParse(completed);
+  if (!parsed.success) {
+    throw new TypeError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+  }
+  return parsed.data;
 }
 
 export function finalizeIncompleteValidationRun(
@@ -454,7 +661,14 @@ export function finalizeIncompleteValidationRun(
   const firstRunning = run.steps.findIndex((step) => step.status === "running");
   const steps: ValidationStepEvidence[] = run.steps.map((step, index): ValidationStepEvidence => {
     if (step.status === "running") {
-      return { ...step, status: "interrupted", reason: "APPLICATION_RESTARTED", completedAt };
+      return {
+        ...step,
+        status: "interrupted",
+        reason: "APPLICATION_RESTARTED",
+        completedAt,
+        stdout: step.stdout ?? emptyOutput(),
+        stderr: step.stderr ?? emptyOutput(),
+      };
     }
     if (index > firstRunning && step.status === "pending") {
       return { ...step, status: "not_run", reason: "PRIOR_STEP_STOPPED" };
@@ -488,8 +702,49 @@ export function validateRunAgainstSnapshot(
   snapshot: ValidationSnapshot,
 ): { ok: true } | { ok: false; reason: "SNAPSHOT_MISMATCH"; message: string } {
   const snapshotResult = validateValidationSnapshot(snapshot);
-  if (!snapshotResult.ok || run.snapshotId !== snapshot.snapshotId) {
+  const runResult = validationRunEvidenceSchema.safeParse(run);
+  if (!snapshotResult.ok || !runResult.success || run.snapshotId !== snapshot.snapshotId) {
     return { ok: false, reason: "SNAPSHOT_MISMATCH", message: "run evidence does not match its immutable snapshot" };
+  }
+
+  const expectedSteps = snapshotResult.snapshot.profile.steps;
+  if (runResult.data.steps.length !== expectedSteps.length) {
+    return { ok: false, reason: "SNAPSHOT_MISMATCH", message: "run step count does not match its immutable profile" };
+  }
+  for (const [index, expected] of expectedSteps.entries()) {
+    const actual = runResult.data.steps[index];
+    if (actual === undefined || actual.kind !== expected.kind || actual.stepId !== expected.id) {
+      return { ok: false, reason: "SNAPSHOT_MISMATCH", message: "run step identity does not match its immutable profile" };
+    }
+    if (expected.kind === "command" && actual.kind === "command") {
+      if (actual.executable !== expected.executable || JSON.stringify(actual.arguments) !== JSON.stringify(expected.arguments)) {
+        return { ok: false, reason: "SNAPSHOT_MISMATCH", message: "run command input does not match its immutable profile" };
+      }
+      if (
+        actual.canonicalWorkingDirectory !== undefined &&
+        !isPathWithin(
+          snapshotResult.snapshot.worktree.canonicalRoot,
+          actual.canonicalWorkingDirectory,
+          { platform: /^[A-Za-z]:[\\/]|^\\\\/u.test(snapshotResult.snapshot.worktree.canonicalRoot) ? "win32" : "posix" },
+        )
+      ) {
+        return { ok: false, reason: "SNAPSHOT_MISMATCH", message: "run working directory is outside its immutable worktree" };
+      }
+    }
+  }
+  const manualIds = new Set(expectedSteps.filter((step) => step.kind === "manual").map((step) => step.id));
+  const platform = /^[A-Za-z]:[\\/]|^\\\\/u.test(snapshotResult.snapshot.worktree.canonicalRoot) ? "win32" : "posix";
+  if (
+    runResult.data.manualAttestations.some(
+      (attestation) =>
+        !manualIds.has(attestation.checkId) ||
+        canonicalPathKey(attestation.worktreePath, platform) !== canonicalPathKey(snapshotResult.snapshot.worktree.canonicalRoot, platform) ||
+        attestation.worktreeBaselineRevision !== snapshotResult.snapshot.worktree.baselineRevision ||
+        (snapshotResult.snapshot.worktree.currentRevision !== undefined &&
+          attestation.worktreeCurrentRevision !== snapshotResult.snapshot.worktree.currentRevision),
+    )
+  ) {
+    return { ok: false, reason: "SNAPSHOT_MISMATCH", message: "manual evidence does not match the immutable worktree state" };
   }
   return { ok: true };
 }
@@ -501,12 +756,7 @@ export function publicationWarningForValidation(result: ValidationAggregate): Va
   if (result.reason === "NO_PROFILE" || result.reason === "CONFIRMATION_REQUIRED" || result.reason === "INVALID_PROFILE") {
     return validationWarning(result.reason);
   }
-  return {
-    code: "NO_PROFILE",
-    title: "Review validation before publication",
-    message: `Validation result is ${result.status} and does not grant publication authority.`,
-    remediation: "Inspect the recorded validation evidence and make the separate explicit publication decision.",
-  };
+  return validationWarning("VALIDATION_REVIEW_REQUIRED", { status: result.status, reason: result.reason });
 }
 
 export type { ValidationProfile };

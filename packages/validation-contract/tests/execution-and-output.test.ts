@@ -48,6 +48,15 @@ describe("working-directory and command execution policy", () => {
     expect(isPathWithin("/operation", "/operation2", { platform: "posix" })).toBe(false);
     expect(isPathWithin("C:\\Work", "c:\\work\\src", { platform: "win32" })).toBe(true);
     expect(isPathWithin("C:\\Work", "C:\\Worktree", { platform: "win32" })).toBe(false);
+    expect(
+      resolveWorkingDirectory("/missing", ".", {
+        platform: "posix",
+        pathPort: {
+          canonicalize: (input) => input,
+          isDirectory: () => false,
+        },
+      }),
+    ).toMatchObject({ ok: false, reason: "WORKTREE_PATH_INVALID" });
   });
 
   it("applies inclusive timeout/limit bounds and records a resolved executable without a shell", () => {
@@ -85,6 +94,35 @@ describe("working-directory and command execution policy", () => {
         outputLimitBytes: 100,
       });
     }
+
+    const relativePrepared = prepareCommand({
+      step: {
+        kind: "command",
+        id: "relative",
+        label: "Relative executable",
+        executable: "tools/runner",
+        arguments: [],
+        workingDirectory: ".",
+        timeoutSeconds: 1,
+        outputLimitBytes: 100,
+      },
+      operationWorktreeRoot: "/operation",
+      platform: "posix",
+      pathPort: fakePathPort,
+      environment: { PATH: "/tools" },
+      fileExists: (candidate) => candidate === "/operation/tools/runner",
+      executable: (candidate) => candidate === "/operation/tools/runner",
+    });
+    expect(relativePrepared).toMatchObject({ ok: true, command: { resolvedExecutable: "/operation/tools/runner" } });
+
+    expect(
+      resolveExecutable("runner", {
+        platform: "win32",
+        environment: { PATH: "C:\\tools", PATHEXT: ".CMD;.EXE" },
+        fileExists: (candidate) => candidate === "C:\\tools\\runner.CMD",
+        executable: (candidate) => candidate === "C:\\tools\\runner.CMD",
+      }),
+    ).toBe("C:\\tools\\runner.CMD");
   });
 
   it("filters credential-shaped environment keys and does not inherit an arbitrary parent environment", () => {
@@ -98,6 +136,11 @@ describe("working-directory and command execution policy", () => {
       },
     });
     expect(environment).toEqual({ PATH: "/tools", NODE_ENV: "test" });
+    expect(
+      createControlledEnvironment({
+        toolchainEnvironment: { Path: "/tools-a", PATH: "/tools-b", pAtHeXt: ".CMD" },
+      }),
+    ).toEqual({ PATH: "/tools-b", PATHEXT: ".CMD" });
   });
 });
 
@@ -195,5 +238,41 @@ describe("bounded output and redaction", () => {
     });
     failed.append("secret");
     expect(failed.finish()).toMatchObject({ safe: false, reason: "REDACTION_FAILURE" });
+  });
+
+  it("does not leak a sensitive assignment when its value spans processing windows", () => {
+    const accumulator = new StreamAccumulator({ limitBytes: 1024 });
+    accumulator.append("token=");
+    accumulator.append("x".repeat(400));
+    accumulator.append(" done");
+    const result = accumulator.finish();
+    expect(result.safe).toBe(true);
+    expect(result.text).not.toContain("x");
+    expect(result.text).toContain("token=[REDACTED]");
+
+    const quoted = new StreamAccumulator({ limitBytes: 1024 });
+    quoted.append('password="');
+    quoted.append("y".repeat(400));
+    quoted.append('" done');
+    const quotedResult = quoted.finish();
+    expect(quotedResult.text).not.toContain("y");
+    expect(quotedResult.text).toContain('password="[REDACTED]"');
+  });
+
+  it("rejects a stream limit above the contract maximum and removes control characters", () => {
+    expect(() => new StreamAccumulator({ limitBytes: 1_048_577 })).toThrow();
+    expect(normalizeDisplayOutput("ok\u007f\u0085\u001b[31m!\u001b[0m")).toBe("ok!");
+
+    const whole = captureStreams({ limitBytes: 256, stdout: ["head known-secret tail"] });
+    const chunked = captureStreams({
+      limitBytes: 256,
+      stdout: ["head ", "known-", "secret", " tail"],
+    });
+    expect(chunked.stdout).toEqual(whole.stdout);
+
+    const emoji = Buffer.from("🙂🙂🙂", "utf8");
+    const splitEmoji = new StreamAccumulator({ limitBytes: 256 });
+    for (const byte of emoji) splitEmoji.append(Uint8Array.of(byte));
+    expect(splitEmoji.finish().text).toBe("🙂🙂🙂");
   });
 });

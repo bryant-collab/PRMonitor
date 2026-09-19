@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "snapshot-fixture-1",
+  "createdAt": "2026-09-19T12:01:00.000Z",
+  "profile": {
+    "schemaVersion": 1,
+    "steps": [
+      {
+        "kind": "command",
+        "id": "tests",
+        "label": "Tests",
+        "executable": "npm",
+        "arguments": ["test"],
+        "workingDirectory": ".",
+        "timeoutSeconds": 60,
+        "outputLimitBytes": 100
+      },
+      {
+        "kind": "manual",
+        "id": "visual",
+        "label": "Visual check",
+        "instructions": "Inspect the affected screen."
+      }
+    ]
+  },
+  "source": "checked-in",
+  "repositoryIdentity": {
+    "id": "github:example/repo"
+  },
+  "contentHash": "34a19f59ceace1f06edc9e419b3ec03d161ba079200c5219a267e10bc584e6d6",
+  "authorization": {
+    "authorizationType": "approval",
+    "id": "approval-fixture-1"
+  },
+  "worktree": {
+    "canonicalRoot": "C:\\worktrees\\operation-1",
+    "baselineRevision": "base-sha",
+    "currentRevision": "head-sha"
+  },
+  "effectiveLimits": {
+    "defaultTimeoutSeconds": 600,
+    "maxTimeoutSeconds": 3600,
+    "defaultOutputLimitBytes": 1048576,
+    "maxOutputLimitBytes": 1048576
+  }
+}

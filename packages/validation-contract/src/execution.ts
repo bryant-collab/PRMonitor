@@ -141,6 +141,13 @@ export function resolveWorkingDirectory(
   const joined = join(operationWorktreeRoot, relativeWorkingDirectory);
   try {
     const canonicalWorktreeRoot = port.canonicalize(operationWorktreeRoot);
+    if (!port.isDirectory(canonicalWorktreeRoot)) {
+      return {
+        ok: false,
+        reason: "WORKTREE_PATH_INVALID",
+        message: "operation worktree root does not exist or is not a directory",
+      };
+    }
     const canonicalWorkingDirectory = port.canonicalize(joined);
     if (!port.isDirectory(canonicalWorkingDirectory)) {
       return {
@@ -240,13 +247,17 @@ export function sanitizeEnvironment(
   environment: Record<string, string | undefined>,
   allowedKeys: readonly string[] = DEFAULT_TOOLCHAIN_ENVIRONMENT_KEYS,
 ): Record<string, string> {
-  const allowed = new Set(allowedKeys.map((key) => key.toLowerCase()));
+  const allowed = new Map(allowedKeys.map((key) => [key.toLowerCase(), key] as const));
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(environment)) {
-    if (value === undefined || !allowed.has(key.toLowerCase()) || SENSITIVE_ENVIRONMENT_KEY.test(key)) {
+    const normalizedKey = allowed.get(key.toLowerCase());
+    if (value === undefined || normalizedKey === undefined || SENSITIVE_ENVIRONMENT_KEY.test(key)) {
       continue;
     }
-    result[key] = value;
+    // Environment names are case-insensitive on Windows. Emit one stable
+    // spelling so PATH/PATHEXT lookup and the child environment cannot be
+    // influenced by duplicate differently-cased keys.
+    result[normalizedKey] = value;
   }
   return result;
 }
@@ -265,14 +276,15 @@ export function createControlledEnvironment(input: ControlledEnvironmentInput = 
 export interface ExecutableResolverOptions {
   platform?: "posix" | "win32";
   environment?: Record<string, string | undefined>;
+  /** Base directory for a path-like executable that is relative to the operation worktree. */
+  baseDirectory?: string;
   fileExists?: (candidate: string) => boolean;
   executable?: (candidate: string) => boolean;
 }
 
 function defaultFileExists(candidate: string): boolean {
   try {
-    statSync(candidate);
-    return true;
+    return statSync(candidate).isFile();
   } catch {
     return false;
   }
@@ -283,6 +295,9 @@ function defaultExecutable(candidate: string, flavor: "posix" | "win32"): boolea
     return defaultFileExists(candidate);
   }
   try {
+    if (!statSync(candidate).isFile()) {
+      return false;
+    }
     accessSync(candidate, fsConstants.X_OK);
     return true;
   } catch {
@@ -309,9 +324,20 @@ export function resolveExecutable(
 
   const candidates: string[] = [];
   if (isPathLike) {
-    candidates.push(executable);
-    if (flavor === "win32" && !hasFileExtension(executable, flavor)) {
-      candidates.push(...extensions.map((extension) => `${executable}${extension}`));
+    const isAbsolute =
+      (flavor === "win32" && path.win32.isAbsolute(executable)) ||
+      (flavor === "posix" && path.posix.isAbsolute(executable)) ||
+      /^[A-Za-z]:[\\/]/u.test(executable) ||
+      executable.startsWith("\\");
+    const pathExecutable =
+      !isAbsolute && options.baseDirectory !== undefined
+        ? flavor === "win32"
+          ? path.win32.join(options.baseDirectory, executable)
+          : path.posix.join(options.baseDirectory, executable)
+        : executable;
+    candidates.push(pathExecutable);
+    if (flavor === "win32" && !hasFileExtension(pathExecutable, flavor)) {
+      candidates.push(...extensions.map((extension) => `${pathExecutable}${extension}`));
     }
   } else {
     const separator = flavor === "win32" ? ";" : ":";
@@ -390,6 +416,7 @@ export function prepareCommand(input: PrepareCommandInput): PrepareCommandResult
   const resolvedExecutable = resolveExecutable(input.step.executable, {
     platform: input.platform,
     environment,
+    baseDirectory: workingDirectory.canonicalWorkingDirectory,
     fileExists: input.fileExists,
     executable: input.executable,
   });

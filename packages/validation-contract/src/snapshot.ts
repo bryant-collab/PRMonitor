@@ -115,7 +115,7 @@ export function createValidationSnapshot(input: CreateValidationSnapshotInput): 
     source: input.resolved.source,
     repositoryIdentity: { id: input.resolved.repositoryId },
     contentHash: input.resolved.contentHash,
-    authorization: input.resolved.authorization,
+    authorization: { ...input.resolved.authorization },
     worktree: { ...input.worktree },
     effectiveLimits: { ...effectiveLimits },
   };
@@ -135,6 +135,12 @@ export function validateValidationSnapshot(input: unknown): SnapshotValidationRe
     };
   }
   const version = (input as Record<string, unknown>).schemaVersion;
+  if (!Object.prototype.hasOwnProperty.call(input, "schemaVersion")) {
+    const parsed = validationSnapshotSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, code: "INVALID_SNAPSHOT", issues: issuesFromZod(parsed.error) };
+    }
+  }
   if (version !== VALIDATION_SCHEMA_VERSION) {
     return {
       ok: false,

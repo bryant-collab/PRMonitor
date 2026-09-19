@@ -159,6 +159,16 @@ export function parseValidationProfile(input: unknown): ProfileParseResult {
   }
 
   const version = input.schemaVersion;
+  // A missing version is a malformed version-1 candidate, not an unknown
+  // future version. Keep the distinction so callers can show a field-level
+  // correction for malformed files while still failing closed for versions
+  // that this package does not understand.
+  if (!Object.prototype.hasOwnProperty.call(input, "schemaVersion")) {
+    const parsed = validationProfileV1Schema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, code: "INVALID_PROFILE", issues: profileIssues(parsed.error) };
+    }
+  }
   if (version !== VALIDATION_SCHEMA_VERSION) {
     return {
       ok: false,

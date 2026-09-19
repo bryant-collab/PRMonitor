@@ -1,0 +1,6 @@
+{
+  "suggestedCommand": {
+    "executable": "npm",
+    "arguments": ["test"]
+  }
+}

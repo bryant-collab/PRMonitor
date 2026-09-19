@@ -85,6 +85,7 @@ describe("versioned validation profile", () => {
         steps: [{ kind: "command", id: "bad", label: "Bad", executable: "npm test", arguments: [] }],
       }),
     ).toMatchObject({ ok: false });
+    expect(parseValidationProfile({ steps: [] })).toMatchObject({ ok: false, code: "INVALID_PROFILE" });
     expect(
       parseValidationProfile({
         schemaVersion: 1,
@@ -118,6 +119,17 @@ describe("versioned validation profile", () => {
       processHistory: [{ command: "npm test" }],
     };
     expect(resolveValidationProfile({ repositoryId: "github:example/repo", ...(tempting as never) })).toMatchObject({
+      status: "unavailable",
+      reason: "NO_PROFILE",
+    });
+  });
+
+  it("does not turn repository discovery fixtures into an implicit profile", async () => {
+    const fixtureNames = ["package.json", "build.yml", "README.md", "ai-output.json", "process-history.json"];
+    for (const fixtureName of fixtureNames) {
+      expect((await readFile(new URL(`../fixtures/discovery/${fixtureName}`, import.meta.url), "utf8")).length).toBeGreaterThan(0);
+    }
+    expect(resolveValidationProfile({ repositoryId: "github:example/repo" })).toMatchObject({
       status: "unavailable",
       reason: "NO_PROFILE",
     });
@@ -176,6 +188,49 @@ describe("normalization, authorization, and precedence", () => {
     }
   });
 
+  it("covers every source-presence combination with fixed whole-profile precedence", () => {
+    const savedApproval = createApprovalRecord({
+      repositoryId,
+      source: "saved",
+      profile: saved,
+      approvedAt: "2026-09-19T12:00:00.000Z",
+    });
+    const checkedApproval = createApprovalRecord({
+      repositoryId,
+      source: "checked-in",
+      profile: checkedIn,
+      approvedAt: "2026-09-19T12:00:00.000Z",
+    });
+    const oneRunAuthorization = createOneRunAuthorization({
+      repositoryId,
+      operationId,
+      profile: oneRun,
+      authorizedAt: "2026-09-19T12:00:00.000Z",
+    });
+    const sources = {
+      one: { profile: oneRun, authorization: oneRunAuthorization },
+      saved: { profile: saved, approval: savedApproval },
+      checked: { profile: checkedIn, approval: checkedApproval },
+    } as const;
+    const expected = ["checked-in", "saved", "one-run"] as const;
+    for (let mask = 0; mask < 8; mask += 1) {
+      const input = {
+        repositoryId,
+        operationId,
+        ...(mask & 1 ? { oneRun: sources.one } : {}),
+        ...(mask & 2 ? { saved: sources.saved } : {}),
+        ...(mask & 4 ? { checkedIn: sources.checked } : {}),
+      };
+      const result = resolveValidationProfile(input);
+      if (mask === 0) {
+        expect(result).toMatchObject({ status: "unavailable", reason: "NO_PROFILE" });
+      } else {
+        const expectedSource = (mask & 1 ? expected[2] : mask & 2 ? expected[1] : expected[0]);
+        expect(result).toMatchObject({ status: "ready", source: expectedSource });
+      }
+    }
+  });
+
   it("requires confirmation for AI proposals, unapproved saved profiles, and changed content", () => {
     expect(
       resolveValidationProfile({ repositoryId, operationId, oneRun: { profile: oneRun, isAiProposal: true } }),
@@ -195,6 +250,19 @@ describe("normalization, authorization, and precedence", () => {
       status: "confirmation_required",
       trustReason: "CONTENT_HASH_MISMATCH",
     });
+  });
+
+  it("fails closed for malformed persisted authorization records", () => {
+    const approval = createApprovalRecord({
+      repositoryId,
+      source: "saved",
+      profile: saved,
+      approvedAt: "2026-09-19T12:00:00.000Z",
+    });
+    const malformed = { ...approval, unexpected: "field" };
+    expect(
+      resolveValidationProfile({ repositoryId, saved: { profile: saved, approval: malformed as never } }),
+    ).toMatchObject({ status: "confirmation_required", trustReason: "INVALID_AUTHORIZATION" });
   });
 
   it("expires one-run authorization by operation and time", () => {

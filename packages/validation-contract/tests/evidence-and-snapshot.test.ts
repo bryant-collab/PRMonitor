@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   createApprovalRecord,
@@ -17,6 +18,7 @@ import {
   finalizeIncompleteValidationRun,
   validateValidationRunEvidence,
   createValidationConsumer,
+  publicationWarningForValidation,
   type ValidationProfile,
   type ValidationSnapshot,
 } from "../src/index.js";
@@ -76,6 +78,24 @@ function snapshot(): Readonly<ValidationSnapshot> {
 
 describe("immutable snapshots and consumer handoff", () => {
   it("creates a complete immutable snapshot before a run and rejects tampering", () => {
+    const resolved = readyResolution();
+    const created = createValidationSnapshot({
+      resolved,
+      snapshotId: "snapshot-mutable-input",
+      createdAt: "2026-09-19T12:01:00.000Z",
+      worktree: {
+        canonicalRoot: "C:\\worktrees\\operation-1",
+        baselineRevision: "base-sha",
+        currentRevision: "head-sha",
+      },
+    });
+    resolved.profile.steps[0] = {
+      ...resolved.profile.steps[0],
+      kind: "command",
+      arguments: ["mutated-after-snapshot"],
+    };
+    expect(created.profile.steps[0]).toMatchObject({ arguments: ["test"] });
+
     const result = validateValidationSnapshot(snapshot());
     expect(result).toMatchObject({ ok: true });
     const serialized = serializeValidationSnapshot(snapshot());
@@ -88,6 +108,14 @@ describe("immutable snapshots and consumer handoff", () => {
     expect(() => {
       (frozen as { contentHash: string }).contentHash = "changed";
     }).toThrow();
+  });
+
+  it("accepts the current snapshot fixture and rejects the tampered fixture", async () => {
+    const fixtureRoot = new URL("../fixtures/", import.meta.url);
+    const valid = JSON.parse(await readFile(new URL("valid-snapshot.json", fixtureRoot), "utf8")) as unknown;
+    const invalid = JSON.parse(await readFile(new URL("invalid-snapshot.json", fixtureRoot), "utf8")) as unknown;
+    expect(parseValidationSnapshot(valid)).toMatchObject({ ok: true });
+    expect(parseValidationSnapshot(invalid)).toMatchObject({ ok: false, code: "SNAPSHOT_MISMATCH" });
   });
 
   it("records observed exit evidence, manual attestation, and aggregate status without AI fields", () => {
@@ -216,5 +244,86 @@ describe("immutable snapshots and consumer handoff", () => {
     const synchronization = createValidationConsumer("synchronization");
     const input = { repositoryId: "github:example/repo" };
     expect(review.resolveProfile(input)).toEqual(synchronization.resolveProfile(input));
+  });
+
+  it("rejects impossible completed evidence and preserves manual attribution", () => {
+    const invalid = validateValidationRunEvidence({
+      recordType: "validation-run",
+      schemaVersion: 1,
+      runId: "run-invalid",
+      status: "passed",
+      startedAt: "now",
+      completedAt: "later",
+      steps: [
+        {
+          kind: "manual",
+          stepId: "visual",
+          status: "passed",
+        },
+      ],
+      manualAttestations: [],
+      warnings: [],
+    });
+    expect(invalid.ok).toBe(false);
+
+    const currentSnapshot = snapshot();
+    const initial = createInitialValidationRun({ snapshot: currentSnapshot, runId: "run-manual", startedAt: "now" });
+    const completed = completeValidationRun({
+      run: initial,
+      steps: initial.steps.map((step) =>
+        step.kind === "command"
+          ? {
+              ...step,
+              status: "passed" as const,
+              startedAt: "now",
+              completedAt: "later",
+              exitCode: 0,
+              canonicalWorkingDirectory: currentSnapshot.worktree.canonicalRoot,
+              resolvedExecutable: "npm",
+              stdout: { text: "", originalByteCount: 0, processedByteCount: 0, retainedByteCount: 0, omittedByteCount: 0, truncated: false, redacted: false, safe: true },
+              stderr: { text: "", originalByteCount: 0, processedByteCount: 0, retainedByteCount: 0, omittedByteCount: 0, truncated: false, redacted: false, safe: true },
+            }
+          : step,
+      ),
+      completedAt: "done",
+      manualAttestations: [
+        recordManualAttestation({
+          checkId: "visual",
+          outcome: "verified",
+          timestamp: "now",
+          worktreePath: currentSnapshot.worktree.canonicalRoot,
+          worktreeBaselineRevision: "base-sha",
+          worktreeCurrentRevision: "head-sha",
+        }),
+      ],
+    });
+    expect(completed.status).toBe("passed");
+    expect(completed.steps[1]).toMatchObject({ kind: "manual", status: "passed", attestation: { outcome: "verified" } });
+  });
+
+  it("rejects evidence whose command inputs or manual IDs no longer match the snapshot", () => {
+    const currentSnapshot = snapshot();
+    const initial = createInitialValidationRun({ snapshot: currentSnapshot, runId: "run-mismatch", startedAt: "now" });
+    const tampered = {
+      ...initial,
+      status: "not_run" as const,
+      reason: "PRIOR_STEP_STOPPED" as const,
+      completedAt: "later",
+      steps: initial.steps.map((step) =>
+        step.kind === "command" ? { ...step, status: "not_run" as const, reason: "PRIOR_STEP_STOPPED" as const, arguments: ["changed"] } : { ...step, status: "not_run" as const, reason: "PRIOR_STEP_STOPPED" as const },
+      ),
+    };
+    expect(validateRunAgainstSnapshot(tampered, currentSnapshot)).toMatchObject({ ok: false, reason: "SNAPSHOT_MISMATCH" });
+  });
+
+  it("uses a distinct publication-review warning for failed validation", () => {
+    const warning = publicationWarningForValidation({
+      status: "failed",
+      reason: "NON_ZERO_EXIT",
+      automated: [],
+      manual: [],
+      warnings: [],
+    });
+    expect(warning).toMatchObject({ code: "VALIDATION_REVIEW_REQUIRED" });
   });
 });
