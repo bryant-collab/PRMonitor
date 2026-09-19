@@ -44,9 +44,11 @@ labels without spawning a command.
   output metadata, and manual attestations without reinterpretation.
 - F09 records the exported machine reasons as activity data, not as state.
 - F13 supplies the operation-owned worktree identity and revision snapshots.
-- F14 maps `PreparedCommand`, `ProcessControlPort`, `OutputEvidence`, and the
-  lifecycle functions to real child-process execution; it must reuse the path,
-  termination, output, and exit-status conformance cases.
+- F14 maps `ValidationRunnerPort`, `PreparedCommand`, `ProcessControlPort`,
+  `OutputEvidence`, and the lifecycle functions to real child-process
+  execution; it must reuse the path, termination, output, and exit-status
+  conformance cases. Every start request carries the immutable snapshot and
+  has no shell-string entry point.
 - F16 renders `ConfirmationSummary` and `ValidationWarning` rather than
   rebuilding trust policy in the renderer.
 - F18 and F23-F25 create snapshots and consume the same resolution, trust,

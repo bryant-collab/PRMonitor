@@ -17,6 +17,9 @@ import {
   handleRendererClosed,
   statusFromExit,
   type PathPort,
+  type PreparedCommand,
+  type ValidationRunnerPort,
+  type ValidationSnapshot,
 } from "../src/index.js";
 
 describe("working-directory and command execution policy", () => {
@@ -145,6 +148,36 @@ describe("working-directory and command execution policy", () => {
 });
 
 describe("runner-neutral lifecycle and process termination", () => {
+  it("defines a structured runner handoff that carries the immutable snapshot and never a shell string", async () => {
+    const command = {
+      kind: "command" as const,
+      stepId: "tests",
+      executable: "npm",
+      arguments: ["test"],
+      shell: false as const,
+      canonicalWorktreeRoot: "C:\\worktrees\\operation-1",
+      canonicalWorkingDirectory: "C:\\worktrees\\operation-1",
+      resolvedExecutable: "C:\\Program Files\\nodejs\\npm.cmd",
+      timeoutSeconds: 60,
+      outputLimitBytes: 100,
+      environment: { PATH: "C:\\tools" },
+    } satisfies PreparedCommand;
+    const runner: ValidationRunnerPort = {
+      start: async (request) => {
+        expect(request.snapshot.snapshotId).toBe("snapshot-1");
+        expect(request.command.shell).toBe(false);
+        return {
+          processTree: "tree-1",
+          stdout: [],
+          stderr: [],
+          wait: async () => ({ exitCode: 0 }),
+        };
+      },
+    };
+    const handle = await runner.start({ snapshot: { snapshotId: "snapshot-1" } as unknown as Readonly<ValidationSnapshot>, command });
+    expect(await handle.wait()).toEqual({ exitCode: 0 });
+  });
+
   it("allows only legal lifecycle transitions and makes renderer closure a no-op", () => {
     expect(transitionStepState("pending", "running")).toMatchObject({ ok: true, state: "running" });
     expect(transitionStepState("passed", "running")).toMatchObject({ ok: false, reason: "INVALID_TRANSITION" });
@@ -172,6 +205,27 @@ describe("runner-neutral lifecycle and process termination", () => {
     });
     expect(events).toEqual(["graceful", "wait:5000", "list", "force:child-2"]);
     expect(result).toMatchObject({ waitedMilliseconds: 5000, forceTerminated: ["child-2"] });
+  });
+
+  it("uses the same full-tree protocol for user cancellation and shutdown, without force-killing absent survivors", async () => {
+    for (const reason of ["USER_CANCELLED", "APPLICATION_SHUTDOWN"] as const) {
+      const events: string[] = [];
+      const result = await terminateProcessTree({
+        reason,
+        processTree: "tree-1",
+        processControl: {
+          requestGracefulTermination: () => events.push("graceful"),
+          listSurvivingProcesses: () => {
+            events.push("list");
+            return [];
+          },
+          forceTerminate: () => events.push("force"),
+        },
+        clock: { wait: async (milliseconds) => events.push(`wait:${milliseconds}`) },
+      });
+      expect(result).toMatchObject({ reason, survivors: [], forceTerminated: [] });
+      expect(events).toEqual(["graceful", "wait:5000", "list"]);
+    }
   });
 
   it("makes observed exit status authoritative", () => {
@@ -263,12 +317,33 @@ describe("bounded output and redaction", () => {
     expect(() => new StreamAccumulator({ limitBytes: 1_048_577 })).toThrow();
     expect(normalizeDisplayOutput("ok\u007f\u0085\u001b[31m!\u001b[0m")).toBe("ok!");
 
-    const whole = captureStreams({ limitBytes: 256, stdout: ["head known-secret tail"] });
+    const whole = captureStreams({ limitBytes: 256, knownSecrets: ["known-secret"], stdout: ["head known-secret tail"] });
     const chunked = captureStreams({
       limitBytes: 256,
+      knownSecrets: ["known-secret"],
       stdout: ["head ", "known-", "secret", " tail"],
     });
     expect(chunked.stdout).toEqual(whole.stdout);
+    expect(JSON.stringify(chunked)).not.toContain("known-secret");
+
+    for (const [limit, expectedTruncated] of [
+      [63, true],
+      [64, false],
+      [65, false],
+    ] as const) {
+      const bounded = captureStreams({ limitBytes: limit, stdout: ["x".repeat(64)] }).stdout;
+      expect(bounded.truncated).toBe(expectedTruncated);
+      expect(bounded.retainedByteCount).toBeLessThanOrEqual(limit);
+    }
+
+    const randomized = "prefix secret-value suffix";
+    const randomizedChunks: string[] = [];
+    for (let offset = 0; offset < randomized.length; offset += 3) {
+      randomizedChunks.push(randomized.slice(offset, offset + 3));
+    }
+    expect(
+      captureStreams({ limitBytes: 256, stdout: randomizedChunks, }).stdout,
+    ).toEqual(captureStreams({ limitBytes: 256, stdout: [randomized] }).stdout);
 
     const emoji = Buffer.from("🙂🙂🙂", "utf8");
     const splitEmoji = new StreamAccumulator({ limitBytes: 256 });

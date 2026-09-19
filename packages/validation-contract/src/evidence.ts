@@ -332,6 +332,21 @@ export const validationRunEvidenceSchema = z
     if (terminal && run.steps.some((step) => step.status === "pending" || step.status === "running")) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "completed runs cannot contain pending or running steps" });
     }
+    if (terminal) {
+      let stopped = false;
+      run.steps.forEach((step, index) => {
+        if (stopped && step.status !== "not_run") {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["steps", index, "status"],
+            message: "steps after the first failed, interrupted, or skipped step must be not_run",
+          });
+        }
+        if (step.status === "failed" || step.status === "interrupted" || step.status === "not_run") {
+          stopped = true;
+        }
+      });
+    }
   });
 
 export type ValidationRunEvidence = z.infer<typeof validationRunEvidenceSchema>;
@@ -490,11 +505,13 @@ export interface ValidationAggregate {
   warnings: ValidationWarning[];
 }
 
-export function aggregateValidationEvidence(input: {
+export interface AggregateValidationEvidenceInput {
   automated: readonly CommandStepEvidence[];
   manual?: readonly ManualAttestation[];
   unavailableReason?: "NO_PROFILE" | "CONFIRMATION_REQUIRED" | "INVALID_PROFILE";
-}): ValidationAggregate {
+}
+
+export function aggregateValidationEvidence(input: AggregateValidationEvidenceInput): ValidationAggregate {
   const automated = input.automated.map((step) => ({ ...step }));
   const manual = [...(input.manual ?? [])];
   const warnings: ValidationWarning[] = [];

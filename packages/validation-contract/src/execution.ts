@@ -8,6 +8,7 @@ import {
   MIN_TIMEOUT_SECONDS,
   type CommandStep,
 } from "./schema.js";
+import type { ValidationSnapshot } from "./snapshot.js";
 
 export type ValidationReason =
   | "NO_PROFILE"
@@ -371,6 +372,28 @@ export interface PreparedCommand {
   timeoutSeconds: number;
   outputLimitBytes: number;
   environment: Record<string, string>;
+}
+
+/**
+ * The F00-to-F14 handoff. F00 defines the shape a real runner may consume;
+ * it deliberately does not implement process creation or process-tree
+ * handling. The immutable snapshot travels with every start request so a
+ * future runner cannot silently execute against mutable settings.
+ */
+export interface ValidationRunnerRequest {
+  snapshot: Readonly<ValidationSnapshot>;
+  command: PreparedCommand;
+}
+
+export interface ValidationProcessHandle<ProcessId = string> {
+  readonly processTree: ProcessId;
+  readonly stdout: AsyncIterable<Uint8Array>;
+  readonly stderr: AsyncIterable<Uint8Array>;
+  wait(): Promise<ExitObservation>;
+}
+
+export interface ValidationRunnerPort<ProcessId = string> {
+  start(request: ValidationRunnerRequest): Promise<ValidationProcessHandle<ProcessId>>;
 }
 
 export type PrepareCommandResult =

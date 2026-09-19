@@ -9,6 +9,7 @@ import {
   parseValidationSnapshot,
   createInitialValidationRun,
   createCommandStepEvidence,
+  stopRemainingSteps,
   completeValidationRun,
   validateRunAgainstSnapshot,
   recordManualAttestation,
@@ -181,8 +182,26 @@ describe("immutable snapshots and consumer handoff", () => {
       manualAttestations: [manual],
     });
     expect(completed.status).toBe("passed");
+    expect(completed.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: "command",
+        startedAt: "2026-09-19T12:02:01.000Z",
+        completedAt: "2026-09-19T12:02:02.000Z",
+        executable: "npm",
+        arguments: ["test"],
+        canonicalWorkingDirectory: currentSnapshot.worktree.canonicalRoot,
+        resolvedExecutable: "C:\\Program Files\\nodejs\\npm.cmd",
+        exitCode: 0,
+        stdout: expect.objectContaining({ retainedByteCount: 2, safe: true }),
+        stderr: expect.objectContaining({ retainedByteCount: 0, safe: true }),
+      }),
+    );
     expect("aiResult" in completed).toBe(false);
     expect(validateRunAgainstSnapshot(completed, currentSnapshot)).toEqual({ ok: true });
+    expect(validateRunAgainstSnapshot({ ...completed, snapshotId: "different-snapshot" }, currentSnapshot)).toMatchObject({
+      ok: false,
+      reason: "SNAPSHOT_MISMATCH",
+    });
   });
 
   it("keeps unavailable validation distinct and visible to publication consumers", () => {
@@ -224,6 +243,23 @@ describe("immutable snapshots and consumer handoff", () => {
       baselineRevision: "base",
       currentRevision: "changed-head",
     })).toMatchObject({ label: "Verified manually", historical: true });
+    expect(manualAttestationView({ ...attestation, outcome: "failed" }, {
+      worktreePath: "C:\\worktrees\\operation-1",
+      baselineRevision: "base",
+      currentRevision: "head",
+    })).toMatchObject({ label: "Manual check failed" });
+    expect(manualAttestationView({ ...attestation, outcome: "not_run" }, {
+      worktreePath: "C:\\worktrees\\operation-1",
+      baselineRevision: "base",
+      currentRevision: "head",
+    })).toMatchObject({ label: "Not run" });
+  });
+
+  it("keeps invalid-profile no-run records visibly non-passing", () => {
+    const record = createNoRunValidationRecord({ runId: "run-invalid-profile", startedAt: "now", reason: "INVALID_PROFILE" });
+    expect(record).toMatchObject({ status: "not_run", reason: "INVALID_PROFILE", completedAt: "now" });
+    expect(record.warnings[0]).toMatchObject({ code: "INVALID_PROFILE" });
+    expect(JSON.stringify(record)).not.toContain("Test passed");
   });
 
   it("finalizes incomplete runs as interrupted after restart and records later steps as stopped", () => {
@@ -239,11 +275,44 @@ describe("immutable snapshots and consumer handoff", () => {
     expect(finalized.steps[1]).toMatchObject({ status: "not_run", reason: "PRIOR_STEP_STOPPED" });
   });
 
+  it("records every later sequential step as not_run after the first non-passing command", () => {
+    const currentSnapshot = snapshot();
+    const initial = createInitialValidationRun({ snapshot: currentSnapshot, runId: "run-stop", startedAt: "now" });
+    const failed = {
+      ...initial.steps[0],
+      status: "failed" as const,
+      reason: "NON_ZERO_EXIT" as const,
+    };
+    const stopped = stopRemainingSteps([failed, initial.steps[1]], 0);
+    expect(stopped[1]).toMatchObject({ status: "not_run", reason: "PRIOR_STEP_STOPPED" });
+  });
+
   it("gives review and synchronization the same shared policy implementation", () => {
     const review = createValidationConsumer("review");
     const synchronization = createValidationConsumer("synchronization");
     const input = { repositoryId: "github:example/repo" };
     expect(review.resolveProfile(input)).toEqual(synchronization.resolveProfile(input));
+
+    const ready = readyResolution();
+    const snapshotInput = {
+      resolved: ready,
+      snapshotId: "consumer-snapshot",
+      createdAt: "now",
+      worktree: { canonicalRoot: "C:\\worktrees\\operation-1", baselineRevision: "base-sha", currentRevision: "head-sha" },
+    };
+    const reviewSnapshot = review.createSnapshot(snapshotInput);
+    const synchronizationSnapshot = synchronization.createSnapshot(snapshotInput);
+    expect(reviewSnapshot).toEqual(synchronizationSnapshot);
+    expect(
+      review.aggregateEvidence({ automated: [], unavailableReason: "CONFIRMATION_REQUIRED" }),
+    ).toEqual(synchronization.aggregateEvidence({ automated: [], unavailableReason: "CONFIRMATION_REQUIRED" }));
+    expect(
+      review.captureStreams({ limitBytes: 128, stdout: ["token=secret"], stderr: ["diagnostic"] }),
+    ).toEqual(synchronization.captureStreams({ limitBytes: 128, stdout: ["token=secret"], stderr: ["diagnostic"] }));
+    const reviewRun = createInitialValidationRun({ snapshot: reviewSnapshot, runId: "consumer-run", startedAt: "now" });
+    expect(review.validateRunAgainstSnapshot(reviewRun, reviewSnapshot)).toEqual(
+      synchronization.validateRunAgainstSnapshot(reviewRun, synchronizationSnapshot),
+    );
   });
 
   it("rejects impossible completed evidence and preserves manual attribution", () => {
@@ -265,6 +334,22 @@ describe("immutable snapshots and consumer handoff", () => {
       warnings: [],
     });
     expect(invalid.ok).toBe(false);
+    const invalidSequence = validateValidationRunEvidence({
+      recordType: "validation-run",
+      schemaVersion: 1,
+      runId: "run-invalid-sequence",
+      status: "failed",
+      reason: "NON_ZERO_EXIT",
+      startedAt: "now",
+      completedAt: "later",
+      steps: [
+        { kind: "command", stepId: "tests", status: "failed", reason: "NON_ZERO_EXIT", executable: "npm", arguments: [], completedAt: "later", stdout: { text: "", originalByteCount: 0, processedByteCount: 0, retainedByteCount: 0, omittedByteCount: 0, truncated: false, redacted: false, safe: true }, stderr: { text: "", originalByteCount: 0, processedByteCount: 0, retainedByteCount: 0, omittedByteCount: 0, truncated: false, redacted: false, safe: true } },
+        { kind: "manual", stepId: "visual", status: "passed", attestation: { kind: "manual", checkId: "visual", outcome: "verified", timestamp: "now", worktreePath: "C:\\work", worktreeBaselineRevision: "base", worktreeCurrentRevision: "head" } },
+      ],
+      manualAttestations: [{ kind: "manual", checkId: "visual", outcome: "verified", timestamp: "now", worktreePath: "C:\\work", worktreeBaselineRevision: "base", worktreeCurrentRevision: "head" }],
+      warnings: [],
+    });
+    expect(invalidSequence.ok).toBe(false);
 
     const currentSnapshot = snapshot();
     const initial = createInitialValidationRun({ snapshot: currentSnapshot, runId: "run-manual", startedAt: "now" });
