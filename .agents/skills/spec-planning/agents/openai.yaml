@@ -1,0 +1,4 @@
+interface:
+  display_name: "PRMonitor Spec Planning"
+  short_description: "Create and lint a PRMonitor feature spec"
+  default_prompt: "Use $prmonitor-spec-planning to create and validate the PRD and PLAN for a PRMonitor feature."

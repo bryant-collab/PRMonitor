@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "steps": [
+    {
+      "kind": "command",
+      "id": "unit-tests",
+      "label": "Unit tests",
+      "executable": "npm",
+      "arguments": ["test"],
+      "workingDirectory": ".",
+      "timeoutSeconds": 600,
+      "outputLimitBytes": 1048576
+    },
+    {
+      "kind": "manual",
+      "id": "visual-check",
+      "label": "Visual check",
+      "instructions": "Inspect the affected screen at the supported desktop sizes."
+    }
+  ]
+}

@@ -4,14 +4,31 @@ This checklist decomposes [`Specs/application_overview.md`](Specs/application_ov
 
 ## How to use this checklist
 
-For each unchecked item:
+This file is the dependency-ordered progress ledger. The detailed operating
+procedures live in two repository skills so each feature can be handled in two
+deliberate context windows:
 
-1. Create a feature PRD from [`Specs/Templates/template_PRD.md`](Specs/Templates/template_PRD.md).
-2. Create its implementation plan from [`Specs/Templates/template_PLAN.md`](Specs/Templates/template_PLAN.md).
-3. Map the listed `APP-AC-*` criteria into the PRD's **Application Requirements Covered** table. Add any other application criteria that the detailed scope makes applicable.
-4. Run both specification-linter workflows described in [`README.md`](README.md), resolve missing coverage, and obtain human agreement on any product decisions before implementation. NOTE: I created a temporary API key for Jev you can use while implementing this. I'll delete the key the instant we're done, so I'm not worried about this particular secret: apikey_2118c0b1be007e694448bca157f03391fcd6_69b5ad6533ace4b1d27aa04e935f3946307d9ad70cc8c9757ad4acbdafb5c8f0.
-5. Implement the plan as tested vertical slices wherever practical. Preserve the deterministic/AI boundary and the human publication boundary in every slice.
-6. Verify the item's exit criteria and all affected earlier behavior, then change only that item's top-level checkbox to `[x]`.
+### Phase A - create and approve the specification
+
+Use [`prmonitor-spec-planning`](.agents/skills/prmonitor-spec-planning/SKILL.md)
+for one unchecked feature item. It covers the former steps 1-4: create the
+PRD, create the PLAN, map the applicable `APP-AC-*` criteria, run both
+specification-linter workflows from [`README.md`](README.md), and surface
+product decisions for human agreement. This phase does not implement code and
+leaves the checklist item unchecked.
+
+Example request: `Use $prmonitor-spec-planning to create the PRD and PLAN for F01.`
+
+### Phase B - implement and close the feature
+
+After the PRD and PLAN are approved, use
+[`prmonitor-spec-implementation`](.agents/skills/prmonitor-spec-implementation/SKILL.md).
+It covers the former steps 5-6: implement the planned vertical slices, test
+the slices and affected earlier behavior, run the required checks, and change
+only that feature's top-level checkbox to `[x]` after all exit criteria are
+met. Incomplete work remains unchecked.
+
+Example request: `Use $prmonitor-spec-implementation to implement F01 from its approved spec.`
 
 A checked item means its behavior is implemented, persisted where required, exposed through the UI where applicable, tested at its service boundaries, and integrated into the running desktop application. Scaffolding or an isolated backend implementation is not sufficient.
 
@@ -33,7 +50,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 0 - Decisions and foundations
 
-- [ ] **F00 - Deterministic validation configuration contract**
+- [x] **F00 - Deterministic validation configuration contract**
   - **Depends on:** Nothing.
   - **Deliver:** Resolve the overview's pre-implementation TODO: define where validation commands come from, precedence and trust rules, user confirmation requirements, working-directory rules, timeouts, cancellation, output limits/redaction, manual-test records, and behavior when no safe command is configured. Record the decisions in the PRD and implement the minimal configuration contract needed by later features.
   - **Exit:** Later validation, review, revision, and synchronization features can consume one stable contract without inventing their own command-source or safety rules.

@@ -3,13 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "tools/spec-linter"
+    "tools/spec-linter",
+    "packages/validation-contract"
   ],
   "scripts": {
-    "build": "npm --workspace @prmonitor/spec-linter run build",
+    "build": "npm run build:validation-contract && npm run build:spec-linter",
+    "build:validation-contract": "npm --workspace @prmonitor/validation-contract run build",
+    "build:spec-linter": "npm --workspace @prmonitor/spec-linter run build",
     "lint:prd-plan": "npm --workspace @prmonitor/spec-linter run lint:prd-plan --",
     "lint:application-coverage": "npm --workspace @prmonitor/spec-linter run lint:application-coverage --",
-    "test": "npm --workspace @prmonitor/spec-linter run test",
-    "check": "npm --workspace @prmonitor/spec-linter run check"
+    "generate:validation-schema": "npm --workspace @prmonitor/validation-contract run generate:schema",
+    "test:validation-contract": "npm --workspace @prmonitor/validation-contract run test",
+    "test:spec-linter": "npm --workspace @prmonitor/spec-linter run test",
+    "test": "npm run test:validation-contract && npm run test:spec-linter",
+    "check": "npm run build && npm test"
   }
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PRMonitor Spec Implementation"
+  short_description: "Implement a PRMonitor feature spec safely"
+  default_prompt: "Use $prmonitor-spec-implementation to implement an approved PRMonitor PRD and PLAN as tested vertical slices."

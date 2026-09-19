@@ -1,0 +1,122 @@
+{
+  "$ref": "#/definitions/ValidationProfileV1",
+  "definitions": {
+    "ValidationProfileV1": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "command"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "executable": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^(?:[^\\s\\0\\r\\n]+|(?:[A-Za-z]:)?[\\\\/][^\\0\\r\\n]+)$"
+                  },
+                  "arguments": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 16384
+                    },
+                    "maxItems": 512
+                  },
+                  "workingDirectory": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^(?![\\\\/])(?![A-Za-z]:)(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$",
+                    "default": "."
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600,
+                    "default": 600
+                  },
+                  "outputLimitBytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1048576,
+                    "default": 1048576
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "label",
+                  "executable",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "manual"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "label",
+                  "instructions"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 512
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "steps"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
