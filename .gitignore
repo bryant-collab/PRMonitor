@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# TypeScript, Electron, and bundler output
+dist/
+out/
+build/
+release/
+*.tsbuildinfo
+*.asar
+
+# Test and coverage output
+coverage/
+test-results/
+playwright-report/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Logs and generated diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# PRMonitor local runtime state, databases, and caches
+.prmonitor/
+*.db
+*.sqlite
+*.sqlite3
+
+# Operating-system and editor noise
+.DS_Store
+Thumbs.db
+.idea/

@@ -1,0 +1,15 @@
+{
+  "name": "prmonitor",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "tools/spec-linter"
+  ],
+  "scripts": {
+    "build": "npm --workspace @prmonitor/spec-linter run build",
+    "lint:prd-plan": "npm --workspace @prmonitor/spec-linter run lint:prd-plan --",
+    "lint:application-coverage": "npm --workspace @prmonitor/spec-linter run lint:application-coverage --",
+    "test": "npm --workspace @prmonitor/spec-linter run test",
+    "check": "npm --workspace @prmonitor/spec-linter run check"
+  }
+}

@@ -1,0 +1,76 @@
+# PRMonitor
+
+PRMonitor is currently a specification-first project. The repository includes a
+standalone TypeScript specification linter under `tools/spec-linter` that uses
+TypeSafe Jev to check whether each explicitly identified PRD requirement is
+addressed by a plan and whether a feature PRD covers applicable application-level
+acceptance criteria.
+
+The future Electron/React application will use the root application package and
+runtime source tree; the linter remains a separate workspace because it is
+developer tooling used when specifications change.
+
+## PRD/plan linter
+
+The linter recognizes leaf requirement list items with these IDs:
+
+- `AC-01`
+- `FR-01.1`
+- `NFR-01`
+- `INV-01`
+
+Set `TYPESAFE_API_KEY`, then run:
+
+```powershell
+npm install
+npm run lint:prd-plan -- path/to/feature_PRD.md path/to/feature_PLAN.md
+```
+
+The default thresholds are exported from `tools/spec-linter/src/thresholds.ts` and are also
+overridable for a run:
+
+```powershell
+npm run lint:prd-plan -- feature_PRD.md feature_PLAN.md `
+  --covered-threshold 0.85 `
+  --missing-threshold 0.85 `
+  --format json
+```
+
+The command exits `1` when any requirement is classified as `missing`, `0` when
+there are no definite missing requirements (including `needs-review` results),
+and `2` for usage, file, or TypeSafe API errors.
+
+The production Jev adapter batches one independent Noul question per PRD
+requirement in one System One request. The application owns extraction,
+thresholding, reporting, and exit behavior; Jev supplies only the semantic
+adequacy probabilities.
+
+## Application overview coverage linter
+
+The application overview's MVP acceptance criteria use stable IDs such as
+`APP-AC-01` through `APP-AC-70`. A feature PRD can reference applicable overview
+criteria in its `Application Requirements Covered` table.
+
+Run the coverage linter with:
+
+```powershell
+npm run lint:application-coverage -- `
+  Specs/application_overview.md `
+  path/to/feature_PRD.md
+```
+
+This linter asks one independent Jev Choice question per application criterion,
+classifying each as `covered`, `not-applicable`, or `missing`. Low-confidence
+choices become `needs-review`. The full probability distribution and confidence
+are preserved in the report. It exits `1` for missing criteria, `0` when there
+are no definite missing criteria, and `2` for invalid mappings or other errors.
+
+The decision threshold and review-confidence threshold are exported from
+`tools/spec-linter/src/thresholds.ts` and can also be overridden with
+`--decision-threshold`, `--review-confidence`, and `--format json`.
+
+Run the checks with:
+
+```powershell
+npm run check
+```
