@@ -23,7 +23,7 @@ Your output is an implemented, tested, integrated feature which conforms to the 
 
 ## Implement the plan
 
-Work through the PLAN's slices in dependency order. For each slice:
+Work through ALL of the PLAN's slices in dependency order. You are not done until all slices are fully implemented and successfully tested. For each slice:
 
 1. Restate the slice's visible result, exit criterion, and exact evidence. Keep
    the implementation boundary from the PLAN; if the slice exposes a product

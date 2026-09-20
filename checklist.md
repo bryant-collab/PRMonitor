@@ -4,31 +4,7 @@ This checklist decomposes [`Specs/application_overview.md`](Specs/application_ov
 
 ## How to use this checklist
 
-This file is the dependency-ordered progress ledger. The detailed operating
-procedures live in two repository skills so each feature can be handled in two
-deliberate context windows:
-
-### Phase A - create and approve the specification
-
-Use [`prmonitor-spec-planning`](.agents/skills/prmonitor-spec-planning/SKILL.md)
-for one unchecked feature item. It covers the former steps 1-4: create the
-PRD, create the PLAN, map the applicable `APP-AC-*` criteria, run both
-specification-linter workflows from [`README.md`](README.md), and surface
-product decisions for human agreement. This phase does not implement code and
-leaves the checklist item unchecked.
-
-Example request: `Use $prmonitor-spec-planning to create the PRD and PLAN for F01.`
-
-### Phase B - implement and close the feature
-
-After the PRD and PLAN are approved, use
-[`prmonitor-spec-implementation`](.agents/skills/prmonitor-spec-implementation/SKILL.md).
-It covers the former steps 5-6: implement the planned vertical slices, test
-the slices and affected earlier behavior, run the required checks, and change
-only that feature's top-level checkbox to `[x]` after all exit criteria are
-met. Incomplete work remains unchecked.
-
-Example request: `Use $prmonitor-spec-implementation to implement F01 from its approved spec.`
+This file is the dependency-ordered progress ledger.
 
 A checked item means its behavior is implemented, persisted where required, exposed through the UI where applicable, tested at its service boundaries, and integrated into the running desktop application. Scaffolding or an isolated backend implementation is not sufficient.
 
