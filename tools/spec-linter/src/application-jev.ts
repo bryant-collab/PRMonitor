@@ -1,5 +1,6 @@
 import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
 import { JEV_MODEL } from "./jev.js";
+import { createSemanticLinterClient } from "./typesafe-client.js";
 import type {
   ApplicationCoverageAnswer,
   ApplicationCoverageChoice,
@@ -68,7 +69,7 @@ function readAnswer(
 }
 
 export function createApplicationCoverageEvaluator(
-  client: Pick<TypeSafeClient, "systemOne"> = new TypeSafeClient(),
+  client: Pick<TypeSafeClient, "systemOne"> = createSemanticLinterClient(),
   model: string = JEV_MODEL,
 ): ApplicationCoverageEvaluator {
   return {

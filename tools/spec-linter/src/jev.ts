@@ -1,5 +1,6 @@
 import { noul, TypeSafeClient } from "@typesafe-ai/sdk";
 import type { JevEvaluator, JevEvaluation, LintInput, Requirement } from "./types.js";
+import { createSemanticLinterClient } from "./typesafe-client.js";
 
 export const JEV_MODEL = "jev-latest";
 
@@ -25,7 +26,7 @@ export function buildJevQuestions(requirements: readonly Requirement[]) {
 }
 
 export function createJevEvaluator(
-  client: Pick<TypeSafeClient, "systemOne"> = new TypeSafeClient(),
+  client: Pick<TypeSafeClient, "systemOne"> = createSemanticLinterClient(),
   model: string = JEV_MODEL,
 ): JevEvaluator {
   return {

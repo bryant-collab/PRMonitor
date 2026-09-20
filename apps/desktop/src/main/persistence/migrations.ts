@@ -1,0 +1,510 @@
+import { createHash } from "node:crypto";
+import { PERSISTENCE_SCHEMA_VERSION, type MigrationDefinition } from "./types";
+import type { SqliteDatabase } from "./types";
+
+const MIGRATION_1 = `
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  migration_id TEXT NOT NULL UNIQUE,
+  checksum TEXT NOT NULL,
+  applied_at TEXT NOT NULL,
+  application_build TEXT NOT NULL,
+  schema_version INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS persistence_health (
+  health_id INTEGER PRIMARY KEY CHECK (health_id = 1),
+  status TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  database_id TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  checked_at TEXT NOT NULL,
+  reason_code TEXT,
+  recommended_action TEXT,
+  backup_path TEXT,
+  details_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS backup_metadata (
+  backup_id TEXT PRIMARY KEY,
+  source_schema_version INTEGER NOT NULL,
+  target_schema_version INTEGER NOT NULL,
+  database_id TEXT NOT NULL,
+  backup_path TEXT NOT NULL UNIQUE,
+  owner_marker_path TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  verified_at TEXT,
+  retained INTEGER NOT NULL DEFAULT 1 CHECK (retained IN (0, 1))
+);
+PRAGMA user_version = 1;
+`;
+
+const MIGRATION_2 = `
+CREATE TABLE IF NOT EXISTS settings (
+  setting_key TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL,
+  value_json TEXT NOT NULL,
+  value_hash TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS configuration_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (owner_type, owner_id, revision),
+  UNIQUE (owner_type, owner_id, payload_hash)
+);
+CREATE TABLE IF NOT EXISTS validation_profiles (
+  profile_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (profile_id, revision)
+);
+CREATE TABLE IF NOT EXISTS validation_approvals (
+  approval_id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  profile_revision INTEGER NOT NULL,
+  content_hash TEXT NOT NULL,
+  approved_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS common_instructions (
+  instruction_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (instruction_id, revision)
+);
+CREATE TABLE IF NOT EXISTS ai_task_profiles (
+  profile_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (profile_id, revision)
+);
+CREATE TABLE IF NOT EXISTS execution_policies (
+  policy_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (policy_id, revision)
+);
+CREATE TABLE IF NOT EXISTS github_servers (
+  server_id TEXT PRIMARY KEY,
+  host TEXT NOT NULL,
+  api_base_url TEXT NOT NULL,
+  credential_ref TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (host, api_base_url)
+);
+CREATE TABLE IF NOT EXISTS repositories (
+  repository_id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  owner TEXT NOT NULL,
+  name TEXT NOT NULL,
+  default_branch TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (server_id, owner, name)
+);
+CREATE TABLE IF NOT EXISTS resource_checkpoints (
+  checkpoint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  repository_id TEXT REFERENCES repositories(repository_id),
+  resource_kind TEXT NOT NULL,
+  resource_key TEXT NOT NULL,
+  etag TEXT,
+  last_modified TEXT,
+  pagination_cursor TEXT,
+  observed_version INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  UNIQUE (server_id, repository_id, resource_kind, resource_key)
+);
+CREATE TABLE IF NOT EXISTS managed_prs (
+  managed_pr_id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  base_repository_id TEXT NOT NULL REFERENCES repositories(repository_id),
+  head_repository_id TEXT NOT NULL REFERENCES repositories(repository_id),
+  number INTEGER NOT NULL,
+  base_branch TEXT NOT NULL,
+  head_branch TEXT NOT NULL,
+  base_sha TEXT NOT NULL,
+  head_sha TEXT NOT NULL,
+  sync_source_branch_override TEXT,
+  state TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  intent_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (server_id, base_repository_id, number)
+);
+CREATE TABLE IF NOT EXISTS remote_event_versions (
+  event_version_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  source_kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  source_repository_id TEXT REFERENCES repositories(repository_id),
+  observed_at TEXT NOT NULL,
+  source_updated_at TEXT,
+  semantic_hash TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, source_kind, source_id, semantic_hash)
+);
+CREATE TABLE IF NOT EXISTS resource_observations (
+  observation_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT REFERENCES managed_prs(managed_pr_id),
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  resource_kind TEXT NOT NULL,
+  resource_key TEXT NOT NULL,
+  remote_identity TEXT NOT NULL,
+  observed_at TEXT NOT NULL,
+  semantic_hash TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  UNIQUE (server_id, resource_kind, resource_key, remote_identity, semantic_hash)
+);
+CREATE TABLE IF NOT EXISTS review_batches (
+  batch_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, payload_hash)
+);
+CREATE TABLE IF NOT EXISTS review_bundles (
+  bundle_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  batch_id TEXT NOT NULL REFERENCES review_batches(batch_id),
+  state TEXT NOT NULL,
+  automatic_operation_key TEXT,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, automatic_operation_key)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS review_bundles_one_active_operation
+  ON review_bundles(managed_pr_id)
+  WHERE state IN ('WORKING', 'READY_FOR_REVIEW', 'NEEDS_ATTENTION', 'PUBLISHING');
+CREATE TABLE IF NOT EXISTS review_bundle_items (
+  item_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL REFERENCES review_bundles(bundle_id),
+  event_version_id TEXT NOT NULL REFERENCES remote_event_versions(event_version_id),
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  associated_at TEXT NOT NULL,
+  UNIQUE (bundle_id, event_version_id)
+);
+CREATE TABLE IF NOT EXISTS review_holds (
+  hold_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  bundle_id TEXT NOT NULL REFERENCES review_bundles(bundle_id),
+  state TEXT NOT NULL CHECK (state IN ('ACTIVE', 'RELEASED')),
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  acquired_at TEXT NOT NULL,
+  released_at TEXT,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS review_holds_one_active
+  ON review_holds(managed_pr_id) WHERE state = 'ACTIVE';
+CREATE TABLE IF NOT EXISTS transition_history (
+  transition_id TEXT PRIMARY KEY,
+  aggregate_type TEXT NOT NULL,
+  aggregate_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL,
+  prior_state TEXT,
+  current_state TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (aggregate_type, aggregate_id, sequence)
+);
+CREATE TABLE IF NOT EXISTS handled_event_versions (
+  event_version_id TEXT PRIMARY KEY REFERENCES remote_event_versions(event_version_id),
+  bundle_id TEXT NOT NULL REFERENCES review_bundles(bundle_id),
+  association_state TEXT NOT NULL,
+  associated_at TEXT NOT NULL,
+  handled_at TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS approvals (
+  approval_id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  reviewed_snapshot_hash TEXT,
+  approved_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_work_operations (
+  operation_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT REFERENCES managed_prs(managed_pr_id),
+  operation_kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  task_profile_snapshot_json TEXT NOT NULL,
+  task_profile_snapshot_hash TEXT NOT NULL,
+  execution_policy_snapshot_json TEXT NOT NULL,
+  execution_policy_snapshot_hash TEXT NOT NULL,
+  input_snapshot_json TEXT NOT NULL,
+  input_snapshot_hash TEXT NOT NULL,
+  configured_turn_budget INTEGER NOT NULL CHECK (configured_turn_budget BETWEEN 1 AND 10),
+  consumed_turn_count INTEGER NOT NULL DEFAULT 0 CHECK (consumed_turn_count >= 0),
+  version INTEGER NOT NULL DEFAULT 1,
+  idempotency_key TEXT UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_work_segments (
+  segment_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES ai_work_operations(operation_id),
+  segment_index INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  configured_turn_budget INTEGER NOT NULL CHECK (configured_turn_budget BETWEEN 1 AND 10),
+  consumed_turn_baseline INTEGER NOT NULL CHECK (consumed_turn_baseline >= 0),
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (operation_id, segment_index)
+);
+CREATE TABLE IF NOT EXISTS ai_work_turns (
+  turn_id TEXT PRIMARY KEY,
+  segment_id TEXT NOT NULL REFERENCES ai_work_segments(segment_id),
+  turn_index INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  deterministic_activity_json TEXT NOT NULL DEFAULT '{}',
+  report_json TEXT NOT NULL DEFAULT '{}',
+  validation_refs_json TEXT NOT NULL DEFAULT '[]',
+  progress_classification TEXT,
+  state_fingerprint TEXT,
+  stop_reason_json TEXT,
+  usage_json TEXT NOT NULL DEFAULT '{}',
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE (segment_id, turn_index)
+);
+CREATE TABLE IF NOT EXISTS conversations (
+  conversation_id TEXT PRIMARY KEY,
+  operation_id TEXT REFERENCES ai_work_operations(operation_id),
+  scope TEXT NOT NULL,
+  opaque_reference TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS validation_runs (
+  run_id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS validation_steps (
+  run_id TEXT NOT NULL REFERENCES validation_runs(run_id),
+  step_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  PRIMARY KEY (run_id, step_id)
+);
+CREATE TABLE IF NOT EXISTS validation_manual_checks (
+  run_id TEXT NOT NULL REFERENCES validation_runs(run_id),
+  check_id TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  PRIMARY KEY (run_id, check_id)
+);
+CREATE TABLE IF NOT EXISTS worktrees (
+  worktree_id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  canonical_path TEXT NOT NULL,
+  baseline_sha TEXT NOT NULL,
+  current_sha TEXT,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (canonical_path)
+);
+CREATE TABLE IF NOT EXISTS diffs (
+  diff_id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  baseline_sha TEXT NOT NULL,
+  current_sha TEXT,
+  diff_hash TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS synchronization_batches (
+  synchronization_batch_id TEXT PRIMARY KEY,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS synchronization_results (
+  synchronization_operation_id TEXT PRIMARY KEY,
+  synchronization_batch_id TEXT NOT NULL REFERENCES synchronization_batches(synchronization_batch_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  status TEXT NOT NULL,
+  source_repository_id TEXT,
+  destination_repository_id TEXT,
+  source_branch TEXT,
+  destination_branch TEXT,
+  sync_source_sha TEXT,
+  pr_head_sha TEXT,
+  worktree_id TEXT REFERENCES worktrees(worktree_id),
+  ai_operation_id TEXT REFERENCES ai_work_operations(operation_id),
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  diff_id TEXT REFERENCES diffs(diff_id),
+  validation_run_id TEXT REFERENCES validation_runs(run_id),
+  payload_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS synchronization_conflicts (
+  synchronization_operation_id TEXT NOT NULL REFERENCES synchronization_results(synchronization_operation_id),
+  path TEXT NOT NULL,
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (synchronization_operation_id, path)
+);
+CREATE TABLE IF NOT EXISTS publication_intents (
+  publication_id TEXT PRIMARY KEY,
+  publication_kind TEXT NOT NULL CHECK (publication_kind IN ('REVIEW_BUNDLE', 'SYNCHRONIZATION_RESULT')),
+  owner_id TEXT NOT NULL,
+  approval_id TEXT NOT NULL REFERENCES approvals(approval_id),
+  idempotency_key TEXT NOT NULL,
+  expected_baseline_sha TEXT,
+  expected_source_sha TEXT,
+  expected_head_sha TEXT,
+  proposed_result_json TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  payload_hash TEXT NOT NULL DEFAULT '',
+  phase TEXT NOT NULL,
+  recovery_state TEXT NOT NULL,
+  known_commit_sha TEXT,
+  push_evidence_json TEXT NOT NULL DEFAULT '{}',
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (publication_kind, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS publication_responses (
+  publication_id TEXT NOT NULL REFERENCES publication_intents(publication_id),
+  response_key TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('PENDING', 'POSTED', 'FAILED', 'UNKNOWN')),
+  idempotency_key TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  remote_id TEXT,
+  error_code TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (publication_id, response_key),
+  UNIQUE (publication_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS external_effects (
+  effect_id TEXT PRIMARY KEY,
+  publication_id TEXT REFERENCES publication_intents(publication_id),
+  effect_kind TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  state TEXT NOT NULL,
+  known_remote_id TEXT,
+  evidence_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stale_history (
+  stale_id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  reason_json TEXT NOT NULL,
+  observed_head_sha TEXT,
+  current_head_sha TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS activity_events (
+  activity_event_id TEXT PRIMARY KEY,
+  correlation_id TEXT NOT NULL,
+  owner_type TEXT,
+  owner_id TEXT,
+  severity TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_remote_events_pr ON remote_event_versions(managed_pr_id, observed_at);
+CREATE INDEX IF NOT EXISTS idx_transition_history_aggregate ON transition_history(aggregate_type, aggregate_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_ai_turns_segment ON ai_work_turns(segment_id, turn_index);
+CREATE INDEX IF NOT EXISTS idx_sync_results_batch ON synchronization_results(synchronization_batch_id);
+CREATE INDEX IF NOT EXISTS idx_activity_correlation ON activity_events(correlation_id, created_at);
+PRAGMA user_version = 2;
+`;
+
+function checksum(sql: string): string {
+  return createHash("sha256").update(sql, "utf8").digest("hex");
+}
+
+export const MIGRATIONS: readonly MigrationDefinition[] = [
+  {
+    version: 1,
+    id: "F03-001-foundation-ledger",
+    sql: MIGRATION_1,
+    checksum: checksum(MIGRATION_1),
+  },
+  {
+    version: 2,
+    id: "F03-002-domain-record-families",
+    sql: MIGRATION_2,
+    checksum: checksum(MIGRATION_2),
+  },
+];
+
+export function currentMigrationVersion(): number {
+  return PERSISTENCE_SCHEMA_VERSION;
+}
+
+export function migrationByVersion(
+  version: number,
+): MigrationDefinition | undefined {
+  return MIGRATIONS.find((migration) => migration.version === version);
+}
+
+export function readUserVersion(database: SqliteDatabase): number {
+  const row = database.prepare("PRAGMA user_version").get() as
+    { user_version?: unknown } | undefined;
+  return typeof row?.user_version === "number" ? row.user_version : 0;
+}

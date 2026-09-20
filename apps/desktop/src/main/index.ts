@@ -6,6 +6,7 @@ import {
   SMOKE_READY_PREFIX,
   STARTUP_STATUS_ID,
 } from "../shared/startup";
+import { initializePersistence, type PersistenceStore } from "./persistence";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -14,6 +15,7 @@ const smokeTimeoutMs = 29_000;
 let smokeReady = false;
 let smokeTimer: NodeJS.Timeout | undefined;
 let smokeWindow: BrowserWindow | undefined;
+let persistenceStore: PersistenceStore | undefined;
 
 const rendererEntry = path.join(
   currentDirectory,
@@ -234,10 +236,26 @@ try {
   smokeFailure("SMOKE_RUNTIME_PATHS_INVALID", error);
 }
 
+async function initializeMainProcessPersistence(): Promise<void> {
+  const userDataDirectory = app.getPath("userData");
+  persistenceStore = await initializePersistence({
+    databasePath: path.join(userDataDirectory, "database", "prmonitor.sqlite"),
+    backupRoot: path.join(userDataDirectory, "backups"),
+  });
+}
+
 app
   .whenReady()
-  .then(() => createWindow())
+  .then(async () => {
+    await initializeMainProcessPersistence();
+    await createWindow();
+  })
   .catch((error: unknown) => smokeFailure("APP_START_FAILED", error));
+
+app.on("will-quit", () => {
+  persistenceStore?.close();
+  persistenceStore = undefined;
+});
 
 app.on("window-all-closed", () => {
   if (!smokeMode) app.quit();

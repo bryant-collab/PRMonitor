@@ -44,7 +44,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Invalid transitions, concurrent automatic review work for one PR, and accidental hold release are rejected by deterministic domain code.
   - **Primary application criteria:** Enables APP-AC-16, APP-AC-24, APP-AC-25, APP-AC-49, and APP-AC-68.
 
-- [ ] **F03 - SQLite persistence, migrations, and transactional repositories**
+- [x] **F03 - SQLite persistence, migrations, and transactional repositories**
   - **Depends on:** F02.
   - **Deliver:** Add SQLite initialization and versioned migrations for settings, servers, repositories, PRs, immutable remote-event versions, batches, bundles/items, AI operations/turns/conversations, validation, synchronization, publication/response state, and activity events. Implement transaction boundaries, uniqueness/idempotency constraints, restart-safe repositories, and migration/backup failure handling.
   - **Exit:** Representative state survives process restart; migration tests cover empty, current, and upgrade databases; concurrency and uniqueness constraints enforce the domain invariants.

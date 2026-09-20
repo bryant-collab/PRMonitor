@@ -31,8 +31,8 @@ The unpacked artifact is written to ignored `release/`; no installer or signing
 operation is produced.
 
 The standalone semantic linters remain explicit commands and accept repository-
-relative or absolute paths. They require `TYPESAFE_API_KEY` only when
-intentionally invoked:
+relative or absolute paths. Their credential is resolved by the linter only
+when a semantic lint is intentionally invoked:
 
 ```powershell
 npm run lint:prd-plan -- Specs/<feature>_PRD.md Specs/<feature>_PLAN.md
@@ -48,7 +48,7 @@ The linter recognizes leaf requirement list items with these IDs:
 - `NFR-01`
 - `INV-01`
 
-Set `TYPESAFE_API_KEY`, then run:
+Run the PRD/plan linter with:
 
 ```powershell
 npm install
