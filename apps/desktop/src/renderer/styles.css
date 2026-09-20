@@ -1,0 +1,110 @@
+:root {
+  color: #18202a;
+  background: #f4f7fb;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 2rem;
+}
+
+.startup-card {
+  width: min(100%, 36rem);
+  padding: 2.5rem;
+  border: 1px solid #c7d1df;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 1rem 3rem rgb(42 58 80 / 14%);
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: #405a78;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 3rem);
+  line-height: 1.05;
+}
+
+.startup-status {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 2px solid #2066b1;
+  border-radius: 0.5rem;
+  background: #e9f2ff;
+  color: #12395e;
+  font-weight: 600;
+  outline-offset: 0.25rem;
+}
+
+.startup-status:focus-visible,
+.skip-link:focus-visible {
+  outline: 3px solid #0a4f9a;
+  outline-offset: 3px;
+}
+
+.scope-note {
+  margin: 1.25rem 0 0;
+  color: #405a78;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 1;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #0a4f9a;
+  border-radius: 0.35rem;
+  background: #fff;
+  color: #0a376b;
+  font-weight: 700;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+@media (forced-colors: active) {
+  :root,
+  body {
+    color: CanvasText;
+    background: Canvas;
+  }
+
+  .startup-card,
+  .skip-link,
+  .startup-status {
+    border-color: ButtonText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+
+  .startup-status:focus-visible,
+  .skip-link:focus-visible {
+    outline-color: Highlight;
+  }
+}

@@ -32,7 +32,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Later validation, review, revision, and synchronization features can consume one stable contract without inventing their own command-source or safety rules.
   - **Primary application criteria:** Enables APP-AC-13, APP-AC-48, APP-AC-49, and APP-AC-57.
 
-- [ ] **F01 - Application workspace and engineering foundation**
+- [x] **F01 - Application workspace and engineering foundation**
   - **Depends on:** F00.
   - **Deliver:** Establish the root Electron/React/TypeScript application alongside the existing spec-linter workspace; define main, preload, renderer, and shared-domain boundaries; add packaging-friendly configuration, linting, formatting, unit/integration test harnesses, temporary Git-repository fixtures, and CI-safe root scripts. Pin runtime dependencies and the eventual Codex SDK version through the lockfile.
   - **Exit:** A production-mode desktop shell and automated test suite build from a clean checkout without disturbing the standalone spec-linter.

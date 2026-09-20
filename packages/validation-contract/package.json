@@ -15,8 +15,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run generate:schema",
+    "build": "tsc -p tsconfig.json && npm run verify:schema",
     "generate:schema": "tsx src/generate-schema.ts",
+    "verify:schema": "tsx src/verify-schema.ts",
     "conformance:report": "tsx src/conformance-report.ts",
     "test": "vitest run",
     "check": "npm run build && npm test"

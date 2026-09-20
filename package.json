@@ -2,21 +2,36 @@
   "name": "prmonitor",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.19.0",
+    "npm": "11.17.0"
+  },
   "workspaces": [
+    "apps/desktop",
     "tools/spec-linter",
     "packages/validation-contract"
   ],
   "scripts": {
-    "build": "npm run build:validation-contract && npm run build:spec-linter",
+    "check:runtime": "node scripts/check-runtime.mjs",
+    "build": "npm run build:desktop && npm run build:validation-contract && npm run build:spec-linter",
+    "build:desktop": "npm --workspace @prmonitor/desktop run build",
     "build:validation-contract": "npm --workspace @prmonitor/validation-contract run build",
     "build:spec-linter": "npm --workspace @prmonitor/spec-linter run build",
     "lint:prd-plan": "npm --workspace @prmonitor/spec-linter run lint:prd-plan --",
     "lint:application-coverage": "npm --workspace @prmonitor/spec-linter run lint:application-coverage --",
-  "generate:validation-schema": "npm --workspace @prmonitor/validation-contract run generate:schema",
-  "report:validation-contract": "npm --workspace @prmonitor/validation-contract run conformance:report",
+    "generate:validation-schema": "npm --workspace @prmonitor/validation-contract run generate:schema",
+    "verify:validation-schema": "npm --workspace @prmonitor/validation-contract run verify:schema",
+    "report:validation-contract": "npm --workspace @prmonitor/validation-contract run conformance:report",
+    "test:desktop": "npm --workspace @prmonitor/desktop run test",
     "test:validation-contract": "npm --workspace @prmonitor/validation-contract run test",
     "test:spec-linter": "npm --workspace @prmonitor/spec-linter run test",
-    "test": "npm run test:validation-contract && npm run test:spec-linter",
-    "check": "npm run build && npm test"
+    "test": "npm run test:desktop && npm run test:validation-contract && npm run test:spec-linter",
+    "check:desktop": "npm --workspace @prmonitor/desktop run check",
+    "check:validation-contract": "npm --workspace @prmonitor/validation-contract run check",
+    "check:spec-linter": "npm --workspace @prmonitor/spec-linter run check",
+    "check": "npm run check:runtime && npm run check:desktop && npm run check:validation-contract && npm run check:spec-linter"
+  },
+  "allowScripts": {
+    "electron@44.4.3": true
   }
 }

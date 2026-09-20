@@ -77,3 +77,7 @@ Hand off the feature ID, changed files, completed slices, tests/checks and
 their outcomes, any manual verification still required, and the final checkbox
 state. The report must distinguish implemented evidence from assumptions or
 future work.
+
+## Linting
+
+Note, as the implementor, you are not responsible to run the linters referred to in README.md and those linters do not have to be run to consider the feature complete. Those linters are for another agent and were run before you begam.

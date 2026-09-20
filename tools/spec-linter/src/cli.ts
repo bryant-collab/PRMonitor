@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createJevEvaluator } from "./jev.js";
 import { lintDocuments } from "./lint.js";
+import { resolveDocumentPath } from "./paths.js";
 import { renderTextReport } from "./report.js";
 import type { LintThresholds } from "./types.js";
 
@@ -100,17 +101,16 @@ export async function runCli(argv: readonly string[]): Promise<number> {
       return 0;
     }
 
-    const [prd, plan] = await Promise.all([
-      readFile(parsed.prdPath, "utf8"),
-      readFile(parsed.planPath, "utf8"),
-    ]);
+    const prdPath = resolveDocumentPath(parsed.prdPath);
+    const planPath = resolveDocumentPath(parsed.planPath);
+    const [prd, plan] = await Promise.all([readFile(prdPath, "utf8"), readFile(planPath, "utf8")]);
     const report = await lintDocuments({
       prd,
       plan,
       evaluator: createJevEvaluator(),
       thresholds: parsed.thresholds,
-      prdPath: parsed.prdPath,
-      planPath: parsed.planPath,
+      prdPath,
+      planPath,
     });
 
     process.stdout.write(

@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { createApplicationCoverageEvaluator } from "./application-jev.js";
 import { lintApplicationCoverage } from "./application-lint.js";
 import { renderApplicationCoverageReport } from "./application-report.js";
+import { resolveDocumentPath } from "./paths.js";
 import type { ApplicationCoverageThresholds } from "./types.js";
 
 type OutputFormat = "text" | "json";
@@ -90,17 +91,16 @@ export async function runApplicationCoverageCli(argv: readonly string[]): Promis
       return 0;
     }
 
-    const [overview, prd] = await Promise.all([
-      readFile(parsed.overviewPath, "utf8"),
-      readFile(parsed.prdPath, "utf8"),
-    ]);
+    const overviewPath = resolveDocumentPath(parsed.overviewPath);
+    const prdPath = resolveDocumentPath(parsed.prdPath);
+    const [overview, prd] = await Promise.all([readFile(overviewPath, "utf8"), readFile(prdPath, "utf8")]);
     const report = await lintApplicationCoverage({
       overview,
       prd,
       evaluator: createApplicationCoverageEvaluator(),
       thresholds: parsed.thresholds,
-      overviewPath: parsed.overviewPath,
-      prdPath: parsed.prdPath,
+      overviewPath,
+      prdPath,
     });
 
     process.stdout.write(

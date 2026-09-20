@@ -6,9 +6,38 @@ TypeSafe Jev to check whether each explicitly identified PRD requirement is
 addressed by a plan and whether a feature PRD covers applicable application-level
 acceptance criteria.
 
-The future Electron/React application will use the root application package and
-runtime source tree; the linter remains a separate workspace because it is
-developer tooling used when specifications change.
+The Electron/React application foundation lives in `apps/desktop`; the linter
+remains a separate workspace because it is developer tooling used when
+specifications change. F01 provides the production startup shell, typed
+main/preload/renderer/shared boundaries, an unpacked Electron artifact, and
+deterministic test fixtures. Product services and persistent application state
+belong to later features.
+
+## Foundation workspace
+
+The supported local/CI toolchain is Node.js `24.19.0`, npm `11.17.0`, and Git
+`2.55.0` (a platform suffix is permitted). From a clean checkout:
+
+```powershell
+npm ci
+npm run check
+```
+
+The root check verifies runtime versions, typechecks/lints/formats/builds and
+smoke-launches the desktop artifact, verifies the read-only F00 schema,
+executes F00 tests, and builds/tests the standalone spec-linter. It does not
+require product-service credentials or run the credentialed semantic linters.
+The unpacked artifact is written to ignored `release/`; no installer or signing
+operation is produced.
+
+The standalone semantic linters remain explicit commands and accept repository-
+relative or absolute paths. They require `TYPESAFE_API_KEY` only when
+intentionally invoked:
+
+```powershell
+npm run lint:prd-plan -- Specs/<feature>_PRD.md Specs/<feature>_PLAN.md
+npm run lint:application-coverage -- Specs/application_overview.md Specs/<feature>_PRD.md
+```
 
 ## PRD/plan linter
 
