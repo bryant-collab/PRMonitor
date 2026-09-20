@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Orchestration"
+  short_description: "Coordinate delegated feature implementation"
+  default_prompt: "Use $feature-orchestration to orchestrate this feature implementation with specialized workers and independent verification."
