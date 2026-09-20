@@ -50,7 +50,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Representative state survives process restart; migration tests cover empty, current, and upgrade databases; concurrency and uniqueness constraints enforce the domain invariants.
   - **Primary application criteria:** Persistence enabler for APP-AC-14, APP-AC-24, APP-AC-49, APP-AC-55, APP-AC-64, APP-AC-68, and APP-AC-69.
 
-- [ ] **F04 - Persistent Electron shell, IPC boundary, and Windows virtual-desktop spike**
+- [x] **F04 - Persistent Electron shell, IPC boundary, and Windows virtual-desktop spike**
   - **Depends on:** F01-F03.
   - **Deliver:** Make the main process authoritative; expose a narrow validated preload/IPC API; create and destroy renderer windows on demand; keep background services alive after window close; implement single-instance/deep-link routing; and perform the required Desktop A/B/C tray/notification focus spike. Isolate any platform-specific window activation behind an OS adapter.
   - **Exit:** Closing destroys the visible window without exiting, reopening creates a new window on the active Windows virtual desktop, and renderer destruction cannot cancel or corrupt main-process work.

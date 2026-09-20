@@ -53,7 +53,7 @@ describe("F01 workspace contract", () => {
     }
   });
 
-  it("keeps the four source boundaries and the renderer privileged-import guard", async () => {
+  it("keeps the four source boundaries and the validated preload bridge guard", async () => {
     const expectedEntries = [
       "src/main/index.ts",
       "src/preload/index.ts",
@@ -76,13 +76,15 @@ describe("F01 workspace contract", () => {
     const shared = await source("src/shared/startup.ts");
     expect(shared).not.toMatch(/from ["'](?:node:|electron)/u);
     const preload = await source("src/preload/index.ts");
-    expect(preload).not.toMatch(/contextBridge|ipcRenderer|ipcMain/u);
+    expect(preload).toContain("contextBridge.exposeInMainWorld");
+    expect(preload).toContain("IPC_CHANNELS.request");
+    expect(preload).not.toMatch(/require\s*\(/u);
   });
 
   it("keeps the main shell security preferences explicit and provider invocation absent", async () => {
     const main = await source("src/main/index.ts");
     expect(main).toContain(
-      'path.join(currentDirectory, "..", "preload", "index.mjs")',
+      'path.join(currentDirectory, "..", "preload", "index.cjs")',
     );
     expect(main).toMatch(/contextIsolation:\s*true/u);
     expect(main).toMatch(/nodeIntegration:\s*false/u);

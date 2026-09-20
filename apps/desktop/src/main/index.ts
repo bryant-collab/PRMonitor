@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -6,7 +6,29 @@ import {
   SMOKE_READY_PREFIX,
   STARTUP_STATUS_ID,
 } from "../shared/startup";
-import { initializePersistence, type PersistenceStore } from "./persistence";
+import { OpenTargetQueue } from "../shared/routing";
+import type { CurrentState } from "../shared/ipc";
+import {
+  createPersistenceRepositories,
+  initializePersistence,
+  type PersistenceRepositories,
+  type PersistenceStore,
+} from "./persistence";
+import {
+  createPersistenceLifecyclePersistence,
+  LifecycleCoordinator,
+} from "./lifecycle";
+import { IpcRouter } from "./ipc-router";
+import { PrimaryInstanceCoordinator } from "./instance-routing";
+import {
+  ElectronWindowPlatformAdapter,
+  WindowsWindowPlatformAdapter,
+} from "./platform-window";
+import {
+  WindowManager,
+  type ManagedWindowLike,
+  type WindowOpenResult,
+} from "./window-manager";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -16,6 +38,11 @@ let smokeReady = false;
 let smokeTimer: NodeJS.Timeout | undefined;
 let smokeWindow: BrowserWindow | undefined;
 let persistenceStore: PersistenceStore | undefined;
+let persistenceRepositories: PersistenceRepositories | undefined;
+let lifecycle: LifecycleCoordinator | undefined;
+let ipcRouter: IpcRouter | undefined;
+let windowManager: WindowManager | undefined;
+const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
   currentDirectory,
@@ -23,7 +50,7 @@ const rendererEntry = path.join(
   "renderer",
   "index.html",
 );
-const preloadEntry = path.join(currentDirectory, "..", "preload", "index.mjs");
+const preloadEntry = path.join(currentDirectory, "..", "preload", "index.cjs");
 
 function configureSmokePaths(): void {
   if (!smokeMode) return;
@@ -170,66 +197,6 @@ async function runKeyboardProbe(window: BrowserWindow): Promise<boolean> {
   return tabTarget && enterTarget;
 }
 
-async function createWindow(): Promise<void> {
-  if (smokeMode && !smokeNonce) {
-    smokeFailure("SMOKE_NONCE_MISSING");
-    return;
-  }
-
-  smokeWindow = new BrowserWindow({
-    width: 720,
-    height: 480,
-    show: !smokeMode,
-    title: APPLICATION_TITLE,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      preload: preloadEntry,
-    },
-  });
-
-  smokeWindow.webContents.on(
-    "did-fail-load",
-    (_event, errorCode, errorDescription) => {
-      if (smokeMode)
-        smokeFailure(`RENDERER_LOAD_FAILED_${errorCode}`, errorDescription);
-    },
-  );
-
-  smokeWindow.webContents.once("did-finish-load", () => {
-    if (!smokeMode || !smokeWindow) return;
-    void runAccessibilityProbe(smokeWindow)
-      .then((probe) => {
-        if (!probe.ok || !probe.forcedColors || smokeReady) {
-          smokeFailure("ACCESSIBILITY_PROBE_FAILED");
-          return;
-        }
-        smokeReady = true;
-        process.stdout.write(`${SMOKE_READY_PREFIX}${smokeNonce}\n`, () => {
-          if (!smokeWindow?.isDestroyed()) smokeWindow?.close();
-          app.quit();
-        });
-      })
-      .catch((error: unknown) =>
-        smokeFailure("ACCESSIBILITY_PROBE_FAILED", error),
-      );
-  });
-
-  smokeWindow.on("closed", () => {
-    smokeWindow = undefined;
-  });
-
-  if (smokeMode) {
-    smokeTimer = setTimeout(
-      () => smokeFailure("READINESS_TIMEOUT"),
-      smokeTimeoutMs,
-    );
-  }
-
-  await smokeWindow.loadFile(rendererEntry);
-}
-
 try {
   configureSmokePaths();
 } catch (error) {
@@ -242,15 +209,145 @@ async function initializeMainProcessPersistence(): Promise<void> {
     databasePath: path.join(userDataDirectory, "database", "prmonitor.sqlite"),
     backupRoot: path.join(userDataDirectory, "backups"),
   });
+  persistenceRepositories = createPersistenceRepositories(persistenceStore);
 }
 
-app
-  .whenReady()
-  .then(async () => {
-    await initializeMainProcessPersistence();
-    await createWindow();
-  })
-  .catch((error: unknown) => smokeFailure("APP_START_FAILED", error));
+function createCurrentState(): CurrentState {
+  if (lifecycle === undefined || persistenceStore === undefined) {
+    throw new Error("PRMONITOR_MAIN_NOT_READY");
+  }
+  return {
+    schemaVersion: 1,
+    applicationTitle: "PRMonitor",
+    lifecycle: lifecycle.getStatus(),
+    persistence: {
+      status: persistenceStore.health.status,
+      schemaVersion: persistenceStore.health.schemaVersion,
+    },
+  };
+}
+
+async function startMainProcess(): Promise<void> {
+  await initializeMainProcessPersistence();
+  if (persistenceRepositories === undefined)
+    throw new Error("PRMONITOR_REPOSITORIES_MISSING");
+  lifecycle = new LifecycleCoordinator({
+    persistence: createPersistenceLifecyclePersistence(persistenceRepositories),
+  });
+  const started = await lifecycle.start();
+  if (!started.ok)
+    throw new Error(
+      started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
+    );
+
+  ipcRouter = new IpcRouter(ipcMain, {
+    readCurrentState: () => createCurrentState(),
+    getLifecycleStatus: () => lifecycle?.getStatus() ?? started.status,
+    requestShutdown: async () => {
+      const result = await lifecycle?.requestShutdown();
+      if (result?.ok) windowManager?.closeForShutdown();
+      return (
+        result ?? {
+          ok: false,
+          status: started.status,
+          error: {
+            code: "HANDLER_FAILED",
+            message: "Lifecycle coordinator is unavailable.",
+            correlationId: "lifecycle-missing",
+          },
+        }
+      );
+    },
+    onRendererReady: (senderId) => {
+      windowManager?.markRendererReady(senderId);
+    },
+  });
+  ipcRouter.install();
+
+  const platform =
+    process.platform === "win32"
+      ? new WindowsWindowPlatformAdapter()
+      : new ElectronWindowPlatformAdapter();
+  windowManager = new WindowManager({
+    rendererEntry,
+    preloadEntry,
+    platform,
+    rendererReadyTimeoutMs: smokeMode ? 12_000 : 10_000,
+    createWindow: ({ preload, show }) => {
+      const created = new BrowserWindow({
+        width: 720,
+        height: 480,
+        show,
+        title: APPLICATION_TITLE,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          preload,
+        },
+      });
+      return created as unknown as ManagedWindowLike;
+    },
+    sendTarget: (contents, target) =>
+      ipcRouter?.deliverOpenTarget(contents.id, target) ?? false,
+    onRendererAttached: (contents) => ipcRouter?.attachRenderer(contents),
+    onRendererDetached: (contentsId) => ipcRouter?.detachRenderer(contentsId),
+  });
+
+  if (smokeMode && !smokeNonce) {
+    smokeFailure("SMOKE_NONCE_MISSING");
+    return;
+  }
+  if (smokeMode)
+    smokeTimer = setTimeout(
+      () => smokeFailure("READINESS_TIMEOUT"),
+      smokeTimeoutMs,
+    );
+
+  const initialTarget = pendingTargets.dequeue();
+  const openWork: Promise<WindowOpenResult> = windowManager.open(initialTarget);
+  for (
+    let target = pendingTargets.dequeue();
+    target !== undefined;
+    target = pendingTargets.dequeue()
+  ) {
+    void windowManager.open(target);
+  }
+  const openResult = await openWork;
+  if (!openResult.ok && !smokeMode) return;
+  if (smokeMode) {
+    smokeWindow = windowManager.visibleWindow as BrowserWindow | undefined;
+    if (smokeWindow === undefined) {
+      smokeFailure("WINDOW_MISSING_AFTER_OPEN");
+      return;
+    }
+    const probe = await runAccessibilityProbe(smokeWindow);
+    if (!probe.ok || !probe.forcedColors || smokeReady) {
+      smokeFailure("ACCESSIBILITY_PROBE_FAILED");
+      return;
+    }
+    smokeReady = true;
+    process.stdout.write(`${SMOKE_READY_PREFIX}${smokeNonce}\n`, () => {
+      if (!smokeWindow?.isDestroyed()) smokeWindow?.close();
+      app.exit(0);
+    });
+  }
+}
+
+const primaryInstance = new PrimaryInstanceCoordinator({
+  host: app,
+  queue: pendingTargets,
+  onAcceptedTarget: (target) => {
+    if (windowManager !== undefined) void windowManager.open(target);
+  },
+});
+
+if (primaryInstance.acquire(process.argv)) {
+  app
+    .whenReady()
+    .then(() => startMainProcess())
+    .catch((error: unknown) => smokeFailure("APP_START_FAILED", error));
+}
 
 app.on("will-quit", () => {
   persistenceStore?.close();
@@ -258,5 +355,10 @@ app.on("will-quit", () => {
 });
 
 app.on("window-all-closed", () => {
-  if (!smokeMode) app.quit();
+  // F04 deliberately keeps the main process alive. Only the explicit
+  // Shutdown PRMonitor lifecycle request can begin normal termination.
+});
+
+app.on("activate", () => {
+  if (windowManager !== undefined) void windowManager.open();
 });
