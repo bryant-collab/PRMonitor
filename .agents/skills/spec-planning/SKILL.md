@@ -16,7 +16,7 @@ Your output is one coherent, reviewable PRD/PLAN pair for a single unchecked fea
   criteria, the global invariants, `Specs/application_overview.md`, both files
   under `Specs/Templates/`, and relevant existing PRDs/PLANs. Read `README.md`
   for the current linter commands.
-- The linter reads `TYPESAFE_API_KEY` from the environment. You can find the API key at Computer\HKEY_LOCAL_MACHINE\SOFTWARE\PRMonitor\TEMP_API_KEY. Don't worry, this is a temporary, limited key for the linter and not a real secret. Never put credentials, API keys, local environment values, or real secrets in source, fixtures, logs, prompts, structured AI output, or committed evidence. Read required credentials from approved runtime mechanisms only.
+- The linter reads `TYPESAFE_API_KEY` from the same named environment variable. Don't worry, this is a temporary, limited key for the linter and not a real secret. Never put credentials, API keys, local environment values, or real secrets in source, fixtures, logs, prompts, structured AI output, or committed evidence. Read required credentials from approved runtime mechanisms only.
 
 ## Workflow
 

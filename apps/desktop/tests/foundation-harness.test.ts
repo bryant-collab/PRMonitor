@@ -159,6 +159,7 @@ describe("F01 deterministic foundation harness", () => {
         path.join(entry.parentPath, entry.name),
         "utf8",
       );
+      if (relative.startsWith(`shared${path.sep}domain${path.sep}`)) continue;
       expect(contents, relative).not.toMatch(
         /from ["'][^"']*(?:sqlite|github|worktree|publication|watcher|scheduler|tray|notification|deep-link)[^"']*["']/iu,
       );

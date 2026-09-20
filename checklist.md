@@ -38,7 +38,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** A production-mode desktop shell and automated test suite build from a clean checkout without disturbing the standalone spec-linter.
   - **Primary application criteria:** Architectural enabler; no criterion is closed by scaffolding alone.
 
-- [ ] **F02 - Domain contracts and deterministic state machines**
+- [x] **F02 - Domain contracts and deterministic state machines**
   - **Depends on:** F01.
   - **Deliver:** Define provider-neutral domain IDs, clocks, errors, result/reason types, PR primary states, Review Bundle states, synchronization states, publication phases, and allowed transitions. Keep global pause and synchronization as overlays rather than competing PR state machines. Add transition and invariant tests.
   - **Exit:** Invalid transitions, concurrent automatic review work for one PR, and accidental hold release are rejected by deterministic domain code.
