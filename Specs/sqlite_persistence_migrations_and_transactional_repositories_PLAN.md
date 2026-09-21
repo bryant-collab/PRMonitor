@@ -9,9 +9,9 @@ Note that while we're mentioning Stories here, we're not actually using tickets,
 >
 > **Owning PRD:** `Specs/sqlite_persistence_migrations_and_transactional_repositories_PRD.md`
 >
-> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-20 and F03 PRD revision 2026-09-20
+> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-21 and F03 PRD revision 2026-09-21
 >
-> **Entry/readiness gates:** F01's supported Electron/Node workspace, main-process boundary, test harness, and stable application-data-path input are complete. F02 domain records, state machines, holds, immutable references, safe reasons, and publication idempotency contracts are available. F00 validation schemas and meanings remain unchanged. The implementation may add SQLite and main-process persistence code, but it must not require GitHub, Git, an AI provider, a renderer window, or product-service credentials.
+> **Entry/readiness gates:** F01's supported Electron/Node workspace, main-process boundary, test harness, and stable application-data-path input are complete. F02 domain records, state machines, holds, immutable references, staged review decisions, safe reasons, and publication idempotency contracts are available. F00 validation schemas and phase meanings are available. The implementation may add SQLite and main-process persistence code, but it must not require GitHub, Git, an AI provider, a renderer window, or product-service credentials.
 >
 > This PLAN cannot change product requirements. Resolve contradictions in the owning PRD before implementation and rerun both specification linters. This feature does not check the checklist item; implementation and approval are separate.
 
@@ -24,14 +24,14 @@ The database is authoritative for durable mutable state and historical evidence.
 The schema must cover the following conceptual record families from the application overview and F03 PRD:
 
 ```text
-settings, validation profiles/approvals, common instructions,
+settings, validation/build profiles/approvals, common instructions,
 AI task-profile revisions, execution-policy presets,
 GitHub servers, repositories, resource checkpoints, pull requests,
 remote event versions, observed-resource versions,
-review batches, review bundles, bundle items, holds, transitions,
+review batches, staged review bundles, bundle items/decisions, holds, transitions,
 AI work operations, segments, turns, conversations, usage/report data,
 validation runs/steps/manual checks,
-branch-sync batches/operations/conflicts/results,
+branch-sync batches/operations/conflicts/results, merge-base and both-side intent/consultation evidence,
 worktrees, diffs, publication intents, per-response outcomes,
 activity/audit events, migration/health/backup metadata
 ```
@@ -70,7 +70,7 @@ activity/audit events, migration/health/backup metadata
 3. **Settings, validation, server, repository, checkpoint, and managed-PR repositories**
    - **Blocked by:** Slice 2; F00 and F02 contracts.
    - **Stories / requirements / acceptance criteria:** US-01, US-06, US-10-US-11; FR-04.1-FR-04.2; FR-05.1, FR-05.6; FR-08.1-FR-08.5; NFR-03, NFR-05-NFR-08; INV-01, INV-02, INV-06, INV-08; AC-01, AC-05-AC-06, AC-09, AC-15, AC-19.
-   - **Implementation:** Add normalized tables and repositories for application settings, F00 profile/approval/snapshot records, Common Instruction and AI profile revisions, execution-policy presets, GitHub server safe metadata, repositories/default-branch informational metadata, independently scoped resource checkpoints, and managed PRs with base/head repository identities, branches, SHAs, intent/context, override, primary state, and persisted version. Store credential-store references/metadata only; F05 owns secret acquisition. Preserve profile and PR snapshots used by later work.
+   - **Implementation:** Add normalized tables and repositories for application settings, F00 validation/build profile/approval/snapshot records, Common Instruction and AI profile revisions, execution-policy presets, GitHub server safe metadata, repositories/default-branch informational metadata, independently scoped resource checkpoints, and managed PRs with base/head repository identities, branches, SHAs, intent/context, override, primary state, and persisted version. Store credential-store references/metadata only; F05 owns secret acquisition. Preserve profile, Build & Validation Instruction, and PR snapshots used by later work.
    - **Visible result:** A repository fixture can create, update, close, reopen, and read settings and a managed PR after a fresh process, while a profile/PR revision snapshot remains unchanged after the source setting is edited.
    - **Durable records / external effects:** Adds tables, indexes, foreign keys, safe references, and query projections. It makes no credential-store, GitHub, Git, or renderer call.
    - **Failure / cancellation / restart:** Duplicate server/repository/PR identities are rejected or return the existing row according to the repository contract. Editing current settings never mutates historical snapshots. A stale PR update returns a conflict. Missing credential references remain actionable metadata, never plaintext fallback.
@@ -80,21 +80,21 @@ activity/audit events, migration/health/backup metadata
 4. **Immutable remote versions, review batches, bundles, holds, and handled associations**
    - **Blocked by:** Slices 2-3 and F02 event/hold/bundle contracts.
    - **Stories / requirements / acceptance criteria:** US-04-US-05, US-08-US-11; FR-04.3-FR-04.4; FR-05.1-FR-05.7; FR-08.1-FR-08.3; NFR-01-NFR-06, NFR-08; INV-02-INV-05, INV-08-INV-09; APP-AC-14, APP-AC-24, APP-AC-69; AC-04, AC-05, AC-07-AC-09, AC-12, AC-19.
-   - **Implementation:** Add scoped immutable remote-event/version tables, content-hash uniqueness, resource-observation metadata, review batches, Review Bundles/items, hold records, transition history, current projections, and handled-version associations. Commit bundle inputs, snapshots, item associations, transition, hold, and projection atomically. Make duplicate version insertion and duplicate bundle association return the existing durable result. Keep versions observed during a hold separate from the active bundle.
-   - **Visible result:** A deterministic fixture takes a PR from observed event versions to a persisted Review Bundle, replays the same delivery, observes a new semantic version during a hold, publishes/discards the old bundle, and reconstructs all history after restart without a duplicate automatic operation.
+   - **Implementation:** Add scoped immutable remote-event/version tables, content-hash uniqueness, resource-observation metadata, review batches, staged Review Bundles/items, per-item human decisions/question answers, hold records, transition history, current projections, and handled-version associations. Commit bundle inputs, proposal/final stage, snapshots, item associations, transition, hold, and projection atomically. Make duplicate version insertion, duplicate bundle association, and replayed decision submission return the existing durable result. Keep versions observed during a hold separate from the active bundle.
+   - **Visible result:** A deterministic fixture takes a PR from observed event versions to a persisted proposal-stage Review Bundle, records complete per-item decisions, transitions to implementation/final review, replays the same delivery, observes a new semantic version during a hold, publishes/discards the old bundle, and reconstructs all history after restart without a duplicate automatic operation.
    - **Durable records / external effects:** Creates the core review history and closes the persistence portion of APP-AC-14, APP-AC-24, and APP-AC-69. No remote event is fetched and no notification or AI work starts.
    - **Failure / cancellation / restart:** A failure at each insert boundary rolls back the complete bundle/hold decision. Duplicate/replayed versions are idempotent; changed semantic content creates a new version. Discard/publish does not delete handled history. A stale writer cannot attach a new version to the held bundle or release the hold.
-   - **Exact evidence:** Review Bundle atomicity fixture; scoped identity/content-hash matrix; immutable update rejection; duplicate association replay; held-feedback retention; handled-after-publish/discard monotonicity; F02 transition/hold conformance; concurrent bundle admission; restart reconstruction; application-coverage evidence for APP-AC-14/24/69.
-   - **Exit criterion:** AC-04 and AC-07-AC-09 pass and F11/F18 can persist/recover review work without changing F02 semantics.
+   - **Exact evidence:** Review Bundle atomicity fixture; scoped identity/content-hash matrix; immutable update rejection; duplicate association/decision replay; held-feedback retention; handled-after-publish/discard monotonicity; F02 transition/hold/decision conformance; concurrent bundle admission; restart reconstruction; application-coverage evidence for APP-AC-14/24/69/71/72.
+   - **Exit criterion:** AC-04 and AC-07-AC-09 pass, AC-19-AC-23 are represented in persistence evidence, and F11/F18 can persist/recover staged review work without changing F02 semantics.
 
 5. **AI, conversation, validation, worktree, and synchronization evidence repositories**
    - **Blocked by:** Slices 2-3 and the F00/F02 serialized contracts.
    - **Stories / requirements / acceptance criteria:** US-06, US-10-US-11; FR-04.5-FR-04.6; FR-06.1-FR-06.6; FR-08.1-FR-08.5; NFR-01-NFR-06, NFR-08-NFR-09; INV-01-INV-06, INV-08-INV-09; APP-AC-49, APP-AC-55, APP-AC-64; AC-10-AC-15, AC-19.
-   - **Implementation:** Add repositories for AI Work Operation/segment/turn/conversation records, task profile and execution-policy snapshots, usage/report metadata, validation runs/steps/manual attestations, operation-owned worktrees/diffs, synchronization batches/results/conflicts, status transitions, structured reasons, and append-only activity/audit events with correlation IDs. Store deterministic observations separately from model-reported fields. Commit the operation segment and consumed-count baseline before a turn; commit each turn exactly once; keep each synchronization result and diagnostic history independent and fully reviewable.
-   - **Visible result:** Two fixture consumers—one review operation and one synchronization operation—read the same provider-neutral repositories and show complete evidence after renderer closure/restart, including budgets, reports, validation, worktree, exact SHAs, conflict paths, status, and next-action reason data.
+   - **Implementation:** Add repositories for AI Work Operation/segment/turn/conversation records, task profile and execution-policy snapshots, usage/report metadata, validation runs/steps/manual attestations, operation-owned worktrees/diffs, synchronization batches/results/conflicts, merge-base and source-side/PR-head-side change evidence, ambiguity/user-consultation records, status transitions, structured reasons, and append-only activity/audit events with correlation IDs. Store deterministic observations separately from model-reported fields. Commit the operation segment and consumed-count baseline before a turn; commit each turn exactly once; keep each synchronization result and diagnostic history independent and fully reviewable.
+   - **Visible result:** Two fixture consumers—one review operation and one synchronization operation—read the same provider-neutral repositories and show complete evidence after renderer closure/restart, including budgets, reports, validation, worktree, exact source/head/merge-base SHAs, both-side conflict evidence, consultation records, status, and next-action reason data.
    - **Durable records / external effects:** Adds operation/evidence tables, indexes, foreign keys, and read models. It does not invoke an AI provider, run validation, create a worktree, perform a Git merge, or contact GitHub.
    - **Failure / cancellation / restart:** A turn timeout/failure can be stored once with its evidence and stop reason. Restart preserves consumed counts and does not authorize a new turn. One synchronization result can fail or retry without mutating another. Missing optional provider references remain valid deterministic records. Model claims cannot turn deterministic evidence into success.
-   - **Exact evidence:** AI operation/turn round trips; budget-not-reset-on-restart fixture; exactly-once turn report test; safe opaque conversation/reference limits; validation-status truth table; sync-result field completeness table; per-result isolation race; exact SHA/worktree snapshot test; APP-AC-49/55/64 coverage evidence; provider SDK/prompt/credential import and serialization scan.
+   - **Exact evidence:** AI operation/turn round trips; budget-not-reset-on-restart fixture; exactly-once turn report test; safe opaque conversation/reference limits; validation-status truth table; sync-result field completeness table including merge-base and both-side conflict evidence; per-result isolation race; exact SHA/worktree snapshot test; APP-AC-49/55/64/77 coverage evidence; provider SDK/prompt/credential import and serialization scan.
    - **Exit criterion:** AC-10-AC-15 pass and the later F14-F18/F24-F27 services can consume one stable evidence contract.
 
 6. **Publication, response, stale-history, and uncertain-outcome repositories**
@@ -109,7 +109,7 @@ activity/audit events, migration/health/backup metadata
 
 7. **Cross-consumer restart, migration, security, and F03 handoff**
    - **Blocked by:** Slices 1-6.
-   - **Stories / requirements / acceptance criteria:** US-01-US-11; all FRs, NFRs, and INVs; APP-AC-14, APP-AC-24, APP-AC-49, APP-AC-55, APP-AC-64, APP-AC-68, APP-AC-69; AC-01-AC-19.
+   - **Stories / requirements / acceptance criteria:** US-01-US-11; all FRs, NFRs, and INVs; APP-AC-14, APP-AC-24, APP-AC-49, APP-AC-55, APP-AC-64, APP-AC-68, APP-AC-69, APP-AC-77; AC-01-AC-19.
    - **Implementation:** Run one shared conformance suite through thin review and synchronization consumers. Exercise restart after every durable phase, migration backup/restore, busy/locked retry, duplicate delivery, concurrent writers, stale updates, corruption, redaction, bounded fields, and safe diagnostics. Document the driver choice, schema version, repository contracts, health/recovery result, and the exact handoff rules for F04, F10-F18, F23-F29.
    - **Visible result:** A machine-readable persistence evidence report demonstrates that the same database can be reopened and queried by both consumers, that every covered application criterion has an owning repository contract, and that no renderer/provider/network dependency is needed.
    - **Durable records / external effects:** Keeps only declared temporary databases/backups and bounded reports under test-owned paths. It does not change checklist state, publish specs, or call external services.

@@ -13,23 +13,24 @@
 
 PRMonitor is a local desktop application that monitors one or more GitHub / GitHub Enterprise Server pull requests on behalf of a developer.
 
-When new PR review feedback appears, the application automatically retrieves the feedback, prepares an isolated local working environment, invokes the configured AI provider to investigate the feedback, makes appropriate code changes when warranted, runs relevant validation, and prepares proposed responses. In the MVP, that provider is OpenAI Codex through `@openai/codex-sdk`.
+When new PR review feedback appears, the application automatically retrieves the feedback, prepares an isolated local working environment, runs any configured baseline validation, and invokes the configured AI provider first in a read-only proposal phase. The developer can accept or override each proposed disposition before the provider is allowed to make code changes. PRMonitor then implements the accepted decisions, runs post-change validation, and prepares proposed responses. In the MVP, that provider is OpenAI Codex through `@openai/codex-sdk`.
 
 For the MVP, OpenAI Codex is the selected AI provider and is accessed through `@openai/codex-sdk`. Codex is an implementation choice at the provider boundary, not a requirement that should leak into the rest of the application. The architecture must leave room for future provider adapters, such as a GitHub Copilot-based integration or AWS Bedrock, without requiring changes to deterministic monitoring, worktree isolation, AI work policy, validation, review bundles, or publication. Those providers are future considerations and are not MVP dependencies.
 
 Nothing is pushed to GitHub and no GitHub comments are posted without explicit human approval.
 
-When a batch of review work is ready, the application sends a native operating-system notification. Clicking the notification opens the application directly to a review screen showing:
+When an AI review proposal is ready, or when the final implemented changes are ready, the application sends a native operating-system notification. Clicking the notification opens the application directly to the relevant review screen showing:
 
 * the review comments that were handled;
 * the selected AI provider's assessment of each comment;
 * whether the selected AI provider recommends fixing, pushing back, asking a question, or making no change;
+* the developer's accept/override decision for each recommendation when one has been recorded;
 * proposed GitHub responses;
-* validation/test results;
+* baseline and post-change validation/test results;
 * relevant changed files;
 * the complete local diff.
 
-The developer may accept the proposed bundle, discard it, or continue interacting with the selected AI provider to modify the proposed solution before publishing.
+Before implementation, the developer may accept or override each recommendation, answer question items in their textboxes, discard the proposal, or provide additional instructions. Only after those decisions does the selected AI provider receive authority to modify the isolated worktree. After implementation, the developer may continue interacting with the provider, edit proposed responses, inspect the complete diff, discard the result, or explicitly publish it.
 
 The application settings must allow the developer to choose the AI provider, model, and provider-supported reasoning effort independently for each kind of AI task PRMonitor supports. The selected settings are applied through the corresponding provider adapter and are visible in the resulting review or operation history.
 
@@ -139,20 +140,20 @@ A typical workflow is:
 5. A reviewer submits new feedback.
 6. Deterministic polling detects the new feedback.
 7. PRMonitor determines whether the feedback is new and requires analysis.
-8. The configured AI provider is invoked only at this point, using the configured **Automatic Review / Re-evaluation** task profile.
-9. The configured AI provider investigates the comments in an isolated worktree, determines what to fix / pushback on.
-10. The configured AI provider makes appropriate local changes.
-11. Tests and other validation run.
-12. A Review Bundle is created.
-13. The PR enters `READY_FOR_REVIEW`, which places it on an automatic per-PR review hold. No further automatic analysis or worktree mutation is started for that PR while the bundle awaits a human decision.
-14. The developer receives a native OS notification.
-15. The developer clicks the notification from whichever virtual desktop is currently active.
-16. PRMonitor creates a new application window and opens the relevant Review Bundle.
-17. The developer reviews the comments, reasoning, replies, validation, and diff.
-18. The developer may ask the selected AI provider for revisions. Each entry (change/pushback) should have a textbox for additional instructions the user can feed to the AI for corrections. Worktree-mutating revisions use the configured **Review Revision** task profile. There should also be a button the user can click to open the entry as a chat window where the user can chat with the AI about the entry to gain more clarification, or brainstorm. This read-only chat uses the configured **Read-only Conversation** task profile and would not be permitted to modify the codebase. The user will need to add instructions to the entries textbox if they want to provide directions.
+8. PRMonitor prepares an isolated worktree at the current PR head and runs configured baseline validation when available.
+9. The configured AI provider performs a read-only Review Proposal using the configured **Automatic Review / Re-evaluation** task profile.
+10. A proposal-stage Review Bundle is created. The AI has not modified the worktree.
+11. The PR enters `READY_FOR_REVIEW` with `PROPOSAL_REVIEW` stage, which places it on an automatic per-PR review hold. No further automatic analysis or worktree mutation is started for that PR while the proposal awaits human decisions.
+12. The developer receives a native OS notification, clicks it, and opens the relevant proposal bundle.
+13. The developer reviews each comment, assessment, disposition, proposed implementation, baseline validation, and proposed reply.
+14. The developer explicitly accepts or overrides every recommendation. Each `question` item requires an answer in its textbox. The developer may also provide implementation instructions or discard the proposal.
+15. After all decisions are complete, the configured **Review Revision** profile implements only the accepted decisions in the isolated worktree.
+16. Deterministic application code inspects the actual diff and runs post-change validation.
+17. The Review Bundle enters `FINAL_REVIEW` and the developer reviews the final reasoning, replies, validation, and complete diff.
+18. The developer may ask the selected AI provider for revisions. Worktree-mutating revisions use the configured **Review Revision** task profile. Read-only clarification or brainstorming uses the configured **Read-only Conversation** task profile and cannot modify the codebase.
 19. When satisfied, the developer chooses **Push Changes**.
 20. Deterministic application code verifies that the remote PR head has not unexpectedly changed.
-21. The application commits and pushes approved code changes and posts approved responses.
+21. The application commits and pushes the complete approved code diff and posts only selected approved responses.
 22. The PR returns to Watching state and the automatic review hold is released.
 
 The automatic review hold is tied to the Review Bundle and persists independently of whether the application window is open, whether the user has selected the PR, or whether the user has viewed the notification. The hold is released only by an explicit bundle outcome such as successful publication, discard, or a user-directed re-evaluation.
@@ -265,8 +266,14 @@ Good notifications include:
 **Changes ready for review**
 
 > SYS-1234 Preferences
-> 5 comments addressed: 4 fixes, 1 proposed pushback.
-> Tests passing.
+> Review proposal ready: 5 comments analyzed, 4 fix proposals, 1 proposed pushback.
+> Baseline checks passing.
+
+**Changes ready for final review**
+
+> SYS-1234 Preferences
+> 4 accepted fixes implemented; 1 pushback retained.
+> Post-change validation passing.
 
 **Need your input**
 
@@ -364,6 +371,15 @@ When adding a PR, the user should be able to provide optional multi-line **PR In
 The field should be available during the Add PR flow and editable later from the PR's settings or details screen. It is associated with the individual PR, not stored as an application-wide Common Instruction. The user may leave it blank when the PR's intent is already clear from the repository and GitHub metadata.
 
 PR Intent / Context is informative input for semantic reasoning. It must not be treated as authoritative when it conflicts with the actual repository, the current PR, review feedback, or deterministic validation results. The application should preserve the user's text without requiring a JIRA or issue-tracker integration.
+
+The user should also be able to configure repository-specific **Build & Validation Instructions**. These settings are intended for large repositories and non-standard build layouts where a generic package-manifest guess would be unreliable. They should include:
+
+* human-readable instructions that are supplied to the AI provider as context;
+* structured, deterministic commands for the validation runner;
+* whether each command is a baseline command, a post-change command, or both; and
+* any required manual checks and their instructions.
+
+Human-readable Build & Validation Instructions are guidance, not executable authority. Only valid, trusted structured commands may run. The effective instructions and command profile must be snapshotted with the Review Bundle so later preference changes do not change the meaning of an existing result.
 
 ---
 
@@ -656,6 +672,8 @@ Preferences should expose named execution-policy presets rather than requiring u
 
 The `Read-only Conversation` task type must always use a read-only policy even if a broader default is configured. Every worktree-mutating AI Work Operation segment must snapshot its effective execution policy when it starts. Changing Preferences must affect only future work. A user-directed continuation may select a different preset only after explicit confirmation and must never silently broaden an in-flight operation.
 
+Automatic review has two distinct phases. The initial **Review Proposal** phase uses the configured **Automatic Review / Re-evaluation** task profile with the **Read-only** execution policy. It may inspect the isolated worktree and repository, but it must not modify files. After the developer has explicitly accepted or overridden every review-item recommendation, the **Review Implementation** phase may use the configured worktree-writing policy to implement only the accepted decisions. The proposal phase and implementation phase must have separate persisted evidence and configuration snapshots.
+
 The MVP direct TypeScript SDK adapter is intended for non-interactive, isolated-worktree operation and does not need to implement live approval callbacks. If PRMonitor later exposes **Interactive Approvals**, that mode must use Codex App Server or another provider integration that exposes an equivalent host request/response approval channel. The application must not present an interactive preset while using an adapter that cannot receive and answer approval requests.
 
 For the MVP, the Codex TypeScript SDK supports reusable threads, streaming events, structured output, explicit working directories, and controlled child-process environments. The Codex provider adapter should use these capabilities rather than building equivalent mechanisms manually.
@@ -668,13 +686,15 @@ The application's persisted database remains authoritative. Provider thread/sess
 
 Any application-controlled sequence in which the selected AI provider may inspect or modify an isolated worktree and may be invoked again based on the result is an **AI Work Operation**. This includes review implementation, follow-up repair or revision turns, semantic merge-conflict resolution, and future coding tasks. Read-only conversations that cannot modify a worktree are not AI Work Operations.
 
+The initial Review Proposal phase is a bounded read-only semantic evaluation. It may inspect the repository and configured Build & Validation Instructions, but it cannot modify the worktree. Its provider turn, timeout, result, and usage are still persisted and reviewable; only the later worktree-mutating Review Implementation and revision turns consume the configured mutating-turn budget.
+
 Every AI Work Operation must be bounded. The application must not keep invoking an AI provider indefinitely because the work appears incomplete, validation continues to fail, or the model keeps making changes without reaching a completion condition.
 
 The user must be able to configure an application-level **Maximum AI Work Turns per Operation** preference. The MVP should allow values from 1 through 10, with a default of 3 worktree-mutating AI-provider turns per operation. The application must enforce 10 as the hard product maximum so a configuration error cannot create an unbounded loop. A turn is one AI-provider invocation that is allowed to modify the worktree; tool calls and shell commands inside that turn do not silently create additional budget.
 
 The configured budget applies across UI closure, application restart, and automatic retries. It must be persisted with the AI Work Operation and must not reset merely because the process restarted. A per-operation override may be offered at confirmation time, but it must still respect the hard product maximum.
 
-After every turn, deterministic application code must inspect the actual worktree and operation state. It must not rely on an AI provider claiming that it made progress or completed the task. Each operation supplies a deterministic completion predicate and, where possible, operation-specific progress signals. A valid semantic outcome that makes no code change is still allowed to complete an operation. For review work, the deterministic completion predicate is a schema-valid result that accounts for every input event version, captures the resulting assessments and proposed responses, and records the actual worktree and validation state. All-`pushback`, all-`question`, or all-`no_change` results may therefore be complete. For conflict resolution, completion requires no unmerged paths, no unresolved conflict markers in the intended result, and recorded deterministic validation results.
+After every turn, deterministic application code must inspect the actual worktree and operation state. It must not rely on an AI provider claiming that it made progress or completed the task. Each operation supplies a deterministic completion predicate and, where possible, operation-specific progress signals. A valid semantic outcome that makes no code change is still allowed to complete an operation. For the read-only Review Proposal, completion means a schema-valid result accounts for every input event version, captures each assessment, proposed disposition, proposed implementation, and proposed response, and leaves the worktree unchanged. For Review Implementation, completion additionally requires that the final human decisions were the implementation input, the actual worktree state was inspected, and post-change validation evidence was recorded. All-`pushback`, all-`question`, or all-`no_change` results may therefore be complete. For conflict resolution, completion requires no unmerged paths, no unresolved conflict markers in the intended result, and recorded deterministic validation results.
 
 The generic policy must at minimum detect:
 
@@ -717,8 +737,8 @@ The MVP must expose these task types independently:
 
 | Task type | Applies to |
 | --- | --- |
-| **Automatic Review / Re-evaluation** | The initial review batch and a user-directed re-evaluation of review feedback. |
-| **Review Revision** | Worktree-mutating follow-up, repair, or revision turns for an existing Review Bundle. |
+| **Automatic Review / Re-evaluation** | The read-only proposal analysis for an initial review batch and a user-directed re-evaluation of review feedback. |
+| **Review Revision** | Worktree-mutating implementation of accepted review decisions, plus follow-up, repair, or revision turns for an existing Review Bundle. |
 | **Read-only Conversation** | Entry-level clarification, explanation, or brainstorming conversations that cannot modify a worktree. |
 | **Merge Conflict Resolution** | Semantic conflict resolution inside a Branch Synchronization worktree. |
 
@@ -743,6 +763,7 @@ For a new review batch, the selected AI provider should receive:
 * enough metadata to locate referenced code;
 * access to the isolated repository worktree;
 * repository-native instructions such as `AGENTS.md`, when automatically discoverable;
+* the effective repository-specific Build & Validation Instructions;
 * previous relevant Review Bundle context when necessary.
 
 The task receives the effective **Automatic Review / Re-evaluation** profile snapshot, including its provider, model, provider-supported reasoning effort, provider-specific options, and profile revision. The profile controls the provider-adapter invocation; it must not be supplied merely as natural-language instructions.
@@ -775,7 +796,7 @@ For example, a team may provide instructions such as:
 For the LaunchDarklyFlag enum, don't worry about enum values changing when we retire LD flags by removing them. These aren't persisted.
 ```
 
-The conceptual task should be:
+The conceptual **Review Proposal** task should be:
 
 ```text
 Investigate the new PR review feedback.
@@ -784,21 +805,31 @@ For each item:
 
 1. Determine what concern the reviewer is raising.
 2. Investigate the repository before deciding whether the concern is valid.
-3. If code should change, address the underlying problem rather than
-   blindly following the reviewer's proposed implementation.
-4. If code should not change, explain why.
+3. If code should change, explain the underlying problem and propose an
+   implementation approach rather than applying the change yet.
+4. If code should not change, explain why and propose an appropriate
+   pushback or no-change response.
 5. If the answer depends on information that cannot be reliably inferred,
    identify the question that requires human input.
-6. Apply the applicable Common Instructions while considering the feedback.
-7. Run appropriate validation for changes you make.
-8. Review the complete working-tree diff before finishing.
+6. Apply the applicable Common Instructions and Build & Validation
+   Instructions while considering the feedback.
+7. Use baseline validation evidence when available; do not claim that a
+   proposed change passes post-change validation before implementation.
+8. Review the relevant repository context before finishing.
 
+Do not modify files.
 Do not commit.
 Do not push.
 Do not interact directly with GitHub.
 
 Return the required ReviewBundle structured response.
 ```
+
+After the developer has accepted or overridden every item, a separate
+worktree-mutating **Review Implementation** task receives the final per-item
+decisions, question answers, and user instructions. It may implement accepted
+fixes and tests only, then returns control to deterministic diff inspection and
+post-change validation.
 
 ---
 
@@ -839,6 +870,7 @@ interface AIReviewItem {
     | "no_change";
 
   assessment: string;
+  proposedImplementation?: string;
 
   proposedReply?: string;
 
@@ -895,6 +927,9 @@ Review Bundle
 ├── `prBaseSha`, `prHeadSha`, and `worktreeBaselineSha`
 ├── review events
 ├── AI assessments
+├── proposed implementation plans
+├── per-item human accept/override decisions
+├── question answers and user instructions
 ├── proposed responses
 ├── local code changes
 ├── full Git diff
@@ -926,6 +961,22 @@ The complete bundle-level Git diff is authoritative.
 
 Individual review items may identify related files, but the application does not need to reconstruct separate independent patches for each comment in the MVP.
 
+The bundle also records a review stage:
+
+* `PROPOSAL_REVIEW` — the AI has analyzed the feedback but has not been
+  permitted to modify the worktree. Every item requires an explicit human
+  **Accept recommendation** or **Override recommendation** decision before
+  implementation can begin.
+* `FINAL_REVIEW` — accepted decisions have been implemented, the actual diff
+  and post-change validation are available, and the user is deciding whether
+  to publish the complete proposed diff and selected responses.
+
+The PR may remain in `READY_FOR_REVIEW` during either stage; the stage is what
+explains whether the user is approving recommendations before implementation or
+approving the resulting code before publication. An item with disposition
+`question` must expose a textbox for the developer's answer. That answer is
+part of the implementation input and must be persisted with the item decision.
+
 ---
 
 # 20. Main Application Screen
@@ -943,11 +994,19 @@ NEEDS YOUR REVIEW
 SYS-1234 Preferences
 Fix duplicate invoice generation
 
-5 comments addressed
-4 fixes · 1 pushback
-Tests passing
+5 comments analyzed
+4 fix proposals · 1 pushback
+Baseline: 2 checks passing
 
-                              [Review]
+                              [Review Proposal]
+
+After implementation:
+
+5 decisions implemented
+4 fixes · 1 pushback
+Post-change validation passing
+
+                              [Review Changes]
 
 
 WORKING
@@ -1015,6 +1074,38 @@ Suggested layout:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+During `PROPOSAL_REVIEW`, each item must show the original feedback, the AI
+assessment, the proposed disposition, the proposed implementation plan, and
+explicit controls:
+
+* **Accept recommendation** — preserve the AI's disposition for implementation
+  planning;
+* **Override recommendation** — choose a different disposition and optionally
+  provide instructions explaining the override; and
+* a required answer textbox for every `question` disposition.
+
+The implementation phase must not start while any item remains undecided or a
+required question answer is empty. An override is a semantic decision, not
+publication approval. The implementation phase must use the final per-item
+decisions and must not silently implement a rejected recommendation.
+
+During `FINAL_REVIEW`, the screen must show the actual post-change validation,
+the complete proposed-worktree diff, editable proposed responses, and the
+explicit publication controls. The user approves the complete proposed diff
+for publication; the MVP does not offer per-hunk code-patch acceptance.
+
+The two primary states should have an unmistakable but accessible distinction:
+
+* `READY_FOR_REVIEW` uses a calm review-ready treatment and explains what is
+  ready for the user to inspect or approve. In `PROPOSAL_REVIEW`, the primary
+  action is to decide the recommendations; in `FINAL_REVIEW`, it is to review
+  the complete diff and publish or discard it.
+* `NEEDS_ATTENTION` uses a persistent warning treatment and displays the
+  concrete reason, why it matters, preserved evidence/worktree state, and the
+  permitted next actions such as answering a question, fixing validation,
+  continuing AI work, re-evaluating, or discarding. It must not look like a
+  normal ready-to-publish result.
+
 ---
 
 # 22. Diff Viewer
@@ -1030,6 +1121,10 @@ Shows code likely related to the selected review item.
 **Proposed Worktree Diff**
 
 Shows every proposed local change compared with `worktreeBaselineSha`. This is the authoritative diff for the Review Bundle and the diff eligible for publication after the user's explicit approval.
+
+During `PROPOSAL_REVIEW`, this view must clearly state that no implementation
+changes have been authorized yet. It may show the clean baseline and relevant
+context, but it must not imply that an implementation diff exists.
 
 **PR Context Diff**
 
@@ -1078,16 +1173,36 @@ When the turn finishes, the Review Bundle must be refreshed from actual determin
 
 # 24. Validation
 
-The selected AI provider may choose appropriate test commands when semantic reasoning is needed.
+The developer may configure repository-specific Build & Validation Instructions
+for non-standard repository layouts. Human-readable instructions help the AI
+provider understand how the repository is built, but only the structured,
+trusted command profile grants execution authority. The selected AI provider
+may propose a command, but that proposal remains untrusted until the developer
+chooses **Run once** or saves and confirms it through the validation settings.
 
-However, command execution itself is deterministic.
+Validation has two distinct purposes in the review workflow:
+
+* **Baseline validation** runs against the clean PR-head worktree before the
+  read-only Review Proposal when an approved baseline command is configured.
+  It establishes which failures pre-existed the proposed implementation and
+  is supplied to the AI and shown to the user. A baseline failure does not by
+  itself prevent the AI from analyzing feedback.
+* **Post-change validation** runs after accepted review decisions have been
+  implemented and after every worktree-mutating revision. Its real results
+  are shown in `FINAL_REVIEW` before the user approves publication. The
+  publication path performs the applicable final validation/recheck again
+  before side effects when the configured profile requires it.
+
+Command execution itself is deterministic.
 
 For every command capture:
 
 ```ts
 interface ValidationCommand {
-  command: string;
+  executable: string;
+  arguments: string[];
   workingDirectory: string;
+  phase: "baseline" | "post_change" | "both";
 
   startedAt: string;
   completedAt: string;
@@ -1123,7 +1238,8 @@ The synchronization terminology must use the GitHub PR identities explicitly:
 * `syncSourceBranch` — the branch to merge into `prHeadBranch`;
 * `syncSourceBranchOverride` — the optional per-PR override for `syncSourceBranch`;
 * `prHeadSha` — the exact commit currently at `prHeadBranch`; and
-* `syncSourceSha` — the exact commit currently at `syncSourceBranch`.
+* `syncSourceSha` — the exact commit currently at `syncSourceBranch`; and
+* `syncMergeBaseSha` — the exact merge base used to distinguish the source-side and PR-head-side changes.
 
 The fallback `syncSourceBranch` is `prBaseBranch`. Each PR may optionally specify another source branch. The effective source branch is resolved deterministically using this precedence:
 
@@ -1147,7 +1263,11 @@ The workflow is:
 9. The application verifies that Git reports no unmerged paths, that conflict markers are not left in the intended result, and that validation commands have real recorded exit statuses. A model claim that the conflict is resolved is never sufficient.
 10. The application persists an independently reviewable synchronization result for each PR and notifies the developer when human attention is required.
 
-The selected AI provider must receive the resolved `syncSourceBranch` and `prHeadBranch` identities, their repositories, `syncSourceSha`, `prHeadSha`, the conflicted paths, the repository state, and any applicable PR Intent / Context or Common Instructions. The conflict resolver must use the configured **Merge Conflict Resolution** profile. The prompt must make clear that the task is to preserve the intent of both branches and resolve the merge, not to redesign unrelated code. Unrelated changes in the synchronization worktree must be surfaced for review rather than silently accepted.
+Before the first conflict-resolution turn, deterministic code must preserve the exact `syncMergeBaseSha`, source-side change set, PR-head-side change set, commit/message metadata, conflicted paths and hunks, repository state, and any available PR Intent / Context or source-branch intent context. The selected AI provider must receive the resolved `syncSourceBranch` and `prHeadBranch` identities, their repositories, `syncSourceSha`, `prHeadSha`, and `syncMergeBaseSha`. The conflict resolver must use the configured **Merge Conflict Resolution** profile.
+
+Conflict resolution is intent-sensitive. The AI must inspect and explain the intent represented by both the source-side changes and the PR-head-side changes, preserve behavior from both where they are compatible, and avoid treating either side as disposable. It must not blindly choose `ours`, `theirs`, or a textual hunk winner, and it must not redesign unrelated code. Unrelated changes in the synchronization worktree must be surfaced for review rather than silently accepted. When the available code, history, or intent context does not establish a safe semantic resolution, the AI must return a structured ambiguity result instead of guessing.
+
+An ambiguous conflict is a user-consultation outcome, not a successful merge. The synchronization result must enter `NEEDS_ATTENTION` with a reason such as `MERGE_CONFLICT_AMBIGUOUS` or `USER_DECISION_REQUIRED`, identify the conflicting paths/hunks, summarize the competing intents and the available resolution options, and tell the developer what input is needed. The user must be able to inspect the preserved worktree, answer the question or choose an explicit resolution direction, edit the worktree manually, retry the bounded resolver, or discard the result. No ambiguous result may become `READY_TO_PUBLISH` or be published until the user-directed path produces a newly inspected and validated merge.
 
 Each conflict-resolution turn must report the problem it encountered, the approach it took, and the issues that remain. The application must add deterministic evidence showing the files changed, commands executed, validation results, actual unresolved paths, progress classification, and stop/continue decision. The synchronization result must present this turn-by-turn report before enabling **Retry Resolution**.
 
@@ -1157,7 +1277,7 @@ The application must continue processing other selected PRs when one PR fails, i
 * `MERGING` - Git is performing the deterministic merge;
 * `RESOLVING_CONFLICTS` - the configured AI provider is working in the isolated synchronization worktree;
 * `READY_TO_PUBLISH` - the merge result passed deterministic checks and awaits approval;
-* `NEEDS_ATTENTION` - the configured AI provider could not produce a valid resolution, the AI Work Policy stopped the operation, or validation failed;
+* `NEEDS_ATTENTION` - the configured AI provider could not produce a valid resolution, the AI Work Policy stopped the operation, validation failed, or the resolver reported an ambiguous semantic conflict requiring user input;
 * `STALE` - `syncSourceSha` or `prHeadSha` changed before publication;
 * `PUBLISHING`, `PUBLISHED`, `DISCARDED`, or `FAILED`.
 
@@ -1175,7 +1295,7 @@ At minimum, the application should explain these outcomes as follows:
 * `STALE` - identify whether `prHeadSha` or `syncSourceSha` moved, explain that the reviewed merge can no longer be pushed safely, and offer **Re-evaluate** or **Discard**;
 * `FAILED` - identify the operation stage and error, distinguish a retryable failure from one requiring user intervention, and direct the user to the applicable next action.
 
-The synchronization result must include the PR reference, `prHeadBranch` and `prHeadSha`, resolved `syncSourceBranch` and `syncSourceSha`, their repositories, merge outcome, conflicted paths, the complete turn-by-turn AI Work Report when an AI provider was used, AI activity summary, validation results, complete local diff or merge diff summary, resolved worktree path, current operation state, and any machine-readable AI Work Policy stop reason. It is distinct from a Review Bundle so that a branch update does not erase review-feedback history.
+The synchronization result must include the PR reference, `prHeadBranch` and `prHeadSha`, resolved `syncSourceBranch` and `syncSourceSha`, `syncMergeBaseSha`, their repositories, source-side and PR-head-side change evidence, merge outcome, conflicted paths, the complete turn-by-turn AI Work Report when an AI provider was used, AI activity summary, validation results, complete local diff or merge diff summary, resolved worktree path, current operation state, and any machine-readable AI Work Policy stop reason. It is distinct from a Review Bundle so that a branch update does not erase review-feedback history.
 
 When the AI Work Policy stops conflict resolution, the user must be able to inspect the preserved worktree and choose **Retry Resolution**, edit the worktree manually, or discard the result. **Retry Resolution** requires explicit confirmation after showing the prior approaches, encountered problems, remaining issues, turn count, and token usage. It starts another bounded AI Work Operation segment and must not silently reset the prior operation's history.
 
@@ -1272,6 +1392,21 @@ No GitHub response is implied by a branch synchronization, and no response shoul
 
 Proposed responses should be visible and editable before publishing.
 
+Response inclusion is a separate decision from code-diff approval. The
+publication model already tracks each response independently for retry and
+uncertain-outcome recovery, but the MVP requirements do not yet choose between
+these two user experiences:
+
+1. approve the complete set of edited responses together; or
+2. show an **Include response** control for each response so the user can
+   publish code while intentionally omitting a particular reply.
+
+The second option is recommended because it lets a developer decline to speak
+on a specific thread without turning response selection into partial code-patch
+acceptance. An omitted response would remain in the Review Bundle history but
+would have no publication intent. This choice needs explicit product
+confirmation before F23 publication UX is finalized.
+
 Example fixed response:
 
 ```text
@@ -1288,7 +1423,7 @@ InvoiceProcessor. Moving it into this provider would duplicate
 the retry behavior used by the other provider implementations.
 ```
 
-The application posts these only after explicit human approval.
+The application posts selected responses only after explicit human approval.
 
 ---
 
@@ -1431,6 +1566,12 @@ NEEDS_ATTENTION
 
 At the Review Bundle level, additional implementation states may exist. Only one automatic Review Bundle and one automatic review AI Work Operation may be active for a PR at a time. Remote event versions observed while that operation is active are persisted, but they are not silently added to the active operation or used to start a concurrent worktree mutation.
 
+The active Review Bundle also records a review stage: `PROPOSAL_REVIEW` or
+`FINAL_REVIEW`. A proposal-stage bundle contains read-only AI assessments and
+awaits an explicit human decision for every item. A final-review bundle
+contains the implementation diff and post-change validation. The stage is a
+durable substate and does not expand the primary PR state set.
+
 Branch synchronization has its own operation state and status overlay. It must not expand the PR's primary state into a second competing state machine: a PR can remain `READY_FOR_REVIEW` or `NEEDS_ATTENTION` while a separate synchronization result is `RESOLVING_CONFLICTS`, for example. Global `PAUSED` is an application-level monitoring flag; the inbox may display it as a derived overlay, but it is not a second per-PR workflow that competes with the review state.
 
 Avoid building an unnecessarily elaborate state machine in the MVP.
@@ -1445,6 +1586,7 @@ The primary review-state transitions are:
 | `WATCHING` | No actionable semantic event remains | `WATCHING` |
 | `WORKING` | The operation-specific completion predicate succeeds and a bundle is reviewable | `READY_FOR_REVIEW` |
 | `WORKING` | Policy stop, provider failure, timeout, unresolved validation, or another blocking condition | `NEEDS_ATTENTION` |
+| `READY_FOR_REVIEW` with `PROPOSAL_REVIEW` stage | Every item has an explicit accept/override decision and required question answers are present | `WORKING` |
 | `READY_FOR_REVIEW` or `NEEDS_ATTENTION` | Explicit **Continue AI Work**, **Retry Resolution**, or **Re-evaluate** | `WORKING` |
 | `READY_FOR_REVIEW` or `NEEDS_ATTENTION` | Successful publication or explicit discard, after worktree handling is resolved | `WATCHING` |
 
@@ -1479,7 +1621,7 @@ While an individual PR is in `READY_FOR_REVIEW` or `NEEDS_ATTENTION`:
 
 While a PR is `WORKING`, lightweight polling may continue, but newly detected event versions are persisted separately and do not start another automatic operation or mutate the active worktree. They become eligible for a later batch after the current operation reaches an explicit outcome and any applicable hold is released.
 
-For `NEEDS_ATTENTION`, the only actions that may start more AI work are explicit user actions such as **Continue AI Work**, **Retry Resolution**, or **Re-evaluate**. These actions must show the preserved worktree, prior turn reports, remaining issues, and accumulated usage before confirmation.
+For `NEEDS_ATTENTION`, the only actions that may start more AI work are explicit user actions such as answering a required question, **Continue AI Work**, **Retry Resolution**, or **Re-evaluate**. These actions must show the preserved worktree, prior turn reports, remaining issues, and accumulated usage before confirmation.
 
 The per-PR review hold is released only after an explicit outcome:
 
@@ -1588,7 +1730,9 @@ The following are deliberately outside the MVP:
 * mandatory JIRA integration;
 * mandatory requirements dossier;
 * deterministic semantic scope-enforcement system beyond applying user-provided Common Instructions as AI-provider context;
-* partial acceptance/reconstruction of individual patches;
+* per-hunk or silent reconstruction of individual code patches (per-item
+  semantic accept/override decisions are part of the revised review flow, but
+  publication still approves one complete proposed diff);
 * force pushing;
 * automatic rebasing of stale bundles;
 * team dashboards;
@@ -1610,7 +1754,7 @@ Possible future additions include:
 * CI status monitoring after push;
 * CI failure investigation;
 * optional independent AI-provider verification pass;
-* partial bundle acceptance;
+* partial code-diff acceptance;
 * GitHub review-thread resolution;
 * GitHub App authentication;
 * multi-machine synchronization;
@@ -1756,7 +1900,7 @@ batch quiet period ────────────────────�
 prepare isolated worktree ───────────────── deterministic
       │
       ▼
-AI provider investigates/fixes ──────────── AI
+AI provider proposes (read-only) ────────── AI
       │
       ▼
 inspect actual Git diff ─────────────────── deterministic
@@ -1780,7 +1924,40 @@ verify remote SHA ────────────────────�
 commit / push / comment ─────────────────── deterministic
 ```
 
-This model should be preserved throughout implementation.
+This model should be preserved throughout implementation. For review work, the
+review-specific sequence is refined as follows and takes precedence over any
+older shorthand that combines proposal and implementation:
+
+```text
+prepare isolated worktree
+        |
+        v
+baseline validation, when configured
+        |
+        v
+read-only AI Review Proposal
+        |
+        v
+persist proposal bundle and notify
+        |
+        v
+human accepts/overrides every item
+        |
+        v
+AI implements accepted decisions in worktree
+        |
+        v
+inspect diff -> post-change validation
+        |
+        v
+persist final bundle and notify
+        |
+        v
+human reviews complete diff/responses
+        |
+        v
+verify remote SHA -> commit/push/post selected responses
+```
 
 The `AI investigates/fixes` step is always mediated by `AIWorkController`. If the surrounding workflow invokes the selected AI provider again, the controller records a new AI Work Turn Report, evaluates deterministic progress, and enforces the operation budget before allowing the next turn. This applies equally to review work, developer-requested revisions that modify the worktree, and branch synchronization.
 
@@ -1893,6 +2070,13 @@ The MVP is considered successful when all of the following work reliably:
 68. **APP-AC-68:** Publication phases, idempotency keys, commit SHAs, and per-response remote IDs survive UI closure, restart, and uncertain network outcomes; recovery never duplicates a commit or an already posted response, and a pushed commit with unreconciled responses is represented as `PUBLISHED_WITH_ERRORS`.
 69. **APP-AC-69:** Remote event versions are immutable snapshots with scoped identities and content hashes, and Review Bundle items refer to those versions rather than only to mutable remote object IDs.
 70. **APP-AC-70:** The user can select a named AI Execution Policy preset, the default permits uninterrupted provider tool use inside the operation-owned worktree without approval prompts, every AI Work Operation snapshots the effective policy, and a policy boundary violation never silently broadens access or grants publication authority.
+71. **APP-AC-71:** The initial Review Proposal phase is read-only: before the user decides each item, the selected AI provider cannot modify the isolated worktree, commit, push, or post a response.
+72. **APP-AC-72:** Every Review Proposal item exposes explicit **Accept recommendation** and **Override recommendation** controls; an override records the chosen disposition and instructions, and every `question` item exposes a required answer textbox before implementation can start.
+73. **APP-AC-73:** When configured, baseline validation runs against the clean PR-head worktree before the Review Proposal and its real results are shown separately from post-change validation; post-change validation runs after accepted implementations and before final publication approval, with no model claim able to create a pass.
+74. **APP-AC-74:** The user can configure repository-specific human-readable Build & Validation Instructions and structured baseline/post-change commands; the effective instructions and command profile are snapshotted with the Review Bundle, and free-form instructions never grant execution authority.
+75. **APP-AC-75:** `READY_FOR_REVIEW` and `NEEDS_ATTENTION` are visually and semantically distinct: ready items explain what the user can inspect or approve, while attention items show what happened, why it matters, preserved evidence, and the permitted next action.
+76. **APP-AC-76:** When resolving a merge conflict, the configured AI provider receives the exact source-side and PR-head-side change sets, merge-base identity, conflict details, and available intent context; it must preserve the compatible intent of both branches, must not blindly choose one side, and deterministic evidence must show what was resolved and how.
+77. **APP-AC-77:** When the intent of conflicting changes is ambiguous, the synchronization result becomes `NEEDS_ATTENTION` with structured competing-intent and user-question data, preserves the worktree and prior evidence, alerts the developer, and blocks `READY_TO_PUBLISH` and publication until an explicit user-directed resolution is inspected and validated.
 
 ---
 
@@ -1914,4 +2098,4 @@ The purpose of the selected AI provider in PRMonitor is to provide engineering j
 
 # 43. Pre-Implementation TODOs
 
-* **Define deterministic validation inputs.** Decide whether validation commands come from repository configuration, user settings, a checked-in PRMonitor configuration, or provider suggestions that require confirmation. Define command timeouts, output limits, manual-test results, and the behavior when no safe validation command is configured.
+* **Revalidate the staged review workflow.** Confirm the proposal-before-mutation interaction, per-item decision semantics, response inclusion choice, and exact visual treatment of `READY_FOR_REVIEW` versus `NEEDS_ATTENTION` before implementing F18-F23.

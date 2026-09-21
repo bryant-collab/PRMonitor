@@ -29,6 +29,8 @@ None. This feature resolves a pre-implementation product decision and establishe
 | Application ID | Feature requirements | Acceptance criteria | Ownership |
 | --- | --- | --- | --- |
 | APP-AC-13 | FR-03.1-FR-04.8, FR-07.1-FR-07.3, INV-01 | AC-05-AC-10, AC-13 | Primary |
+| APP-AC-73 | FR-01.8-FR-01.9, FR-04.1-FR-04.2, FR-06.4-FR-07.3, INV-01-INV-02, INV-06 | AC-15-AC-17 | Shared enabler: F00 owns phase-aware validation configuration and evidence; F18/F20/F23 own when to invoke baseline/post-change/final checks and how they are presented. |
+| APP-AC-74 | FR-01.8-FR-01.9, FR-02.1-FR-02.7, FR-07.1-FR-07.3, INV-01-INV-02, INV-08 | AC-15-AC-17 | Shared enabler: F00 owns the safe distinction between human-readable instructions and executable commands; F16/F18 own settings and review-context integration. |
 | APP-AC-39 | FR-06.1-FR-06.5, FR-07.1 | AC-11, AC-13 | Shared enabler: owns validation/manual-evidence revision binding only; F13/F20 own dirty-worktree preservation and choices. |
 | APP-AC-48 | FR-01.1-FR-05.7, FR-07.1-FR-07.3, INV-01-INV-04 | AC-01-AC-10, AC-13 | Shared enabler: owns deterministic validation configuration/evidence only; F23-F24 own conflict resolution and result integration. |
 | APP-AC-49 | FR-04.1-FR-07.3 | AC-07-AC-13 | Shared enabler: owns serializable validation records and reason data only; F03/F24 own synchronization-result persistence and presentation. |
@@ -38,7 +40,7 @@ None. This feature resolves a pre-implementation product decision and establishe
 
 PRMonitor needs trustworthy evidence about tests and other validation without letting a repository, an AI provider, or a stale preference silently decide what code will run. Today the application overview intentionally leaves command provenance, confirmation, execution bounds, output handling, manual checks, and the no-command case unresolved. Every later review and branch-synchronization workflow would otherwise be forced to make its own incompatible decisions.
 
-This feature establishes one validation configuration contract. A developer can save a validation profile for a managed repository, approve a checked-in `.prmonitor/validation.json` profile, or approve a proposed profile for one run. The application resolves exactly one source by a fixed precedence order, shows the effective commands before trust is granted, confines working directories to the operation-owned worktree, records real process outcomes, and makes missing or unsafe validation visible rather than guessing success.
+This feature establishes one validation configuration contract. A developer can save a validation profile for a managed repository, approve a checked-in `.prmonitor/validation.json` profile, or approve a proposed profile for one run. The profile can also carry human-readable repository-specific Build & Validation Instructions and phase-tagged commands for clean-baseline and post-change validation, which is important for large monorepos with non-standard build layouts. The application resolves exactly one source by a fixed precedence order, shows the effective instructions and commands before trust is granted, confines working directories to the operation-owned worktree, records real process outcomes, and makes missing or unsafe validation visible rather than guessing success.
 
 The first implementation is the versioned, machine-readable contract and deterministic conformance logic. Process execution, durable storage, and the settings and results UI are integrated by the dependent features listed above.
 
@@ -49,6 +51,14 @@ The first implementation is the versioned, machine-readable contract and determi
 - **US-01:** **GIVEN** a developer manages a repository, **WHEN** they save a repository validation profile, **THEN** future operations can resolve the same reviewed commands without asking an AI provider to choose them.
 - **US-02:** **GIVEN** a repository contains `.prmonitor/validation.json`, **WHEN** PRMonitor first encounters that exact configuration, **THEN** the developer sees its commands, working directories, time limits, and manual checks before deciding whether to trust it.
 - **US-03:** **GIVEN** both application settings and a checked-in profile exist, **WHEN** validation is prepared, **THEN** the developer can predict which complete profile will be used from the documented precedence order.
+  - **Acceptance Criteria:** AC-01, AC-15.
+
+### Configure repository-specific build phases
+
+- **US-09:** **GIVEN** a repository has a non-standard build layout, **WHEN** the developer configures Build & Validation Instructions, **THEN** they can provide human-readable guidance plus structured commands and identify whether each command applies to the clean baseline, the proposed changes, or both.
+  - **Acceptance Criteria:** AC-15.
+- **US-10:** **GIVEN** a review operation has an approved phase-aware profile, **WHEN** the operation prepares a Review Proposal, **THEN** baseline commands run against the clean PR-head worktree before AI proposal analysis, and post-change commands run only after accepted implementation decisions have produced a proposed worktree state.
+  - **Acceptance Criteria:** AC-16, AC-17.
 
 ### Run and inspect validation safely
 
@@ -77,6 +87,9 @@ The first implementation is the versioned, machine-readable contract and determi
 - **AC-12:** **GIVEN** no valid and trusted profile resolves, **WHEN** validation is requested, **THEN** PRMonitor creates a completed validation record with status `not_run` and a specific reason such as `NO_PROFILE`, `CONFIRMATION_REQUIRED`, or `INVALID_PROFILE`; Review Bundle or synchronization-result preparation may continue, but validation is never shown as passing and publication requires the existing explicit human approval with the warning still visible.
 - **AC-13:** **GIVEN** two consumers such as review preparation and branch synchronization use the same effective profile and worktree state, **WHEN** validation is evaluated, **THEN** they receive the same source-resolution, trust, path, timeout, status, redaction, aggregation, and snapshot behavior from the shared contract.
 - **AC-14:** **GIVEN** a profile has an unsupported schema version, duplicate command or manual-check IDs, an invalid timeout or output limit, or no steps, **WHEN** it is loaded, **THEN** it is rejected before authorization or execution with field-specific errors and validation records `not_run` with reason `INVALID_PROFILE` if a run was requested.
+- **AC-15:** **GIVEN** a valid profile contains human-readable Build & Validation Instructions and commands tagged `baseline`, `post_change`, or `both`, **WHEN** the profile is normalized and shown for approval, **THEN** the complete instructions, phase tags, commands, directories, limits, and manual checks are visible, the instructions remain non-executable context, and source resolution never merges steps from different profile sources.
+- **AC-16:** **GIVEN** an approved baseline-capable profile and a clean PR-head worktree, **WHEN** a Review Proposal is prepared, **THEN** baseline commands run against that exact clean state, their real results are captured as baseline evidence, and a baseline failure is shown to the AI and developer without being misreported as a post-change failure or silently preventing semantic feedback analysis.
+- **AC-17:** **GIVEN** accepted review decisions produce a proposed worktree state, **WHEN** post-change validation is prepared, **THEN** only commands tagged `post_change` or `both` run against that state, their real results are captured before final publication approval, and later publication re-checks the configured final-validation requirement without trusting model prose.
 
 ## Functional Requirements
 
@@ -89,6 +102,8 @@ The first implementation is the versioned, machine-readable contract and determi
 - FR-01.5: Source resolution SHALL select one complete profile and SHALL NOT merge steps from sources.
 - FR-01.6: The MVP SHALL NOT automatically infer or execute commands from package manifests, build files, documentation, prior AI output, or process history.
 - FR-01.7: A profile SHALL be invalid if its schema version is unsupported, its step IDs are not unique, it has no steps, or any required field, bound, or path syntax is invalid.
+- FR-01.8: A profile MAY contain bounded human-readable `buildInstructions` for AI context and SHALL allow each command/manual-check step to declare `baseline`, `post_change`, or `both` applicability; omitted phase on a version-1 profile SHALL default to `post_change` for compatibility.
+- FR-01.9: Phase-tagged steps SHALL remain part of one complete selected profile; source resolution SHALL not merge baseline steps from one source with post-change steps from another source.
 
 ### FR-02: Trust and authorization
 
@@ -99,6 +114,7 @@ The first implementation is the versioned, machine-readable contract and determi
 - FR-02.5: An AI-provider suggestion SHALL have no executable authority and SHALL enter the contract only through an explicit **Run once** or save-and-confirm action.
 - FR-02.6: One-run authorization SHALL apply only to the displayed profile, repository, operation, and content hash and SHALL expire when that operation ends.
 - FR-02.7: Confirmation SHALL state that repository validation can execute repository-controlled code, that PRMonitor limits directory, credentials, time, and captured output, and that the MVP does not claim an operating-system or network sandbox for validation processes.
+- FR-02.8: Confirmation SHALL display the effective human-readable Build & Validation Instructions, each executable/argument list, phase tag, working directory, timeout, output limit, and manual check before authorization is recorded.
 
 ### FR-03: Execution boundary and working directory
 
@@ -141,7 +157,7 @@ The first implementation is the versioned, machine-readable contract and determi
 ### FR-07: Immutable evidence and consumer contract
 
 - FR-07.1: Before external process launch, a validation run SHALL persist an immutable snapshot of the selected profile, source, repository identity, configuration hash, authorization reference, worktree identity, and effective limits.
-- FR-07.2: Each run and step SHALL record timestamps, lifecycle state, machine-readable reason, executable and arguments, canonical working directory, resolved executable when available, exit code or signal when available, bounded/redacted stdout and stderr metadata, and manual attestation where applicable.
+- FR-07.2: Each run and step SHALL record its validation phase, timestamps, lifecycle state, machine-readable reason, executable and arguments, canonical working directory, resolved executable when available, exit code or signal when available, bounded/redacted stdout and stderr metadata, and manual attestation where applicable.
 - FR-07.3: The shared contract SHALL expose deterministic profile parsing, source resolution, trust evaluation, path validation, status aggregation, redaction, and snapshot validation for all review and synchronization consumers.
 
 ## Non-Functional Requirements
@@ -152,6 +168,7 @@ The first implementation is the versioned, machine-readable contract and determi
 - **NFR-04: Evolvability** - The schema SHALL be explicitly versioned, reject unknown major versions, and allow later additive versions without changing the meaning of stored snapshots.
 - **NFR-05: Usability** - Confirmation and results SHALL use readable labels and arguments while retaining the exact executable, arguments, directory, limits, source, and reason for inspection.
 - **NFR-06: Portability** - The contract SHALL model executables and arguments without shell syntax and SHALL keep platform-specific process-tree termination and executable resolution behind the future runner boundary.
+- **NFR-07: Explainability** - Baseline evidence, post-change evidence, human-readable build guidance, and executable validation commands SHALL remain visibly distinct so a developer can tell what was known before implementation and what was observed afterward.
 
 ## Invariants
 
@@ -163,6 +180,8 @@ The first implementation is the versioned, machine-readable contract and determi
 - **INV-06:** A missing, invalid, untrusted, interrupted, or failed validation result SHALL never be presented as passed.
 - **INV-07:** Validation configuration or execution SHALL NOT commit, push, post a GitHub response, resolve a conversation, approve a review, merge a PR, or otherwise grant publication authority.
 - **INV-08:** Mutable validation inputs SHALL be snapshotted before execution so later configuration edits cannot change the meaning of an existing result.
+- **INV-09:** Human-readable Build & Validation Instructions SHALL never grant command execution authority; only a valid, trusted structured command step may be launched.
+- **INV-10:** Baseline validation SHALL never be presented as evidence that the proposed changes pass, and post-change validation SHALL never be inferred from baseline results or AI-provider claims.
 
 ## Out of Scope
 
@@ -183,6 +202,8 @@ The first implementation is the versioned, machine-readable contract and determi
 - **PD-05: No safe command is a visible `not_run`, not a fabricated pass** - Review can continue because some repositories lack automated checks, while publication remains an explicit human decision made with the warning visible.
 - **PD-06: Manual evidence is first class but differently labeled** - Human checks can be recorded and tied to a revision, but they are shown as **Verified manually**, not as an observed test pass.
 - **PD-07: Validation runs in the operation worktree** - This makes results relevant to the exact proposed state and prevents validation from mutating the developer's ordinary workspace.
+- **PD-08: Baseline first, final evidence before approval** - When configured, a lightweight or repository-selected baseline phase runs before the Review Proposal so pre-existing failures are known. Post-change validation runs after accepted implementation decisions and before final publication approval; publication may perform a configured final re-check.
+- **PD-09: Human guidance and executable authority are separate** - Free-form repository build instructions are valuable context for AI reasoning, but they never become executable commands. Structured commands remain explicit, reviewable, trusted, and phase-tagged.
 
 ## Implementation Decisions
 
@@ -192,6 +213,7 @@ The first implementation is the versioned, machine-readable contract and determi
 - **IMP-04: Stable normalized hash** - Approval uses a SHA-256 hash of canonical JSON after schema defaults and normalization, binding trust to meaning rather than whitespace or object-key order.
 - **IMP-05: Closed reason vocabulary** - Version 1 uses stable reason values including `NO_PROFILE`, `CONFIRMATION_REQUIRED`, `INVALID_PROFILE`, `START_FAILED`, `NON_ZERO_EXIT`, `TIMED_OUT`, `USER_CANCELLED`, `APPLICATION_SHUTDOWN`, `APPLICATION_RESTARTED`, `PRIOR_STEP_STOPPED`, `WORKTREE_PATH_INVALID`, and `REDACTION_FAILURE`.
 - **IMP-06: Fail closed at boundaries** - Invalid paths, unsupported versions, trust mismatches, snapshot mismatches, or inability to guarantee redaction prevent command launch and yield a non-passing reason.
+- **IMP-07: Phase-aware profile v1** - Add optional `buildInstructions` text and a `phase` discriminator to command/manual-check steps. Preserve existing profiles by treating an omitted phase as `post_change`; generated schemas and snapshots retain the explicit effective phase.
 
 ## Testing Decisions
 
@@ -253,4 +275,16 @@ The first implementation is the versioned, machine-readable contract and determi
 4. The command and run become `interrupted` with the corresponding reason.
 5. On startup, any record still marked running is finalized as `APPLICATION_RESTARTED`.
 6. The run is never silently resumed or marked passed.
+```
+
+### Workflow 5: Baseline and post-change review validation
+
+```text
+1. The developer saves or approves one complete phase-aware Build & Validation profile.
+2. F18 creates a clean worktree at the recorded PR head SHA.
+3. Baseline-tagged commands run and produce immutable baseline evidence.
+4. The read-only Review Proposal receives the baseline evidence but cannot modify the worktree.
+5. After the developer accepts or overrides every review item, accepted implementation work produces a proposed worktree state.
+6. Post-change-tagged commands run against that state and produce separate immutable evidence.
+7. The Review Bundle shows both phases distinctly before final publication approval.
 ```

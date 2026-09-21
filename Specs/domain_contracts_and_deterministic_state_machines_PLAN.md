@@ -9,7 +9,7 @@ Note that while we're mentioning Stories here, we're not actually using tickets,
 >
 > **Owning PRD:** `Specs/domain_contracts_and_deterministic_state_machines_PRD.md`
 >
-> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-20 and F02 PRD revision 2026-09-20
+> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-21 and F02 PRD revision 2026-09-21
 >
 > **Entry/readiness gates:** F01 is complete and its root TypeScript/build/test/import-boundary gates are green. The implementation may add shared domain source and tests, but it must not require F03 SQLite, F04 IPC, GitHub credentials, an AI provider, Git operations, or product-service network access.
 >
@@ -19,13 +19,13 @@ Note that while we're mentioning Stories here, we're not actually using tickets,
 
 F02 adds a pure, provider-neutral domain contract module in the F01 shared boundary, proposed as `apps/desktop/src/shared/domain`. It defines serializable IDs, instants, results, errors, reason data, transition events, primary PR state, Review Bundle state, synchronization overlays, publication phases, holds, event-version associations, and deterministic conformance tests.
 
-The module is a decision engine, not an effect engine. It returns a new state or a safe rejection and leaves persistence, transaction commits, IPC, UI, Git, GitHub, AI, notifications, filesystem changes, process control, and publication to downstream features. F03 may persist the returned transition events; F04 may expose them through validated IPC; F11/F18/F23-F28 may supply the guards and side-effect evidence required by the reducers.
+The module is a decision engine, not an effect engine. It returns a new state or a safe rejection and leaves persistence, transaction commits, IPC, UI, Git, GitHub, AI, notifications, filesystem changes, process control, and publication to downstream features. It also defines the durable proposal/final review stage and the guard that prevents implementation before complete per-item human decisions. F03 may persist the returned transition events; F04 may expose them through validated IPC; F11/F18/F23-F28 may supply the guards and side-effect evidence required by the reducers.
 
 ## Readiness Gates
 
 - F01's TypeScript, lint, format, unit/integration, and root check commands pass from a clean checkout.
 - The shared boundary permits the new domain module to be imported by main and renderer-safe shared code without importing Electron, React, SQLite, Git, GitHub, AI SDK, or OS adapters.
-- The application overview's four primary PR states, Review Bundle states, synchronization statuses, global pause distinction, review hold semantics, and publication recovery rules are treated as source requirements.
+- The application overview's four primary PR states, Review Bundle states/stages, per-item decision guard, synchronization statuses, global pause distinction, review hold semantics, and publication recovery rules are treated as source requirements.
 - Test infrastructure supports fixed clocks, deterministic serialized fixtures, concurrent admission attempts, simulated restart, and bounded output without product-service access.
 
 ## Proposed Vertical Slices
@@ -42,29 +42,29 @@ The module is a decision engine, not an effect engine. It returns a new state or
 2. **Primary PR state, hold, and automatic-operation admission**
    - **Blocked by:** Slice 1.
    - **Stories / requirements / acceptance criteria:** US-03-US-05; FR-03.1-FR-04.6; FR-09.1-FR-09.5; NFR-01, NFR-03, NFR-06, NFR-08; INV-02, INV-04, INV-06, INV-07; APP-AC-16; AC-04-AC-09, AC-14, AC-18.
-   - **Visible result:** A table-driven reducer accepts a valid `WATCHING -> WORKING -> READY_FOR_REVIEW/NEEDS_ATTENTION` flow, exposes the hold, and rejects automatic work while held or globally paused. Explicit continuation includes an action and operation/bundle association.
+   - **Visible result:** A table-driven reducer accepts a valid `WATCHING -> WORKING -> READY_FOR_REVIEW/NEEDS_ATTENTION` flow, exposes proposal/final stage, rejects implementation before complete per-item decisions, exposes the hold, and rejects automatic work while held or globally paused. Explicit continuation includes an action and operation/bundle association.
    - **Durable records / external effects:** Produces serializable primary-state snapshots, hold records, transition events, and operation-admission decisions. Later persistence owns transaction commits; no worktree or AI process starts here.
    - **Failure / cancellation / restart:** Concurrent dispatch attempts admit at most one operation. Renderer close, restart, sleep, notification opening, and pause toggles do not clear the hold. Invalid, empty, paused, held, or duplicate dispatches return safe reasons with no compensating state mutation. Explicit cancellation is represented as a blocking reason and never as successful completion.
-   - **Exact evidence:** Exhaustive primary-state transition table; hold acquire/release tests; concurrent admission race; duplicate action replay; renderer-close/restart/sleep fixture; pause overlay matrix; explicit-action authorization test; no-AI/no-external-call assertion.
-   - **Exit criterion:** AC-04-AC-09, AC-14, and AC-18 pass; downstream scheduling can consume one documented admission/hold contract without inventing transitions.
+   - **Exact evidence:** Exhaustive primary-state transition table; hold acquire/release tests; concurrent admission race; duplicate action replay; renderer-close/restart/sleep fixture; pause overlay matrix; explicit-action authorization test; incomplete-decision rejection; question-answer-required rejection; no-AI/no-external-call assertion.
+   - **Exit criterion:** AC-04-AC-09, AC-14, AC-18-AC-23 pass; downstream scheduling can consume one documented admission/hold/decision contract without inventing transitions.
 
 3. **Immutable event-version association and Review Bundle lifecycle**
    - **Blocked by:** Slice 2.
    - **Stories / requirements / acceptance criteria:** US-05-US-06; FR-05.1-FR-06.5; FR-10.2-FR-10.4; NFR-01-NFR-04, NFR-06-NFR-08; INV-04-INV-06, INV-10; APP-AC-24, APP-AC-25; AC-09-AC-13, AC-18.
-   - **Visible result:** A conformance harness shows a remote event version being retained during active work/hold, claimed once by a bundle, marked handled after publish/discard, and never reintroduced by duplicate delivery. A Review Bundle reducer exposes all legal states and rejects illegal transitions.
+   - **Visible result:** A conformance harness shows a remote event version being retained during active work/hold, claimed once by a bundle, marked handled after publish/discard, and never reintroduced by duplicate delivery. A Review Bundle reducer exposes all legal states and proposal/final stages, requires complete per-item decisions before implementation, and rejects illegal transitions.
    - **Durable records / external effects:** Adds immutable association records, bundle transition events, stale markers, and terminal outcome fixtures. F03 later persists them; no remote event is fetched and no bundle UI is added.
    - **Failure / cancellation / restart:** Duplicate versions return the prior association. Changed semantic snapshots require a new version key. Failed/restarted reducers preserve prior history. A stale bundle remains inspectable and non-publishable until explicit re-evaluation or discard; no background action releases a hold.
-   - **Exact evidence:** Association state machine table; duplicate/idempotency and new-version tests; publish/discard monotonicity test; held-feedback retention matrix; complete Review Bundle legal/illegal transition matrix; stale/re-evaluate/discard fixtures; terminal-history immutability and round-trip tests.
-   - **Exit criterion:** AC-09-AC-13 and AC-18 pass; F11/F18 can implement event eligibility and Review Bundle preparation without changing the handled-version or hold semantics.
+   - **Exact evidence:** Association state machine table; duplicate/idempotency and new-version tests; publish/discard monotonicity test; held-feedback retention matrix; complete Review Bundle legal/illegal transition matrix; proposal-stage per-item decision matrix; question-answer guard; stale/re-evaluate/discard fixtures; terminal-history immutability and round-trip tests.
+   - **Exit criterion:** AC-09-AC-13 and AC-18-AC-23 pass; F11/F18 can implement event eligibility and staged Review Bundle preparation without changing the handled-version, hold, or decision semantics.
 
 4. **Synchronization overlay and deterministic reason contract**
    - **Blocked by:** Slices 1-3.
-   - **Stories / requirements / acceptance criteria:** US-06-US-07; FR-07.1-FR-07.8; FR-09.1-FR-09.5; FR-10.3-FR-10.4; NFR-01-NFR-06, NFR-08; INV-02, INV-07, INV-10; APP-AC-49; AC-03, AC-13-AC-15, AC-18.
+   - **Stories / requirements / acceptance criteria:** US-06-US-07; FR-07.1-FR-07.8; FR-09.1-FR-09.5; FR-10.3-FR-10.4; NFR-01-NFR-06, NFR-08; INV-02, INV-07, INV-10; APP-AC-49, APP-AC-77; AC-03, AC-13-AC-15, AC-18, AC-24.
    - **Visible result:** A synchronization result can move independently through `SKIPPED`, `MERGING`, `RESOLVING_CONFLICTS`, `READY_TO_PUBLISH`, `NEEDS_ATTENTION`, `STALE`, `PUBLISHING`, `PUBLISHED`, `DISCARDED`, and `FAILED` while the PR retains its primary review state. Each actionable status has structured what/why/next reason data.
    - **Durable records / external effects:** Adds serialized synchronization status/reason DTOs and per-result transition fixtures. No Git merge, SHA lookup, worktree creation, or UI rendering occurs.
    - **Failure / cancellation / restart:** One result's failure does not transition another result. Unknown status or stale result fails closed. Restart replay preserves the operation/worktree/source/head references and status. Clean-merge and conflict-resolution paths remain distinguishable and do not imply AI usage.
    - **Exact evidence:** Overlay independence matrix; per-result isolation test; status/reason truth table; stale publication guard; restart serialization; clean/no-AI versus conflict/AI-required contract fixture; safe-reason scan; application-coverage evidence for APP-AC-49.
-   - **Exit criterion:** AC-13-AC-15 and AC-18 pass; F23-F25 can persist and present synchronization outcomes without adding a competing PR state machine.
+   - **Exit criterion:** AC-13-AC-15, AC-18, and AC-24 pass; F23-F27 can persist and present synchronization outcomes, including ambiguous-conflict attention, without adding a competing PR state machine.
 
 5. **Publication phases, recovery, and idempotency**
    - **Blocked by:** Slice 4.

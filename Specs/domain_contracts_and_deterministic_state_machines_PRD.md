@@ -30,6 +30,10 @@ when using this template -->
 | Application ID | Feature requirements | Acceptance criteria | Ownership |
 | --- | --- | --- | --- |
 | APP-AC-16 | FR-04.1-FR-05.8, FR-06.1-FR-06.5, INV-04-INV-06 | AC-04-AC-09, AC-11 | Shared enabler: F02 owns the hold and transition contract; F11/F18/F21 own event eligibility, operation execution, and user actions. |
+| APP-AC-71 | FR-03.1-FR-04.6, FR-06.1-FR-06.6, FR-10.2-FR-10.4, INV-04-INV-06 | AC-19-AC-21 | Shared enabler: F02 owns the proposal-stage hold/transition contract and no-mutation-before-decision guard; F18/F20 own AI execution and UI enforcement. |
+| APP-AC-72 | FR-02.1-FR-02.3, FR-03.4, FR-06.2-FR-06.7, FR-10.2-FR-10.4, INV-02-INV-04, INV-10 | AC-19-AC-22 | Shared enabler: F02 owns deterministic per-item decision validity and history; F18/F20/F21 own controls, textboxes, and implementation behavior. |
+| APP-AC-75 | FR-02.2-FR-02.3, FR-06.2-FR-06.7, INV-04, INV-10 | AC-23 | Shared reason/state contract: F02 owns machine-readable distinction and next-action data; F20 owns the visual treatment. |
+| APP-AC-77 | FR-02.2-FR-02.3, FR-07.1-FR-07.7, FR-10.3-FR-10.4, INV-07-INV-10 | AC-24 | Shared state/reason enabler: F02 owns the `NEEDS_ATTENTION`/non-publishable guard and user-action contract; F26 owns ambiguity analysis and F27 owns presentation. |
 | APP-AC-24 | FR-05.4-FR-05.8, FR-10.1-FR-10.4, INV-05 | AC-10-AC-12 | Shared enabler: F02 owns monotonic handled-association rules; F11/F18/F27 own observation, bundle completion, and publication integration. |
 | APP-AC-25 | FR-05.5-FR-05.8, FR-10.1-FR-10.4, INV-05-INV-06 | AC-09-AC-12 | Shared enabler: F02 owns retained-during-hold semantics; F10-F12/F18 own polling, batching, and later eligibility. |
 | APP-AC-44 | FR-07.2-FR-07.3, FR-10.4, INV-07 | AC-13 | Shared enabler: F02 owns the provider-neutral branch-identity fields and keeps synchronization independent from primary PR state; F06/F23 own remote resolution and merge execution. |
@@ -67,6 +71,8 @@ The feature is a contract and deterministic state-machine milestone. It does not
   - **Acceptance Criteria: AC-06, AC-07, AC-08**
 - **US-05:** **GIVEN** a PR is held, **WHEN** new immutable feedback versions are observed or the visible window closes, **THEN** the hold and active work remain unchanged, new versions remain separate for later eligibility, and no concurrent automatic operation starts.
   - **Acceptance Criteria: AC-09, AC-10, AC-11**
+- **US-09:** **GIVEN** a read-only Review Proposal is ready, **WHEN** the developer has not decided every item, **THEN** the proposal remains held and no worktree-mutating implementation is admitted; once every item is accepted or overridden and required question answers exist, an explicitly recorded decision may start implementation.
+  - **Acceptance Criteria: AC-19, AC-20, AC-21, AC-22**
 
 ### Review, synchronization, and publication outcomes
 
@@ -97,6 +103,12 @@ The feature is a contract and deterministic state-machine milestone. It does not
 - **AC-16:** **GIVEN** a publication side effect may have occurred but its response is unavailable, **WHEN** recovery evaluates the persisted idempotency key, phase, commit SHA, and per-response remote IDs, **THEN** it enters a deterministic reconciliation path; it never creates a second commit or reposts a response solely because the prior process stopped or the same request was retried.
 - **AC-17:** **GIVEN** a serialized contract record contains an unknown state, reason, phase, schema version, or extra security-sensitive field, **WHEN** it is parsed, **THEN** parsing fails closed with a safe actionable error and does not coerce it into a known state or execute any external effect.
 - **AC-18:** **GIVEN** transition and invariant tests run repeatedly, concurrently, and after simulated renderer closure or process restart, **WHEN** they exercise valid, invalid, duplicate, cancellation, stale, held, and uncertain-outcome cases, **THEN** they produce stable results, reject concurrent automatic review operations for one PR, preserve terminal history, and never release a hold accidentally.
+- **AC-19:** **GIVEN** a Review Bundle is in `READY_FOR_REVIEW` with stage `PROPOSAL_REVIEW`, **WHEN** a caller requests worktree-mutating implementation while any item is undecided or any `question` item lacks its required answer, **THEN** the request is rejected with a deterministic decision-required reason and the worktree remains unchanged.
+- **AC-20:** **GIVEN** every proposal item has an explicit `accepted` or `overridden` human decision and required question answers, **WHEN** the developer confirms implementation, **THEN** the bundle may transition `READY_FOR_REVIEW`/`PROPOSAL_REVIEW` to `WORKING` with a durable action record containing the final dispositions and user instructions.
+- **AC-21:** **GIVEN** a proposal item is overridden, **WHEN** the implementation operation is prepared, **THEN** the AI provider receives the final human disposition and instructions, not the rejected recommendation as an instruction to implement; a semantic override does not itself authorize publication.
+- **AC-22:** **GIVEN** a Review Bundle reaches `FINAL_REVIEW`, **WHEN** the developer reviews its state and reason, **THEN** the domain data distinguishes a review-ready result from `NEEDS_ATTENTION` with structured what/why/next-action information, while publication still requires separate explicit approval.
+- **AC-23:** **GIVEN** the same proposal decision action is replayed after renderer closure or restart, **WHEN** the persisted bundle version and decision identity match, **THEN** the repository/reducer returns the existing decision without starting a second implementation operation or changing the prior history.
+- **AC-24:** **GIVEN** a synchronization conflict is reported as semantically ambiguous or requires user direction, **WHEN** the reducer receives the conflict result, **THEN** it enters synchronization `NEEDS_ATTENTION` with structured reason and next-action data, rejects `READY_TO_PUBLISH` and publication until an explicit user-directed action produces a newly inspected result, and preserves the prior operation/history.
 
 ## Functional Requirements
 
@@ -120,7 +132,7 @@ The feature is a contract and deterministic state-machine milestone. It does not
 - FR-03.1: The primary managed-PR state set SHALL be exactly `WATCHING`, `WORKING`, `READY_FOR_REVIEW`, and `NEEDS_ATTENTION` for the MVP.
 - FR-03.2: An eligible automatic dispatch SHALL transition `WATCHING` to `WORKING` only when no automatic review operation and no automatic review hold are active for that PR.
 - FR-03.3: A reviewable completion SHALL transition `WORKING` to `READY_FOR_REVIEW`; a blocking condition SHALL transition `WORKING` to `NEEDS_ATTENTION` with deterministic reason data.
-- FR-03.4: Explicit **Continue AI Work**, **Retry Resolution**, and **Re-evaluate** actions MAY transition a held PR to `WORKING` only when their action record and operation/bundle association are present.
+- FR-03.4: Explicit **Confirm Review Decisions**, **Continue AI Work**, **Retry Resolution**, and **Re-evaluate** actions MAY transition a held PR to `WORKING` only when their action record and operation/bundle association are present; **Confirm Review Decisions** SHALL be accepted only for a `PROPOSAL_REVIEW` bundle with complete per-item decisions and required question answers.
 - FR-03.5: Successful publication, published-with-errors completion, or explicit discard after required worktree handling MAY transition a held PR to `WATCHING`; passive polling, UI navigation, global pause changes, and window closure SHALL not release the hold.
 - FR-03.6: An ineligible or empty automatic dispatch SHALL be a deterministic no-op or rejected action and SHALL not manufacture a `WORKING` state.
 
@@ -145,16 +157,18 @@ The feature is a contract and deterministic state-machine milestone. It does not
 ### FR-06: Review Bundle lifecycle
 
 - FR-06.1: The Review Bundle state set SHALL include `WORKING`, `READY_FOR_REVIEW`, `NEEDS_ATTENTION`, `STALE`, `PUBLISHING`, `PUBLISHED`, `PUBLISHED_WITH_ERRORS`, `DISCARDED`, and `FAILED`.
-- FR-06.2: The contract SHALL define legal triggers and guards for preparation, reviewable completion, attention stop, explicit continuation/re-evaluation, remote-head staleness, explicit publication approval, publication completion, discard, and failure.
+- FR-06.2: The contract SHALL define legal triggers and guards for preparation, proposal review completion, **Confirm Review Decisions**, implementation completion, attention stop, explicit continuation/re-evaluation, remote-head staleness, explicit publication approval, publication completion, discard, and failure.
 - FR-06.3: A bundle marked `STALE` SHALL remain inspectable and SHALL not become publishable without explicit re-evaluation or discard.
 - FR-06.4: A bundle's terminal outcome and reason SHALL be immutable history; a later operation SHALL create a new association or continuation rather than rewrite the historical outcome.
 - FR-06.5: The bundle lifecycle SHALL not infer state from AI prose, validation prose, UI visibility, or a notification delivery result.
+- FR-06.6: A Review Bundle SHALL record a stage of `PROPOSAL_REVIEW` or `FINAL_REVIEW`; `PROPOSAL_REVIEW` SHALL contain read-only AI assessment evidence and per-item human decisions, while `FINAL_REVIEW` SHALL contain the resulting implementation evidence and post-change validation.
+- FR-06.7: A Review Bundle item SHALL record an immutable AI recommendation plus a separate human decision of `pending`, `accepted`, or `overridden`, the final disposition, user instructions, and any required question answer; changing a human decision SHALL create history rather than overwrite the prior decision.
 
 ### FR-07: Synchronization status overlay
 
 - FR-07.1: Branch Synchronization SHALL use a separate result-state set containing at least `SKIPPED`, `MERGING`, `RESOLVING_CONFLICTS`, `READY_TO_PUBLISH`, `NEEDS_ATTENTION`, `STALE`, `PUBLISHING`, `PUBLISHED`, `DISCARDED`, and `FAILED`.
-- FR-07.2: A synchronization result SHALL retain its PR identity, `prBaseBranch`, `prHeadBranch`, optional `syncSourceBranchOverride`, resolved `syncSourceBranch`, source/destination repository identities, `syncSourceSha`, `prHeadSha`, operation identity, worktree identity, current status, and deterministic reason data as separate fields from primary PR state; the repository API's `default_branch` SHALL not replace the recorded PR base branch or explicit override.
-- FR-07.3: Clean merge, conflict resolution, validation, stale detection, retry, discard, and publication shall have explicit status triggers; a synchronization state change SHALL not implicitly change the PR's primary review state.
+- FR-07.2: A synchronization result SHALL retain its PR identity, `prBaseBranch`, `prHeadBranch`, optional `syncSourceBranchOverride`, resolved `syncSourceBranch`, source/destination repository identities, `syncSourceSha`, `prHeadSha`, `syncMergeBaseSha`, operation identity, worktree identity, current status, and deterministic reason data as separate fields from primary PR state; the repository API's `default_branch` SHALL not replace the recorded PR base branch or explicit override.
+- FR-07.3: Clean merge, conflict resolution, ambiguity/user consultation, validation, stale detection, retry, discard, and publication shall have explicit status triggers; a synchronization state change SHALL not implicitly change the PR's primary review state.
 - FR-07.4: A selected PR that is ineligible or excluded SHALL produce `SKIPPED` with a reason that identifies what happened, why it matters, and what the user can do next.
 - FR-07.5: A synchronization result SHALL be independently recoverable and reviewable after UI closure or restart; one result's failure SHALL not transition another result in the same batch.
 - FR-07.6: The status contract SHALL distinguish a clean deterministic merge from a conflict-resolution path so a clean merge cannot accidentally imply AI usage.
@@ -227,7 +241,7 @@ The feature is a contract and deterministic state-machine milestone. It does not
 - Git worktrees, file snapshots, Git diffs, validation process execution, and actual publication side effects - F13-F14 and F23-F28.
 - AI-provider contracts, Codex adapter behavior, prompts, structured semantic output, task profiles, execution policies, and bounded AI turns - F15-F17.
 - Review Bundle screens, synchronization confirmation UI, accessibility rendering, and notification copy; later features consume the reason data and own presentation.
-- Autonomous publication, force push, automatic rebase, partial patch acceptance, webhook delivery, or any other MVP non-goal in the application overview.
+- Autonomous publication, force push, automatic rebase, per-hunk code-patch acceptance/reconstruction, webhook delivery, or any other MVP non-goal in the application overview. Per-item semantic accept/override decisions are in scope for review preparation but do not authorize partial publication.
 
 ## Product Decisions
 
@@ -236,6 +250,8 @@ The feature is a contract and deterministic state-machine milestone. It does not
 - **PD-03: New feedback is never folded into active work** - Feedback discovered during active work or a hold is retained as a separate immutable version and is considered later through an explicit workflow.
 - **PD-04: Uncertain side effects are recoverable states** - The application treats an unavailable response after a possible commit, push, or response as a reconciliation problem rather than as permission to repeat the side effect.
 - **PD-05: Status labels are not explanations** - Every user-actionable domain outcome includes structured reason data for what happened, why it matters, and what can happen next; later UIs may localize the display.
+- **PD-06: Proposal before mutation** - The initial AI review is read-only. The provider may recommend a fix, pushback, question, or no change, but it cannot modify the worktree until the developer has explicitly decided every item.
+- **PD-07: Item decisions are not publication approval** - Accepting or overriding a recommendation authorizes only the next semantic implementation step. The final complete proposed diff and selected responses still require separate publication approval.
 
 ## Implementation Decisions
 
@@ -260,7 +276,7 @@ The feature is a contract and deterministic state-machine milestone. It does not
 - **MOD-02: Domain result and reason model** - Creates discriminated success/error results and user-actionable machine-readable reasons without secrets or uncontrolled exception data.
 - **MOD-03: Primary PR state reducer** - Owns the four-state review lifecycle, explicit triggers, admission guards, and per-PR hold acquisition/release decisions.
 - **MOD-04: Review hold and event-association reducer** - Owns automatic-work exclusivity, immutable event-version associations, handled-history monotonicity, and retained-during-hold behavior.
-- **MOD-05: Review Bundle reducer** - Owns legal bundle transitions, stale handling, terminal history, and the boundary between review outcome and publication approval.
+- **MOD-05: Review Bundle reducer** - Owns legal bundle transitions, proposal/final stages, complete per-item decision guards, stale handling, terminal history, and the boundary between review outcome and publication approval.
 - **MOD-06: Synchronization overlay reducer** - Owns per-PR synchronization result statuses, independence from primary PR state, and actionable reason requirements.
 - **MOD-07: Publication phase reducer** - Owns approval gates, idempotency keys, recovery/uncertain-outcome states, response reconciliation status, and no-force-push semantics.
 - **MOD-08: Contract conformance tables** - Exposes transition definitions and fixtures used by later persistence, orchestration, and workflow tests.
@@ -272,12 +288,14 @@ The feature is a contract and deterministic state-machine milestone. It does not
 ```text
 1. A managed PR is WATCHING and has no active automatic operation or hold.
 2. Deterministic scheduling requests an eligible automatic review.
-3. The primary reducer accepts WATCHING -> WORKING and records the operation identity.
-4. The operation reaches a reviewable result or a blocking stop.
-5. The reducer transitions WORKING -> READY_FOR_REVIEW or NEEDS_ATTENTION and acquires the bundle-linked hold.
-6. New feedback is retained separately; background automatic analysis requests are rejected.
-7. An explicit continue/retry/re-evaluate action may start a bounded continuation.
-8. Successful publication, published-with-errors completion, or discard releases the hold and returns the PR to WATCHING.
+3. The primary reducer accepts WATCHING -> WORKING and records the proposal operation identity.
+4. Read-only AI analysis and optional baseline validation produce a proposal-stage result.
+5. The reducer transitions WORKING -> READY_FOR_REVIEW/PROPOSAL_REVIEW or NEEDS_ATTENTION and acquires the bundle-linked hold.
+6. New feedback is retained separately; background automatic analysis and worktree mutation requests are rejected.
+7. The developer explicitly accepts or overrides every item and answers required question items.
+8. Confirm Review Decisions transitions the held proposal to WORKING for bounded implementation; the implementation operation receives only the final human decisions.
+9. Deterministic diff inspection and post-change validation produce FINAL_REVIEW or NEEDS_ATTENTION.
+10. Successful publication, published-with-errors completion, or discard releases the hold and returns the PR to WATCHING.
 ```
 
 ### Workflow 2: Held feedback and handled association

@@ -32,6 +32,9 @@ when using this template -->
 | Application ID | Feature requirements | Acceptance criteria | Ownership |
 | --- | --- | --- | --- |
 | APP-AC-14 | FR-03.1-FR-03.7, FR-05.1-FR-05.7, INV-02-INV-04 | AC-04-AC-06 | Shared enabler: F03 owns atomic Review Bundle records and restart-safe storage; F18 owns preparation semantics and user-visible bundle behavior. |
+| APP-AC-71 | FR-04.4-FR-05.6, FR-06.1-FR-06.6, INV-02-INV-04 | AC-04-AC-06 | Shared enabler: F03 persists proposal-stage read-only evidence and the durable boundary before implementation; F18/F20 own execution policy and UI enforcement. |
+| APP-AC-72 | FR-04.4-FR-05.6, FR-08.1-FR-08.6, INV-03-INV-05 | AC-04-AC-09 | Shared enabler: F03 persists per-item decisions, question answers, and replay-safe history; F18/F20/F21 own decision validation and presentation. |
+| APP-AC-77 | FR-04.4-FR-04.7, FR-06.5-FR-06.6, INV-02-INV-04 | AC-10-AC-12, AC-14 | Shared enabler: F03 persists merge-base/both-side conflict evidence, ambiguity/user-consultation records, and restart-safe reasons; F26/F27 own resolution semantics and presentation. |
 | APP-AC-24 | FR-04.1-FR-04.7, FR-05.1-FR-05.7, INV-03, INV-05 | AC-07-AC-09 | Shared enabler: F03 owns durable immutable event-version associations and handled-history retention; F11/F18/F23 own eligibility and outcome integration. |
 | APP-AC-49 | FR-04.4-FR-04.7, FR-06.1-FR-06.5, FR-07.1-FR-07.8, INV-02-INV-04 | AC-10-AC-12 | Shared enabler: F03 owns complete synchronization-result persistence and restart-safe repository reads; F24-F27 own resolution, presentation, and external Git effects. |
 | APP-AC-55 | FR-06.1-FR-06.6, INV-02, INV-04 | AC-13-AC-14 | Shared enabler: F03 owns durable turn-budget and timeout evidence; F17 owns the bounded controller and enforcement behavior. |
@@ -60,7 +63,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 
 ### Durable review and operation history
 
-- **US-04:** **GIVEN** review feedback versions and a prepared Review Bundle, **WHEN** the bundle is committed, **THEN** its immutable inputs, snapshots, items, state, and handled associations are available together after restart or renderer closure.
+- **US-04:** **GIVEN** review feedback versions and a staged Review Bundle, **WHEN** the bundle is committed, **THEN** its immutable inputs, proposal/final stage, per-item human decisions, snapshots, items, state, and handled associations are available together after restart or renderer closure.
   - **Acceptance Criteria:** AC-04-AC-09.
 - **US-05:** **GIVEN** the same immutable feedback version or idempotency key is delivered again, **WHEN** a repository receives it, **THEN** the existing durable record is returned and no duplicate association or side effect intent is created.
   - **Acceptance Criteria:** AC-07-AC-09, AC-16-AC-17.
@@ -94,7 +97,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 - **AC-07:** **GIVEN** two observations have the same scoped immutable remote-event identity and content hash, **WHEN** they are stored, **THEN** one event-version record exists and repeated insertion returns the existing record; a changed semantic snapshot creates a new immutable version without overwriting the predecessor.
 - **AC-08:** **GIVEN** a handled event-version association, state transition, or operation update is replayed after restart, **WHEN** the repository applies it, **THEN** the association/history remains append-only, duplicate replay is idempotent, and an optimistic-concurrency loser receives a conflict result rather than replacing the winner.
 - **AC-09:** **GIVEN** a process stops during a transaction, **WHEN** the database is reopened, **THEN** SQLite recovery exposes either the pre-transaction or fully committed state, never a half-written aggregate; durable in-flight operation records remain available for the owning feature’s startup reconciliation.
-- **AC-10:** **GIVEN** a synchronization operation reaches any status, **WHEN** its result is persisted, **THEN** the record retains PR identity, base/head and resolved source branches, source/destination repositories, exact `syncSourceSha`/`prHeadSha`, worktree, status, reasons, conflict paths, diff metadata, validation evidence, and associated AI operation when present.
+- **AC-10:** **GIVEN** a synchronization operation reaches any status, **WHEN** its result is persisted, **THEN** the record retains PR identity, base/head and resolved source branches, source/destination repositories, exact `syncSourceSha`/`prHeadSha`/`syncMergeBaseSha`, worktree, status, reasons, source-side and PR-head-side conflict evidence, diff metadata, validation evidence, and associated AI operation when present.
 - **AC-11:** **GIVEN** a synchronization batch contains multiple PR results, **WHEN** one result fails or is retried, **THEN** the repository updates only that result and preserves independent statuses, histories, and reviewability for every other result.
 - **AC-12:** **GIVEN** a persisted result has an actionable status, **WHEN** a consumer reads it, **THEN** structured reason data includes what happened, why it matters, and the allowed next action; free-form logs are not required to reconstruct the result.
 - **AC-13:** **GIVEN** an AI Work Operation segment is about to start, **WHEN** its record is created, **THEN** the configured and consumed turn budget, task profile, execution-policy snapshot, operation scope, input snapshot, and owner/version are durable before the first provider turn, and renderer closure cannot reset the consumed count.
@@ -140,9 +143,9 @@ The feature is an application foundation rather than a new user workflow. Later 
 - FR-04.1: Persistence SHALL store application settings, validation profiles/approvals, Common Instruction profiles, AI task-profile revisions, and execution-policy presets without storing their secret values.
 - FR-04.2: Persistence SHALL store GitHub server metadata, repositories, API/resource checkpoints, managed PR identity, branch/repository identity, intent/context, and current PR projection.
 - FR-04.3: Persistence SHALL store immutable remote-event versions with scoped identity, semantic content hash, body/location/state snapshot, observed version metadata, and source/resource checkpoint references.
-- FR-04.4: Persistence SHALL store review batches, Review Bundles, bundle items, immutable input/snapshot references, state transitions, holds, proposed responses, diff metadata, and handled-version associations.
+- FR-04.4: Persistence SHALL store review batches, Review Bundles, proposal/final stage, bundle items, immutable input/snapshot references, per-item human decisions and question answers, state transitions, holds, proposed responses, diff metadata, and handled-version associations.
 - FR-04.5: Persistence SHALL store AI Work Operations, bounded segments, turns, conversations, provider-neutral profile/policy snapshots, usage metadata, turn reports, progress fingerprints, and machine-readable stop reasons.
-- FR-04.6: Persistence SHALL store validation runs, command/manual-check snapshots and results, synchronization batches/results/conflicts, worktree identities, publication records, per-response outcomes, and recovery markers.
+- FR-04.6: Persistence SHALL store validation runs, command/manual-check snapshots and results, synchronization batches/results/conflicts, source-side and PR-head-side change evidence, exact source/head/merge-base SHA snapshots, worktree identities, publication records, per-response outcomes, and recovery markers.
 - FR-04.7: Persistence SHALL store deterministic activity and audit events plus correlation references without making free-form log text the source of application state.
 
 ### FR-05: Immutability, snapshots, and idempotency
@@ -152,7 +155,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 - FR-05.3: Review Bundle items SHALL refer to immutable event-version IDs and SHALL retain the association outcome, handled timestamp, and owning bundle identity independently of mutable remote object fields.
 - FR-05.4: State transitions, hold acquisition/release, operation admission, publication phases, and terminal reasons SHALL be append-only history; current projections MAY point to the latest record but SHALL not erase prior records.
 - FR-05.5: Records that require retry/idempotency SHALL have stable scoped keys with uniqueness constraints and a repository operation that returns the prior result for a safe duplicate replay.
-- FR-05.6: Mutable inputs used by a result SHALL be snapshotted before the dependent operation starts, including remote event versions, SHAs, task profiles, execution policies, Common Instructions, PR Intent / Context, and validation configuration.
+- FR-05.6: Mutable inputs used by a result SHALL be snapshotted before the dependent operation starts, including remote event versions, SHAs, task profiles, execution policies, Common Instructions, PR Intent / Context, Build & Validation Instructions, per-item human decisions, and validation configuration.
 - FR-05.7: A duplicate delivery or replay SHALL not create a second active operation, second handled association, second publication intent, or second per-response remote-effect record when the declared idempotency key already exists.
 
 ### FR-06: AI, validation, and synchronization evidence
@@ -161,7 +164,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 - FR-06.2: Each AI Work Turn SHALL persist exactly one start/end lifecycle record and its normalized report, actual file/command observations, validation references, progress classification, state fingerprint, usage metadata, and stop/continue reason.
 - FR-06.3: Provider conversation references and usage metadata SHALL be opaque, bounded, optional values; their absence SHALL not prevent deterministic application state from being reconstructed.
 - FR-06.4: Validation records SHALL retain the F00 effective-profile snapshot, authorization/content hash, worktree/revision identity, command/manual outcomes, bounded redacted output metadata, and explicit `passed`, `failed`, `not_run`, or `interrupted` status.
-- FR-06.5: A synchronization result SHALL be stored independently for each PR and SHALL retain branch/repository identities, exact source/head SHAs, merge/conflict evidence, worktree, diff metadata, validation, AI association when present, current status, and structured reason data.
+- FR-06.5: A synchronization result SHALL be stored independently for each PR and SHALL retain branch/repository identities, exact source/head/merge-base SHAs, source-side and PR-head-side merge/conflict evidence, worktree, diff metadata, validation, AI association and user-consultation records when present, current status, and structured reason data.
 - FR-06.6: A persisted AI or validation record SHALL never be considered successful solely because a model or provider claims success; repository data SHALL preserve deterministic observations separately from model-reported text.
 
 ### FR-07: Publication and uncertain-outcome persistence
@@ -304,4 +307,3 @@ The feature is an application foundation rather than a new user workflow. Later 
 4. If a process/network failure leaves the outcome uncertain, F03 preserves the same intent and identifiers in a recoverable phase.
 5. Reconciliation reuses the existing record; response-only failures can become PUBLISHED_WITH_ERRORS without creating a second code-publication intent.
 ```
-

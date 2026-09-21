@@ -1,5 +1,7 @@
 # PRMonitor MVP Implementation Checklist
 
+<!-- Checklist status key: [~] means needs work. It marks an item that was previously checked but is affected by a changed product decision and must be revalidated or reimplemented before it can return to [x]. -->
+
 This checklist decomposes [`Specs/application_overview.md`](Specs/application_overview.md) into dependency-ordered implementation units. The sequence is intentional: complete items from top to bottom unless a later item's PRD proves that its stated dependencies are already satisfied.
 
 ## How to use this checklist
@@ -14,23 +16,23 @@ These apply to every item and should be copied into each PRD when relevant:
 
 - Use deterministic software for polling, state, Git, validation, retries, notifications, and publication. Invoke AI only for semantic judgment or code generation.
 - AI may work only within its authorized operation-owned boundary and never receives publication authority.
-- No commit, push, GitHub response, conversation resolution, review approval, or PR merge occurs without the required explicit human approval.
+- No commit, push, GitHub response, conversation resolution, review approval, or PR merge occurs without the required explicit human approval. Per-item review decisions may control which recommendations are implemented, but publication still requires approval of the complete proposed code diff and selected responses.
 - The Electron main process owns durable state and long-running work; the renderer is a replaceable view/controller.
 - Persist intent before external side effects. Design restart, retry, and uncertain-outcome recovery to be idempotent.
 - Never discard, reset, replace, or publish user worktree edits without showing the actual changes and obtaining the specified decision.
 - Snapshot mutable inputs used to produce a result, including remote event versions, SHAs, task profiles, execution policy, Common Instructions, and PR Intent / Context.
 - Provider SDK types and behavior stay behind the provider adapter. GitHub and OS credentials stay behind deterministic infrastructure and out of prompts, structured AI output, and plaintext SQLite fields.
-- Preserve the MVP non-goals in the application overview. In particular: no autonomous publication, force push, webhook requirement, automatic branch synchronization, partial patch acceptance, or automatic rebase of stale work.
+- Preserve the MVP non-goals in the application overview. In particular: no autonomous publication, force push, webhook requirement, automatic branch synchronization, per-hunk patch acceptance/reconstruction, blind `ours`/`theirs` conflict resolution, or automatic rebase of stale work.
 
 ## Ordered implementation items
 
 ### Phase 0 - Decisions and foundations
 
-- [x] **F00 - Deterministic validation configuration contract**
+- [~] **F00 - Deterministic validation configuration contract**
   - **Depends on:** Nothing.
-  - **Deliver:** Resolve the overview's pre-implementation TODO: define where validation commands come from, precedence and trust rules, user confirmation requirements, working-directory rules, timeouts, cancellation, output limits/redaction, manual-test records, and behavior when no safe command is configured. Record the decisions in the PRD and implement the minimal configuration contract needed by later features.
-  - **Exit:** Later validation, review, revision, and synchronization features can consume one stable contract without inventing their own command-source or safety rules.
-  - **Primary application criteria:** Enables APP-AC-13, APP-AC-48, APP-AC-49, and APP-AC-57.
+  - **Deliver:** Resolve the overview's pre-implementation TODO: define where validation commands and repository-specific build instructions come from, precedence and trust rules, user confirmation requirements, baseline-versus-proposed execution phases, working-directory rules, timeouts, cancellation, output limits/redaction, manual-test records, and behavior when no safe command is configured. Record the decisions in the PRD and update the contract consumed by later features.
+  - **Exit:** Later validation, review, revision, and synchronization features can consume one stable contract without inventing their own command-source, build-instruction, execution-phase, or safety rules.
+  - **Primary application criteria:** Enables APP-AC-13, APP-AC-48, APP-AC-49, APP-AC-57, APP-AC-73, and APP-AC-74.
 
 - [x] **F01 - Application workspace and engineering foundation**
   - **Depends on:** F00.
@@ -38,17 +40,17 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** A production-mode desktop shell and automated test suite build from a clean checkout without disturbing the standalone spec-linter.
   - **Primary application criteria:** Architectural enabler; no criterion is closed by scaffolding alone.
 
-- [x] **F02 - Domain contracts and deterministic state machines**
+- [~] **F02 - Domain contracts and deterministic state machines**
   - **Depends on:** F01.
-  - **Deliver:** Define provider-neutral domain IDs, clocks, errors, result/reason types, PR primary states, Review Bundle states, synchronization states, publication phases, and allowed transitions. Keep global pause and synchronization as overlays rather than competing PR state machines. Add transition and invariant tests.
-  - **Exit:** Invalid transitions, concurrent automatic review work for one PR, and accidental hold release are rejected by deterministic domain code.
-  - **Primary application criteria:** Enables APP-AC-16, APP-AC-24, APP-AC-25, APP-AC-49, and APP-AC-68.
+  - **Deliver:** Define provider-neutral domain IDs, clocks, errors, result/reason types, PR primary states, Review Bundle states/stages, per-item proposal decisions, synchronization states, publication phases, and allowed transitions. Keep global pause and synchronization as overlays rather than competing PR state machines. Add transition and invariant tests for the proposal-before-mutation review flow.
+  - **Exit:** Invalid transitions, concurrent automatic review work for one PR, accidental hold release, and implementation before required per-item human decisions are rejected by deterministic domain code.
+  - **Primary application criteria:** Enables APP-AC-16, APP-AC-24, APP-AC-25, APP-AC-49, APP-AC-68, APP-AC-71, APP-AC-72, and APP-AC-75.
 
-- [x] **F03 - SQLite persistence, migrations, and transactional repositories**
+- [~] **F03 - SQLite persistence, migrations, and transactional repositories**
   - **Depends on:** F02.
-  - **Deliver:** Add SQLite initialization and versioned migrations for settings, servers, repositories, PRs, immutable remote-event versions, batches, bundles/items, AI operations/turns/conversations, validation, synchronization, publication/response state, and activity events. Implement transaction boundaries, uniqueness/idempotency constraints, restart-safe repositories, and migration/backup failure handling.
+  - **Deliver:** Add SQLite initialization and versioned migrations for settings, servers, repositories, PRs, immutable remote-event versions, batches, staged Review Bundles/items and per-item human decisions, AI operations/turns/conversations, build/validation profiles and phase-specific results, synchronization, publication/response state, and activity events. Implement transaction boundaries, uniqueness/idempotency constraints, restart-safe repositories, and migration/backup failure handling.
   - **Exit:** Representative state survives process restart; migration tests cover empty, current, and upgrade databases; concurrency and uniqueness constraints enforce the domain invariants.
-  - **Primary application criteria:** Persistence enabler for APP-AC-14, APP-AC-24, APP-AC-49, APP-AC-55, APP-AC-64, APP-AC-68, and APP-AC-69.
+  - **Primary application criteria:** Persistence enabler for APP-AC-14, APP-AC-24, APP-AC-49, APP-AC-55, APP-AC-64, APP-AC-68, APP-AC-69, APP-AC-71, and APP-AC-72.
 
 - [x] **F04 - Persistent Electron shell, IPC boundary, and Windows virtual-desktop spike**
   - **Depends on:** F01-F03.
@@ -112,27 +114,27 @@ These apply to every item and should be copied into each PRD when relevant:
 
 - [ ] **F13 - Operation-owned Git worktrees and change attribution**
   - **Depends on:** F03, F07, F11-F12.
-  - **Deliver:** Implement a thin deterministic Git/worktree service that fetches refs, records `prBaseSha`, `prHeadSha`, and `worktreeBaselineSha`, creates clean review and synchronization worktrees under a configurable root, and never touches the developer workspace. Capture before/after snapshots for each mutating AI turn, inspect actual state before every mutation/validation/publication, expose open/reveal actions, and implement safe three-way removal of AI-attributable changes with overlap detection.
+  - **Deliver:** Implement a thin deterministic Git/worktree service that fetches refs, records `prBaseSha`, `prHeadSha`, `worktreeBaselineSha`, and synchronization merge-base identities, creates clean review and synchronization worktrees under a configurable root, and never touches the developer workspace. Capture before/after snapshots for each mutating AI turn, inspect actual state before every mutation/validation/publication, expose open/reveal actions, and implement safe three-way removal of AI-attributable changes with overlap detection.
   - **Exit:** Concurrent operation types cannot reuse/overwrite a worktree; proposed and context diffs are reproducible; manual edits are preserved; and unsafe overlap blocks **Clear Only AI Changes** instead of guessing.
   - **Primary application criteria:** APP-AC-10, APP-AC-37, APP-AC-39; supplies the snapshot/diff foundation for APP-AC-67.
 
 - [ ] **F14 - Deterministic validation runner and result model**
   - **Depends on:** F00, F03, F09, F13.
-  - **Deliver:** Execute only validation allowed by F00's contract in the operation worktree; capture exact command, directory, times, exit code, bounded/redacted stdout/stderr, cancellation/timeout, and manual-test status. Persist and display `passed`, `failed`, `not_run`, and `interrupted`; never infer success from model prose.
-  - **Exit:** Real exit statuses survive restart and are consumable by Review Bundles, AI progress evaluation, and synchronization results, including explicit no-safe-command behavior.
-  - **Primary application criteria:** APP-AC-13.
+  - **Deliver:** Execute only validation allowed by F00's contract in the operation worktree; capture phase (`baseline`, `post_change`, or `both`), exact command, directory, times, exit code, bounded/redacted stdout/stderr, cancellation/timeout, and manual-test status. Persist and display `passed`, `failed`, `not_run`, and `interrupted`; never infer success from model prose.
+  - **Exit:** Real baseline and post-change exit statuses survive restart and are consumable by Review Bundles, AI progress evaluation, and synchronization results, including explicit no-safe-command behavior.
+  - **Primary application criteria:** APP-AC-13, APP-AC-73, APP-AC-74.
 
 - [ ] **F15 - Provider-neutral AI contracts and Codex adapter**
   - **Depends on:** F01-F03, F13-F14.
-  - **Deliver:** Define Zod-first normalized request, capability, streaming-event, usage, conversation-reference, error, AI review result, and turn-report schemas, generating JSON Schema for structured output. Add an `AIProviderRegistry` and the sole MVP `@openai/codex-sdk` adapter, with explicit working directory and controlled child environment. Reject unsupported capabilities or invalid structured output before it can drive state.
+  - **Deliver:** Define Zod-first normalized request, capability, streaming-event, usage, conversation-reference, error, read-only Review Proposal, worktree-mutating Review Implementation, AI review result, and turn-report schemas, generating JSON Schema for structured output. Add an `AIProviderRegistry` and the sole MVP `@openai/codex-sdk` adapter, with explicit working directory and controlled child environment. Reject unsupported capabilities or invalid structured output before it can drive state.
   - **Exit:** A fake provider and Codex adapter satisfy the same contract; only the adapter imports the Codex SDK; every input event version must be accounted for; SDK objects and provider threads never become authoritative application state.
   - **Primary application criteria:** APP-AC-11, APP-AC-12, APP-AC-63, APP-AC-64.
 
 - [ ] **F16 - AI preferences, task-profile snapshots, execution policies, and Common Instructions**
   - **Depends on:** F03-F04, F15.
-  - **Deliver:** Build Preferences for the four task types, provider/model/reasoning compatibility validation, revisions, maximum-turn setting, named execution-policy presets, configurable worktree root, polling/quiet periods, and reusable Common Instruction profiles. Resolve and snapshot effective profiles/policies/instructions; enforce a read-only floor for read-only conversation; default mutating work to Autonomous Worktree; withhold GitHub credentials; and reject interactive policies unsupported by the direct SDK.
+  - **Deliver:** Build Preferences for the four task types, provider/model/reasoning compatibility validation, revisions, maximum-turn setting, named execution-policy presets, configurable worktree root, polling/quiet periods, reusable Common Instruction profiles, and per-repository Build & Validation Instructions. Resolve and snapshot effective profiles/policies/instructions; enforce a read-only floor for proposal analysis and read-only conversation; default accepted implementation work to Autonomous Worktree; withhold GitHub credentials; and reject interactive policies unsupported by the direct SDK.
   - **Exit:** Preference edits affect only future segments/turns, every invocation is routed by declared task type, policy cannot be silently broadened, and persisted/user-visible snapshots make completed work reproducible.
-  - **Primary application criteria:** APP-AC-32 through APP-AC-36, APP-AC-59 through APP-AC-62, APP-AC-70; completes snapshot behavior for APP-AC-41 and APP-AC-42.
+  - **Primary application criteria:** APP-AC-32 through APP-AC-36, APP-AC-59 through APP-AC-62, APP-AC-70, APP-AC-74; completes snapshot behavior for APP-AC-41 and APP-AC-42.
 
 - [ ] **F17 - Bounded AI Work Controller and deterministic progress evaluation**
   - **Depends on:** F03, F13-F16.
@@ -144,9 +146,9 @@ These apply to every item and should be copied into each PRD when relevant:
 
 - [ ] **F18 - Automatic review-to-Review-Bundle vertical slice**
   - **Depends on:** F07, F10-F17.
-  - **Deliver:** Dispatch an eligible batch; prepare its isolated worktree; assemble PR metadata, immutable feedback versions, repository instructions, snapshotted PR Intent / Context and Common Instructions; invoke the Automatic Review profile through `AIWorkController`; inspect actual diff; run validation; and atomically persist a complete Review Bundle and item associations. Support `fixed`, `pushback`, `question`, and `no_change`, including all-no-code completion.
-  - **Exit:** A simulated remote comment reaches `READY_FOR_REVIEW` or actionable `NEEDS_ATTENTION` with a restart-safe bundle, complete turn evidence, correct hold, and zero direct AI/GitHub coupling outside the declared boundaries.
-  - **Primary application criteria:** APP-AC-14, APP-AC-41, APP-AC-42, APP-AC-66; integrates APP-AC-10 through APP-AC-17.
+  - **Deliver:** Dispatch an eligible batch; prepare its isolated worktree; run approved baseline validation when configured; assemble PR metadata, immutable feedback versions, repository instructions, snapshotted PR Intent / Context, Common Instructions, and Build & Validation Instructions; invoke the Automatic Review profile through a read-only proposal phase; atomically persist a proposal-stage Review Bundle and item associations; require an explicit per-item accept/override decision before any implementation turn; require a textbox answer for each `question` disposition; implement only accepted/overridden fix decisions; inspect actual diff; run post-change validation; and atomically persist the final Review Bundle. Support `fixed`, `pushback`, `question`, and `no_change`, including all-no-code completion.
+  - **Exit:** A simulated remote comment reaches a reviewable proposal, cannot mutate the worktree before required human decisions, then reaches final `READY_FOR_REVIEW` or actionable `NEEDS_ATTENTION` with a restart-safe bundle, complete turn evidence, correct hold, and zero direct AI/GitHub coupling outside the declared boundaries.
+  - **Primary application criteria:** APP-AC-14, APP-AC-41, APP-AC-42, APP-AC-66, APP-AC-71, APP-AC-72, APP-AC-73, APP-AC-74; integrates APP-AC-10 through APP-AC-17.
 
 - [ ] **F19 - System tray, native notifications, deep links, and shutdown**
   - **Depends on:** F04, F08-F09, F12, F13, F18.
@@ -156,13 +158,13 @@ These apply to every item and should be copied into each PRD when relevant:
 
 - [ ] **F20 - Review Bundle workspace and complete diff viewer**
   - **Depends on:** F13-F14, F16-F19.
-  - **Deliver:** Build the core Review Bundle screen: item navigation; original immutable feedback; assessment/disposition; editable proposed replies; related files; validation; activity/turn reports and usage; effective AI configuration/policy; state/reason guidance; copy/open worktree path; and actions gated by state. Add read-only relevant, authoritative proposed-worktree, and contextual PR diff views with file navigation, line numbers, syntax highlighting, additions/removals, collapsed context, new/deleted markers, and open/reveal file actions.
-  - **Exit:** The user can inspect every persisted input, output, actual validation result, and the exact complete diff eligible for publication; UI text never confuses the context diff with the proposed diff.
-  - **Primary application criteria:** APP-AC-21, APP-AC-67; completes the UI aspects of APP-AC-38, APP-AC-58, and APP-AC-62.
+  - **Deliver:** Build the core Review Bundle screen: proposal/final-stage item navigation; original immutable feedback; assessment/disposition; explicit per-item **Accept recommendation** and **Override recommendation** controls; override disposition/instruction fields; a textbox for every `question` item; editable proposed replies; related files; baseline and post-change validation; activity/turn reports and usage; effective AI configuration/policy; state/reason guidance; copy/open worktree path; and actions gated by state. Add read-only relevant, authoritative proposed-worktree, and contextual PR diff views with file navigation, line numbers, syntax highlighting, additions/removals, collapsed context, new/deleted markers, and open/reveal file actions. Use a calm review-ready presentation for `READY_FOR_REVIEW` and a persistent warning/next-action presentation for `NEEDS_ATTENTION`.
+  - **Exit:** The user can inspect every persisted input, output, human decision, actual validation result, and the exact complete diff eligible for publication; UI text never confuses proposal analysis, baseline validation, context diff, and proposed diff.
+  - **Primary application criteria:** APP-AC-21, APP-AC-67, APP-AC-71, APP-AC-72, APP-AC-73, APP-AC-75; completes the UI aspects of APP-AC-38, APP-AC-58, and APP-AC-62.
 
 - [ ] **F21 - Read-only conversation and worktree-mutating review revisions**
   - **Depends on:** F15-F20.
-  - **Deliver:** Add per-entry instructions and chat. Route clarification/brainstorming through the Read-only Conversation profile with enforced read-only policy; route requested code/test/assessment/reply changes through Review Revision and `AIWorkController`. Persist conversations/turn snapshots, stream safe progress, consume budgets only for mutating turns, then refresh the bundle strictly from actual Git/validation state.
+  - **Deliver:** Add proposal-stage per-entry instructions, question-answer textboxes, and chat. Route clarification/brainstorming through the Read-only Conversation profile with enforced read-only policy; route accepted implementation or requested code/test/assessment/reply changes through Review Revision and `AIWorkController`. Persist conversations/turn snapshots, stream safe progress, consume budgets only for mutating turns, then refresh the bundle strictly from actual Git/validation state.
   - **Exit:** The user can converse and revise before publication; read-only turns cannot mutate files; revisions retain manual edits, produce turn reports, and return to `READY_FOR_REVIEW` or `NEEDS_ATTENTION` deterministically.
   - **Primary application criteria:** APP-AC-22; integrates APP-AC-33, APP-AC-55 through APP-AC-62.
 
@@ -188,21 +190,21 @@ These apply to every item and should be copied into each PRD when relevant:
 
 - [ ] **F25 - Independent deterministic synchronization and clean-merge results**
   - **Depends on:** F12-F14, F24.
-  - **Deliver:** Persist batch/operation records; create a separate worktree per eligible PR at `prHeadSha`; perform explicit no-commit merges; distinguish already-up-to-date/no-op; record conflicts; inspect the actual merge; run validation; and continue other PRs after any skip/failure. Persist result, diff, reason, worktree, SHAs, repositories, validation, and statuses with plain-language next actions.
+  - **Deliver:** Persist batch/operation records; create a separate worktree per eligible PR at `prHeadSha`; compute and persist the exact merge base; perform explicit no-commit merges; distinguish already-up-to-date/no-op; record source-side and PR-head-side changes plus conflicts; inspect the actual merge; run validation; and continue other PRs after any skip/failure. Persist result, diff, reason, worktree, branch/repository/merge-base SHAs, validation, and statuses with plain-language next actions.
   - **Exit:** Clean merges reach `READY_TO_PUBLISH` using zero AI tokens, no-op merges create no empty merge commit, failures are isolated per PR, and every result survives window closure/restart.
   - **Primary application criteria:** APP-AC-46, APP-AC-47, APP-AC-49.
 
 - [ ] **F26 - AI-assisted merge-conflict resolution**
   - **Depends on:** F15-F17, F25.
-  - **Deliver:** On actual conflicts only, invoke Merge Conflict Resolution inside the synchronization worktree with exact branch/repository/SHA identities, conflicted paths, intent, and instructions. Use bounded segments and turn reports; deterministically require no unmerged paths, no unintended conflict markers, and recorded validation. Preserve stopped work for manual edits and expose explicitly confirmed **Retry Resolution** with prior history/usage.
-  - **Exit:** A fixture with semantic conflicts can reach reviewable success or a concrete `NEEDS_ATTENTION` reason; provider claims alone cannot complete it; retry never resets or hides prior budget/evidence.
-  - **Primary application criteria:** APP-AC-48; completes synchronization coverage for APP-AC-54 through APP-AC-64 and APP-AC-70.
+  - **Deliver:** On actual conflicts only, invoke Merge Conflict Resolution inside the synchronization worktree with exact source/destination branch and repository identities, source/head/merge-base SHAs, both branch change sets, conflicted paths/hunks, available intent/context, and instructions. Require the AI to preserve compatible intent from both sides rather than blindly choosing `ours` or `theirs`; use bounded segments and turn reports; deterministically require no unmerged paths, no unintended conflict markers, and recorded validation. When intent is ambiguous, persist competing-intent analysis and a user question, alert the developer, preserve the worktree, and block publication until an explicit user-directed resolution is inspected and validated. Preserve stopped work for manual edits and expose explicitly confirmed **Retry Resolution** with prior history/usage.
+  - **Exit:** Fixtures covering a clean merge, a semantically resolvable conflict, and an ambiguous conflict reach respectively zero-AI success, reviewable success, and actionable `NEEDS_ATTENTION`; provider claims alone cannot complete it; retry never resets or hides prior budget/evidence.
+  - **Primary application criteria:** APP-AC-48, APP-AC-54 through APP-AC-64, APP-AC-70, APP-AC-76, and APP-AC-77.
 
 - [ ] **F27 - Synchronization result review, staleness, and publication**
   - **Depends on:** F19-F20, F23-F26.
-  - **Deliver:** Add batch/result review UI with status overlays, deterministic explanations, full diff/validation/worktree/AI evidence, discard/re-evaluate/dirty-worktree handling, and per-result **Publish Merge**. Re-fetch and verify PR openness, both SHAs, exact merge state, and non-force feasibility; persist/reconcile publication; mark older bundles stale after head movement; keep each PR outcome isolated.
+  - **Deliver:** Add batch/result review UI with status overlays, deterministic explanations, full diff/validation/worktree/AI evidence, competing-intent summaries and required user questions for ambiguous conflicts, discard/re-evaluate/dirty-worktree handling, and per-result **Publish Merge**. Re-fetch and verify PR openness, source/head/merge-base SHAs, exact merge state, and non-force feasibility; persist/reconcile publication; mark older bundles stale after head movement; keep each PR outcome isolated.
   - **Exit:** Every merge is individually reviewable and explicitly approved; either SHA movement blocks publication; retry/resume cannot duplicate merge commits or pushes; successful publication preserves historical bundles and marks affected ones stale.
-  - **Primary application criteria:** APP-AC-50, APP-AC-51, APP-AC-52, APP-AC-53.
+  - **Primary application criteria:** APP-AC-50, APP-AC-51, APP-AC-52, APP-AC-53; presents APP-AC-77.
 
 ### Phase 6 - Reliability, security, and release completion
 
@@ -220,9 +222,9 @@ These apply to every item and should be copied into each PRD when relevant:
 
 - [ ] **F30 - Windows packaging, end-to-end acceptance, and release readiness**
   - **Depends on:** F00-F29.
-  - **Deliver:** Produce the installable Windows MVP with application identity/icons, upgrade-safe data paths, startup/shutdown behavior, signing/update decisions documented, clean-machine installation instructions, accessibility/keyboard/focus/error-state review, performance bounds, and support diagnostics. Run a requirements trace against all 70 application acceptance criteria plus the full workflow on GitHub.com and supported GHES test configurations.
+  - **Deliver:** Produce the installable Windows MVP with application identity/icons, upgrade-safe data paths, startup/shutdown behavior, signing/update decisions documented, clean-machine installation instructions, accessibility/keyboard/focus/error-state review, performance bounds, and support diagnostics. Run a requirements trace against all 77 application acceptance criteria plus the full workflow on GitHub.com and supported GHES test configurations.
   - **Exit:** A clean Windows machine can install, configure, run in the tray, monitor multiple PRs, prepare/revise/discard/publish Review Bundles, synchronize branches, recover from restart/network faults, and uninstall without losing externally published history. Every APP-AC has recorded passing evidence or the MVP is not complete.
-  - **Primary application criteria:** Final verification of APP-AC-01 through APP-AC-70.
+  - **Primary application criteria:** Final verification of APP-AC-01 through APP-AC-77.
 
 ## Acceptance-criteria ownership ledger
 
@@ -273,7 +275,12 @@ This ledger is a completeness check, not a substitute for the PRD coverage linte
 | APP-AC-68 | F23, F28 |
 | APP-AC-69 | F10 |
 | APP-AC-70 | F16, F29 |
+| APP-AC-71, APP-AC-72 | F18, F20, F21 |
+| APP-AC-73, APP-AC-74 | F00, F14, F16, F18, F20 |
+| APP-AC-75 | F02, F20 |
+| APP-AC-76 | F26 |
+| APP-AC-77 | F26, F27 |
 
 ## Completion rule
 
-The MVP is complete only when every top-level item is checked, `npm run check` passes, the feature PRDs collectively cover every applicable `APP-AC-*` criterion without unresolved linter findings, and F30 has recorded end-to-end evidence for all 70 application acceptance criteria. Future-enhancement and non-goal work must not be added merely to make this checklist appear more complete.
+The MVP is complete only when every top-level item is checked, `npm run check` passes, the feature PRDs collectively cover every applicable `APP-AC-*` criterion without unresolved linter findings, and F30 has recorded end-to-end evidence for all 77 application acceptance criteria. Future-enhancement and non-goal work must not be added merely to make this checklist appear more complete.

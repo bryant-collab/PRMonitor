@@ -77,7 +77,7 @@ adequacy probabilities.
 ## Application overview coverage linter
 
 The application overview's MVP acceptance criteria use stable IDs such as
-`APP-AC-01` through `APP-AC-70`. A feature PRD can reference applicable overview
+`APP-AC-01` through `APP-AC-77`. A feature PRD can reference applicable overview
 criteria in its `Application Requirements Covered` table.
 
 Run the coverage linter with:
