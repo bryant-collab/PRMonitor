@@ -49,11 +49,26 @@ export interface ReviewBundleRecord<T = unknown> extends PersistedRecord<T> {
   readonly managedPrId: string;
   readonly batchId: string;
   readonly state: string;
+  readonly stage: "PROPOSAL_REVIEW" | "FINAL_REVIEW";
   readonly items: readonly {
     readonly id: string;
     readonly eventVersionId: string;
     readonly payload: unknown;
     readonly associatedAt: string;
+    readonly decision: {
+      readonly decision: "pending" | "accepted" | "overridden";
+      readonly finalDisposition:
+        "fixed" | "pushback" | "question" | "no_change";
+      readonly userInstructions?: string;
+      readonly questionAnswer?: string;
+    };
+    readonly decisionHistory: readonly {
+      readonly decision: string;
+      readonly finalDisposition: string;
+      readonly userInstructions?: string;
+      readonly questionAnswer?: string;
+      readonly createdAt: string;
+    }[];
   }[];
   readonly hold?: {
     readonly id: string;
@@ -90,6 +105,10 @@ export interface SynchronizationResultRecord<
   readonly destinationBranch?: string;
   readonly syncSourceSha?: string;
   readonly prHeadSha?: string;
+  readonly syncMergeBaseSha?: string;
+  readonly sourceChangeEvidence?: unknown;
+  readonly prHeadChangeEvidence?: unknown;
+  readonly userConsultation?: unknown;
   readonly worktreeId?: string;
   readonly aiOperationId?: string;
   readonly diffId?: string;
@@ -98,6 +117,10 @@ export interface SynchronizationResultRecord<
   readonly conflicts: readonly {
     readonly path: string;
     readonly reason: unknown;
+    readonly source?: string;
+    readonly destination?: string;
+    readonly mergeBase?: string;
+    readonly details?: unknown;
   }[];
 }
 
@@ -144,8 +167,9 @@ export interface GithubServerAuthRecord {
   readonly updatedAt: string;
 }
 
-export interface GithubServerProfileRecord<T = JsonObject>
-  extends PersistedRecord<T> {
+export interface GithubServerProfileRecord<
+  T = JsonObject,
+> extends PersistedRecord<T> {
   readonly serverId: string;
   readonly host: string;
   readonly apiBaseUrl: string;
@@ -189,7 +213,8 @@ export interface GithubCredentialOperationRecord {
     readonly name?: string;
     readonly verifiedAt?: string;
   };
-  readonly cleanupState: "NOT_REQUIRED" | "PENDING" | "COMPLETED" | "RECOVERY_REQUIRED";
+  readonly cleanupState:
+    "NOT_REQUIRED" | "PENDING" | "COMPLETED" | "RECOVERY_REQUIRED";
   readonly version: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -280,13 +305,21 @@ function protectedReference(
     );
 }
 
-function safeOperationKind(value: string): GithubCredentialOperationRecord["operationKind"] {
-  if (value === "SAVE_AND_TEST" || value === "TEST_CONNECTION" || value === "REMOVE")
+function safeOperationKind(
+  value: string,
+): GithubCredentialOperationRecord["operationKind"] {
+  if (
+    value === "SAVE_AND_TEST" ||
+    value === "TEST_CONNECTION" ||
+    value === "REMOVE"
+  )
     return value;
   throw new Error("F05_INVALID_OPERATION_KIND");
 }
 
-function safeOperationPhase(value: string): GithubCredentialOperationRecord["phase"] {
+function safeOperationPhase(
+  value: string,
+): GithubCredentialOperationRecord["phase"] {
   const phases: readonly GithubCredentialOperationRecord["phase"][] = [
     "INTENT",
     "CANDIDATE_STORED",
@@ -313,7 +346,9 @@ function safeCleanupState(
     "COMPLETED",
     "RECOVERY_REQUIRED",
   ];
-  if (!states.includes(value as GithubCredentialOperationRecord["cleanupState"]))
+  if (
+    !states.includes(value as GithubCredentialOperationRecord["cleanupState"])
+  )
     throw new Error("F05_INVALID_CLEANUP_STATE");
   return value as GithubCredentialOperationRecord["cleanupState"];
 }
@@ -651,7 +686,11 @@ export class PersistenceRepositories {
     text(input.host, "GitHub server host");
     text(input.apiBaseUrl, "GitHub API base URL");
     if (input.credentialRef !== undefined)
-      protectedReference(this.store, input.credentialRef, "credential reference");
+      protectedReference(
+        this.store,
+        input.credentialRef,
+        "credential reference",
+      );
     const metadata = encode(input.metadata ?? {});
     const timestamp = now(this.clock);
     return this.store.transaction((transaction) => {
@@ -798,35 +837,35 @@ export class PersistenceRepositories {
       const activeRef =
         input.activeRef === undefined
           ? rowOptionalString(existing ?? {}, "active_ref")
-          : input.activeRef ?? undefined;
+          : (input.activeRef ?? undefined);
       const activeRevision =
         input.activeRevision === undefined
           ? rowOptionalNumber(existing ?? {}, "active_revision")
-          : input.activeRevision ?? undefined;
+          : (input.activeRevision ?? undefined);
       const candidateRef =
         input.candidateRef === undefined
           ? rowOptionalString(existing ?? {}, "candidate_ref")
-          : input.candidateRef ?? undefined;
+          : (input.candidateRef ?? undefined);
       const candidateRevision =
         input.candidateRevision === undefined
           ? rowOptionalNumber(existing ?? {}, "candidate_revision")
-          : input.candidateRevision ?? undefined;
+          : (input.candidateRevision ?? undefined);
       const accountLogin =
         input.accountLogin === undefined
           ? rowOptionalString(existing ?? {}, "account_login")
-          : input.accountLogin ?? undefined;
+          : (input.accountLogin ?? undefined);
       const accountName =
         input.accountName === undefined
           ? rowOptionalString(existing ?? {}, "account_name")
-          : input.accountName ?? undefined;
+          : (input.accountName ?? undefined);
       const verifiedAt =
         input.verifiedAt === undefined
           ? rowOptionalString(existing ?? {}, "verified_at")
-          : input.verifiedAt ?? undefined;
+          : (input.verifiedAt ?? undefined);
       const lastTestAt =
         input.lastTestAt === undefined
           ? rowOptionalString(existing ?? {}, "last_test_at")
-          : input.lastTestAt ?? undefined;
+          : (input.lastTestAt ?? undefined);
       const reasonJson =
         input.reason === undefined
           ? rowString(existing ?? { reason_json: "{}" }, "reason_json")
@@ -897,7 +936,9 @@ export class PersistenceRepositories {
 
   public listGithubServerAuth(): readonly GithubServerAuthRecord[] {
     return this.store
-      .readAll("SELECT * FROM github_server_auth ORDER BY created_at, server_id")
+      .readAll(
+        "SELECT * FROM github_server_auth ORDER BY created_at, server_id",
+      )
       .map((row) => this.githubServerAuthFromRow(row));
   }
 
@@ -909,10 +950,14 @@ export class PersistenceRepositories {
       "SELECT * FROM github_servers WHERE server_id = ?",
       serverId,
     );
-    return row === undefined ? undefined : this.githubServerProfileFromRow<T>(row);
+    return row === undefined
+      ? undefined
+      : this.githubServerProfileFromRow<T>(row);
   }
 
-  public listGithubServerProfiles<T = JsonObject>(): readonly GithubServerProfileRecord<T>[] {
+  public listGithubServerProfiles<
+    T = JsonObject,
+  >(): readonly GithubServerProfileRecord<T>[] {
     return this.store
       .readAll("SELECT * FROM github_servers ORDER BY created_at, server_id")
       .map((row) => this.githubServerProfileFromRow<T>(row));
@@ -955,8 +1000,13 @@ export class PersistenceRepositories {
     };
   }
 
-  private githubServerProfileFromRow<T>(row: SqlRow): GithubServerProfileRecord<T> {
-    const metadata = JSON.parse(rowString(row, "metadata_json")) as Record<string, unknown>;
+  private githubServerProfileFromRow<T>(
+    row: SqlRow,
+  ): GithubServerProfileRecord<T> {
+    const metadata = JSON.parse(rowString(row, "metadata_json")) as Record<
+      string,
+      unknown
+    >;
     const displayName =
       typeof metadata.displayName === "string"
         ? metadata.displayName
@@ -1087,15 +1137,26 @@ export class PersistenceRepositories {
     readonly cleanupState?: GithubCredentialOperationRecord["cleanupState"];
   }): GithubCredentialOperationRecord {
     id(input.operationId, "GitHub credential operation identifier");
-    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
+    if (
+      !Number.isSafeInteger(input.expectedVersion) ||
+      input.expectedVersion < 1
+    )
       throw repositoryError(
         this.store,
         "INVALID_RECORD",
         "The GitHub credential operation version must be a positive integer.",
       );
     if (input.candidateRef !== undefined && input.candidateRef !== null)
-      protectedReference(this.store, input.candidateRef, "candidate protected reference");
-    if (input.reason !== undefined && input.reason !== null && !isGithubSafeReason(input.reason))
+      protectedReference(
+        this.store,
+        input.candidateRef,
+        "candidate protected reference",
+      );
+    if (
+      input.reason !== undefined &&
+      input.reason !== null &&
+      !isGithubSafeReason(input.reason)
+    )
       throw repositoryError(
         this.store,
         "SECURITY_VIOLATION",
@@ -1120,15 +1181,16 @@ export class PersistenceRepositories {
           "CONFLICT",
           "The GitHub credential operation changed before this update was committed.",
         );
-      const phase = input.phase ?? safeOperationPhase(rowString(existing, "phase"));
+      const phase =
+        input.phase ?? safeOperationPhase(rowString(existing, "phase"));
       const candidateRef =
         input.candidateRef === undefined
           ? rowOptionalString(existing, "candidate_ref")
-          : input.candidateRef ?? undefined;
+          : (input.candidateRef ?? undefined);
       const candidateRevision =
         input.candidateRevision === undefined
           ? rowOptionalNumber(existing, "candidate_revision")
-          : input.candidateRevision ?? undefined;
+          : (input.candidateRevision ?? undefined);
       const reasonJson =
         input.reason === undefined
           ? rowString(existing, "reason_json")
@@ -1138,7 +1200,8 @@ export class PersistenceRepositories {
           ? rowString(existing, "test_result_json")
           : encode(input.testResult).payload;
       const cleanupState =
-        input.cleanupState ?? safeCleanupState(rowString(existing, "cleanup_state"));
+        input.cleanupState ??
+        safeCleanupState(rowString(existing, "cleanup_state"));
       transaction.run(
         "UPDATE github_credential_operations SET phase = ?, candidate_ref = ?, candidate_revision = ?, reason_json = ?, test_result_json = ?, cleanup_state = ?, version = ?, updated_at = ? WHERE operation_id = ? AND version = ?",
         phase,
@@ -1169,7 +1232,9 @@ export class PersistenceRepositories {
       "SELECT * FROM github_credential_operations WHERE operation_id = ?",
       operationId,
     );
-    return row === undefined ? undefined : this.githubCredentialOperationFromRow(row);
+    return row === undefined
+      ? undefined
+      : this.githubCredentialOperationFromRow(row);
   }
 
   public listGithubCredentialOperations(): readonly GithubCredentialOperationRecord[] {
@@ -1184,7 +1249,11 @@ export class PersistenceRepositories {
     row: SqlRow,
   ): GithubCredentialOperationRecord {
     const endpoint = jsonColumn(row, "endpoint_snapshot_json");
-    if (typeof endpoint !== "object" || endpoint === null || Array.isArray(endpoint))
+    if (
+      typeof endpoint !== "object" ||
+      endpoint === null ||
+      Array.isArray(endpoint)
+    )
       throw new Error("F05_INVALID_ENDPOINT_SNAPSHOT");
     const result = jsonColumn(row, "test_result_json");
     const testResult =
@@ -1209,8 +1278,14 @@ export class PersistenceRepositories {
         : { previousActiveRef: rowOptionalString(row, "previous_active_ref") }),
       ...(rowOptionalNumber(row, "previous_active_revision") === undefined
         ? {}
-        : { previousActiveRevision: rowOptionalNumber(row, "previous_active_revision") }),
-      endpointSnapshot: endpoint as GithubCredentialOperationRecord["endpointSnapshot"],
+        : {
+            previousActiveRevision: rowOptionalNumber(
+              row,
+              "previous_active_revision",
+            ),
+          }),
+      endpointSnapshot:
+        endpoint as GithubCredentialOperationRecord["endpointSnapshot"],
       ...(safeReason(jsonColumn(row, "reason_json")) === undefined
         ? {}
         : { reason: safeReason(jsonColumn(row, "reason_json")) }),
@@ -1679,11 +1754,12 @@ export class PersistenceRepositories {
           timestamp,
         );
       transaction.run(
-        "INSERT OR IGNORE INTO review_bundles (bundle_id, managed_pr_id, batch_id, state, automatic_operation_key, schema_version, payload_json, payload_hash, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        "INSERT OR IGNORE INTO review_bundles (bundle_id, managed_pr_id, batch_id, state, stage, automatic_operation_key, schema_version, payload_json, payload_hash, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         input.bundle.id,
         input.bundle.managedPrId,
         input.batch.id,
         input.bundle.state,
+        input.bundle.stage ?? "FINAL_REVIEW",
         input.bundle.automaticOperationKey ?? null,
         bundleEncoded.schemaVersion,
         bundleEncoded.payload,
@@ -1708,6 +1784,47 @@ export class PersistenceRepositories {
           input.bundle.id,
           timestamp,
           item.encoded.payload,
+        );
+        const decision = item.decision ?? {
+          decision: "pending" as const,
+          finalDisposition: "no_change" as const,
+        };
+        if (
+          decision.finalDisposition === "question" &&
+          (decision.questionAnswer === undefined ||
+            decision.questionAnswer.trim().length === 0)
+        ) {
+          throw repositoryError(
+            this.store,
+            "INVALID_RECORD",
+            "A question disposition requires a written answer before it can be persisted.",
+          );
+        }
+        const decisionPayload = encode(decision);
+        const decisionId = `decision:${input.bundle.id}:${item.id}`;
+        transaction.run(
+          "INSERT OR IGNORE INTO review_bundle_item_decisions (decision_id, bundle_id, item_id, decision, final_disposition, user_instructions, question_answer, version, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+          decisionId,
+          input.bundle.id,
+          item.id,
+          decision.decision,
+          decision.finalDisposition,
+          decision.userInstructions ?? null,
+          decision.questionAnswer ?? null,
+          decisionPayload.payload,
+          timestamp,
+        );
+        transaction.run(
+          "INSERT OR IGNORE INTO review_bundle_item_decision_history (history_id, bundle_id, item_id, decision, final_disposition, user_instructions, question_answer, action_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          `${decisionId}:1`,
+          input.bundle.id,
+          item.id,
+          decision.decision,
+          decision.finalDisposition,
+          decision.userInstructions ?? null,
+          decision.questionAnswer ?? null,
+          null,
+          timestamp,
         );
       }
       if (input.hold !== undefined && holdEncoded !== undefined)
@@ -1794,6 +1911,146 @@ export class PersistenceRepositories {
         );
   }
 
+  public recordReviewBundleItemDecision(input: {
+    readonly bundleId: string;
+    readonly itemId: string;
+    readonly decision: "pending" | "accepted" | "overridden";
+    readonly finalDisposition: "fixed" | "pushback" | "question" | "no_change";
+    readonly userInstructions?: string;
+    readonly questionAnswer?: string;
+    readonly expectedBundleVersion?: number;
+    readonly actionId?: string;
+  }): ReviewBundleRecord {
+    id(input.bundleId, "Review Bundle identifier");
+    id(input.itemId, "Review Bundle item identifier");
+    if (
+      input.finalDisposition === "question" &&
+      (input.questionAnswer === undefined ||
+        input.questionAnswer.trim().length === 0)
+    ) {
+      throw repositoryError(
+        this.store,
+        "INVALID_RECORD",
+        "A question disposition requires a written answer.",
+      );
+    }
+    const decision = {
+      decision: input.decision,
+      finalDisposition: input.finalDisposition,
+      ...(input.userInstructions === undefined
+        ? {}
+        : { userInstructions: input.userInstructions }),
+      ...(input.questionAnswer === undefined
+        ? {}
+        : { questionAnswer: input.questionAnswer }),
+    };
+    const encoded = encode(decision);
+    return this.store.transaction((transaction) => {
+      const bundle = transaction.get(
+        "SELECT * FROM review_bundles WHERE bundle_id = ?",
+        input.bundleId,
+      );
+      if (bundle === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The Review Bundle does not exist.",
+        );
+      const item = transaction.get(
+        "SELECT item_id FROM review_bundle_items WHERE bundle_id = ? AND item_id = ?",
+        input.bundleId,
+        input.itemId,
+      );
+      if (item === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The Review Bundle item does not exist.",
+        );
+      const existing = transaction.get(
+        "SELECT * FROM review_bundle_item_decisions WHERE bundle_id = ? AND item_id = ?",
+        input.bundleId,
+        input.itemId,
+      );
+      if (
+        existing !== undefined &&
+        rowString(existing, "payload_json") === encoded.payload
+      ) {
+        return this.readReviewBundleFromTransaction(transaction, bundle);
+      }
+      const expectedVersion = input.expectedBundleVersion;
+      if (
+        expectedVersion !== undefined &&
+        rowNumber(bundle, "version") !== expectedVersion
+      ) {
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The Review Bundle changed before its item decision was committed.",
+        );
+      }
+      const nextVersion =
+        existing === undefined ? 1 : rowNumber(existing, "version") + 1;
+      const timestamp = now(this.clock);
+      if (existing === undefined) {
+        transaction.run(
+          "INSERT INTO review_bundle_item_decisions (decision_id, bundle_id, item_id, decision, final_disposition, user_instructions, question_answer, version, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          `decision:${input.bundleId}:${input.itemId}`,
+          input.bundleId,
+          input.itemId,
+          input.decision,
+          input.finalDisposition,
+          input.userInstructions ?? null,
+          input.questionAnswer ?? null,
+          nextVersion,
+          encoded.payload,
+          timestamp,
+        );
+      } else {
+        transaction.run(
+          "UPDATE review_bundle_item_decisions SET decision = ?, final_disposition = ?, user_instructions = ?, question_answer = ?, version = ?, payload_json = ? WHERE bundle_id = ? AND item_id = ? AND version = ?",
+          input.decision,
+          input.finalDisposition,
+          input.userInstructions ?? null,
+          input.questionAnswer ?? null,
+          nextVersion,
+          encoded.payload,
+          input.bundleId,
+          input.itemId,
+          rowNumber(existing, "version"),
+        );
+      }
+      transaction.run(
+        "INSERT INTO review_bundle_item_decision_history (history_id, bundle_id, item_id, decision, final_disposition, user_instructions, question_answer, action_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        `decision:${input.bundleId}:${input.itemId}:${nextVersion}`,
+        input.bundleId,
+        input.itemId,
+        input.decision,
+        input.finalDisposition,
+        input.userInstructions ?? null,
+        input.questionAnswer ?? null,
+        input.actionId ?? null,
+        timestamp,
+      );
+      transaction.run(
+        "UPDATE review_bundles SET version = version + 1, updated_at = ? WHERE bundle_id = ?",
+        timestamp,
+        input.bundleId,
+      );
+      const updated = transaction.get(
+        "SELECT * FROM review_bundles WHERE bundle_id = ?",
+        input.bundleId,
+      );
+      if (updated === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The Review Bundle disappeared during decision commit.",
+        );
+      return this.readReviewBundleFromTransaction(transaction, updated);
+    });
+  }
+
   private readReviewBundleFromTransaction(
     transaction: PersistenceTransaction,
     row: SqlRow,
@@ -1812,6 +2069,10 @@ export class PersistenceRepositories {
       managedPrId: rowString(row, "managed_pr_id"),
       batchId: rowString(row, "batch_id"),
       state: rowString(row, "state"),
+      stage:
+        rowOptionalString(row, "stage") === "PROPOSAL_REVIEW"
+          ? "PROPOSAL_REVIEW"
+          : "FINAL_REVIEW",
       items: itemRows.map((item) => ({
         id: rowString(item, "item_id"),
         eventVersionId: rowString(item, "event_version_id"),
@@ -1824,6 +2085,70 @@ export class PersistenceRepositories {
           rowNumber(item, "schema_version"),
         ),
         associatedAt: rowString(item, "associated_at"),
+        decision: (() => {
+          const decision = transaction.get(
+            "SELECT decision, final_disposition, user_instructions, question_answer FROM review_bundle_item_decisions WHERE bundle_id = ? AND item_id = ?",
+            rowString(row, "bundle_id"),
+            rowString(item, "item_id"),
+          );
+          return {
+            decision:
+              ((decision === undefined
+                ? undefined
+                : rowOptionalString(decision, "decision")) as
+                "pending" | "accepted" | "overridden" | undefined) ?? "pending",
+            finalDisposition:
+              ((decision === undefined
+                ? undefined
+                : rowOptionalString(decision, "final_disposition")) as
+                "fixed" | "pushback" | "question" | "no_change" | undefined) ??
+              "no_change",
+            ...((decision === undefined
+              ? undefined
+              : rowOptionalString(decision, "user_instructions")) === undefined
+              ? {}
+              : {
+                  userInstructions: rowOptionalString(
+                    decision!,
+                    "user_instructions",
+                  ),
+                }),
+            ...((decision === undefined
+              ? undefined
+              : rowOptionalString(decision, "question_answer")) === undefined
+              ? {}
+              : {
+                  questionAnswer: rowOptionalString(
+                    decision!,
+                    "question_answer",
+                  ),
+                }),
+          };
+        })(),
+        decisionHistory: transaction
+          .all(
+            "SELECT decision, final_disposition, user_instructions, question_answer, created_at FROM review_bundle_item_decision_history WHERE bundle_id = ? AND item_id = ? ORDER BY created_at, history_id",
+            rowString(row, "bundle_id"),
+            rowString(item, "item_id"),
+          )
+          .map((history) => ({
+            decision: rowString(history, "decision"),
+            finalDisposition: rowString(history, "final_disposition"),
+            ...(rowOptionalString(history, "user_instructions") === undefined
+              ? {}
+              : {
+                  userInstructions: rowOptionalString(
+                    history,
+                    "user_instructions",
+                  ),
+                }),
+            ...(rowOptionalString(history, "question_answer") === undefined
+              ? {}
+              : {
+                  questionAnswer: rowOptionalString(history, "question_answer"),
+                }),
+            createdAt: rowString(history, "created_at"),
+          })),
       })),
       ...(hold === undefined
         ? {}
@@ -2398,6 +2723,10 @@ export class PersistenceRepositories {
     readonly destinationBranch?: string;
     readonly syncSourceSha?: string;
     readonly prHeadSha?: string;
+    readonly syncMergeBaseSha?: string;
+    readonly sourceChangeEvidence?: Payload;
+    readonly prHeadChangeEvidence?: Payload;
+    readonly userConsultation?: Payload;
     readonly worktreeId?: string;
     readonly aiOperationId?: string;
     readonly reason?: Payload;
@@ -2414,6 +2743,12 @@ export class PersistenceRepositories {
     id(input.managedPrId, "managed PR identifier");
     const payload = encode(input.payload);
     const reasonPayload = encode(input.reason ?? {});
+    const sourceEvidence = encode(input.sourceChangeEvidence ?? {});
+    const headEvidence = encode(input.prHeadChangeEvidence ?? {});
+    const consultation =
+      input.userConsultation === undefined
+        ? undefined
+        : encode(input.userConsultation);
     const timestamp = now(this.clock);
     this.store.transaction((transaction) => {
       const existing = transaction.get(
@@ -2433,7 +2768,7 @@ export class PersistenceRepositories {
         );
       if (existing === undefined)
         transaction.run(
-          "INSERT INTO synchronization_results (synchronization_operation_id, synchronization_batch_id, managed_pr_id, status, source_repository_id, destination_repository_id, source_branch, destination_branch, sync_source_sha, pr_head_sha, worktree_id, ai_operation_id, reason_json, diff_id, validation_run_id, payload_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+          "INSERT INTO synchronization_results (synchronization_operation_id, synchronization_batch_id, managed_pr_id, status, source_repository_id, destination_repository_id, source_branch, destination_branch, sync_source_sha, pr_head_sha, sync_merge_base_sha, source_change_evidence_json, pr_head_change_evidence_json, user_consultation_json, worktree_id, ai_operation_id, reason_json, diff_id, validation_run_id, payload_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
           input.synchronizationOperationId,
           input.synchronizationBatchId,
           input.managedPrId,
@@ -2444,6 +2779,10 @@ export class PersistenceRepositories {
           input.destinationBranch ?? null,
           input.syncSourceSha ?? null,
           input.prHeadSha ?? null,
+          input.syncMergeBaseSha ?? null,
+          sourceEvidence.payload,
+          headEvidence.payload,
+          consultation?.payload ?? null,
           input.worktreeId ?? null,
           input.aiOperationId ?? null,
           reasonPayload.payload,
@@ -2455,8 +2794,14 @@ export class PersistenceRepositories {
         );
       else
         transaction.run(
-          "UPDATE synchronization_results SET status = ?, reason_json = ?, payload_json = ?, version = version + 1, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
+          "UPDATE synchronization_results SET status = ?, sync_source_sha = COALESCE(?, sync_source_sha), pr_head_sha = COALESCE(?, pr_head_sha), sync_merge_base_sha = COALESCE(?, sync_merge_base_sha), source_change_evidence_json = ?, pr_head_change_evidence_json = ?, user_consultation_json = ?, reason_json = ?, payload_json = ?, version = version + 1, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
           input.status,
+          input.syncSourceSha ?? null,
+          input.prHeadSha ?? null,
+          input.syncMergeBaseSha ?? null,
+          sourceEvidence.payload,
+          headEvidence.payload,
+          consultation?.payload ?? null,
           reasonPayload.payload,
           payload.payload,
           timestamp,
@@ -2473,6 +2818,10 @@ export class PersistenceRepositories {
     readonly synchronizationOperationId: string;
     readonly path: string;
     readonly reason?: Payload;
+    readonly source?: string;
+    readonly destination?: string;
+    readonly mergeBase?: string;
+    readonly details?: Payload;
   }): void {
     id(
       input.synchronizationOperationId,
@@ -2480,12 +2829,17 @@ export class PersistenceRepositories {
     );
     text(input.path, "conflicted path");
     const reasonPayload = encode(input.reason ?? {});
+    const detailsPayload = encode(input.details ?? {});
     this.store.transaction((transaction) =>
       transaction.run(
-        "INSERT OR IGNORE INTO synchronization_conflicts (synchronization_operation_id, path, reason_json, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO synchronization_conflicts (synchronization_operation_id, path, reason_json, source_text, destination_text, merge_base_text, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         input.synchronizationOperationId,
         input.path,
         reasonPayload.payload,
+        input.source ?? null,
+        input.destination ?? null,
+        input.mergeBase ?? null,
+        detailsPayload.payload,
         now(this.clock),
       ),
     );
@@ -2498,7 +2852,7 @@ export class PersistenceRepositories {
     return this.store.transaction(
       (transaction) => {
         const row = transaction.get(
-          "SELECT synchronization_operation_id AS id, payload_json, version, created_at, updated_at, synchronization_batch_id, managed_pr_id, status, source_repository_id, destination_repository_id, source_branch, destination_branch, sync_source_sha, pr_head_sha, worktree_id, ai_operation_id, reason_json, diff_id, validation_run_id FROM synchronization_results WHERE synchronization_operation_id = ?",
+          "SELECT synchronization_operation_id AS id, payload_json, version, created_at, updated_at, synchronization_batch_id, managed_pr_id, status, source_repository_id, destination_repository_id, source_branch, destination_branch, sync_source_sha, pr_head_sha, sync_merge_base_sha, source_change_evidence_json, pr_head_change_evidence_json, user_consultation_json, worktree_id, ai_operation_id, reason_json, diff_id, validation_run_id FROM synchronization_results WHERE synchronization_operation_id = ?",
           synchronizationOperationId,
         );
         if (row === undefined) return undefined;
@@ -2515,12 +2869,24 @@ export class PersistenceRepositories {
         };
         const conflicts = transaction
           .all(
-            "SELECT path, reason_json FROM synchronization_conflicts WHERE synchronization_operation_id = ? ORDER BY path",
+            "SELECT path, reason_json, source_text, destination_text, merge_base_text, details_json FROM synchronization_conflicts WHERE synchronization_operation_id = ? ORDER BY path",
             synchronizationOperationId,
           )
           .map((conflict) => ({
             path: rowString(conflict, "path"),
             reason: JSON.parse(rowString(conflict, "reason_json")) as unknown,
+            ...(rowOptionalString(conflict, "source_text") === undefined
+              ? {}
+              : { source: rowOptionalString(conflict, "source_text") }),
+            ...(rowOptionalString(conflict, "destination_text") === undefined
+              ? {}
+              : {
+                  destination: rowOptionalString(conflict, "destination_text"),
+                }),
+            ...(rowOptionalString(conflict, "merge_base_text") === undefined
+              ? {}
+              : { mergeBase: rowOptionalString(conflict, "merge_base_text") }),
+            details: JSON.parse(rowString(conflict, "details_json")) as unknown,
           }));
         return {
           ...base,
@@ -2557,6 +2923,24 @@ export class PersistenceRepositories {
           ...(rowOptionalString(row, "pr_head_sha") === undefined
             ? {}
             : { prHeadSha: rowOptionalString(row, "pr_head_sha") }),
+          ...(rowOptionalString(row, "sync_merge_base_sha") === undefined
+            ? {}
+            : {
+                syncMergeBaseSha: rowOptionalString(row, "sync_merge_base_sha"),
+              }),
+          sourceChangeEvidence: JSON.parse(
+            rowString(row, "source_change_evidence_json"),
+          ) as unknown,
+          prHeadChangeEvidence: JSON.parse(
+            rowString(row, "pr_head_change_evidence_json"),
+          ) as unknown,
+          ...(rowOptionalString(row, "user_consultation_json") === undefined
+            ? {}
+            : {
+                userConsultation: JSON.parse(
+                  rowString(row, "user_consultation_json"),
+                ) as unknown,
+              }),
           ...(rowOptionalString(row, "worktree_id") === undefined
             ? {}
             : { worktreeId: rowOptionalString(row, "worktree_id") }),

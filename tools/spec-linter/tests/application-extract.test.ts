@@ -6,16 +6,16 @@ import {
 } from "../src/application-extract.js";
 
 describe("application overview extraction", () => {
-  it("finds all 70 stable acceptance-criterion IDs", async () => {
+  it("finds all 77 stable acceptance-criterion IDs", async () => {
     const overview = await readFile(
       new URL("../../../Specs/application_overview.md", import.meta.url),
       "utf8",
     );
     const requirements = extractApplicationRequirements(overview);
 
-    expect(requirements).toHaveLength(70);
+    expect(requirements).toHaveLength(77);
     expect(requirements[0]).toMatchObject({ id: "APP-AC-01" });
-    expect(requirements.at(-1)).toMatchObject({ id: "APP-AC-70" });
+    expect(requirements.at(-1)).toMatchObject({ id: "APP-AC-77" });
   });
 
   it("parses the PRD application-coverage table", () => {

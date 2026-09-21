@@ -4,6 +4,7 @@
   "createdAt": "2026-09-19T12:01:00.000Z",
   "profile": {
     "schemaVersion": 1,
+    "buildInstructions": "Run the repository's supported checks from the operation worktree.",
     "steps": [
       {
         "kind": "command",
@@ -12,6 +13,7 @@
         "executable": "npm",
         "arguments": ["test"],
         "workingDirectory": ".",
+        "phase": "post_change",
         "timeoutSeconds": 60,
         "outputLimitBytes": 100
       },
@@ -19,7 +21,8 @@
         "kind": "manual",
         "id": "visual",
         "label": "Visual check",
-        "instructions": "Inspect the affected screen."
+        "instructions": "Inspect the affected screen.",
+        "phase": "post_change"
       }
     ]
   },

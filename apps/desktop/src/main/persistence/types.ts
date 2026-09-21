@@ -1,4 +1,4 @@
-export const PERSISTENCE_SCHEMA_VERSION = 4 as const;
+export const PERSISTENCE_SCHEMA_VERSION = 5 as const;
 export const PERSISTENCE_RECORD_SCHEMA_VERSION = 1 as const;
 export const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 export const DEFAULT_MAX_TRANSACTION_ATTEMPTS = 3;
@@ -178,6 +178,7 @@ export interface ReviewBundleCommitInput {
   readonly bundle: VersionedWrite<unknown> & {
     readonly managedPrId: string;
     readonly state: string;
+    readonly stage?: "PROPOSAL_REVIEW" | "FINAL_REVIEW";
     readonly automaticOperationKey?: string;
   };
   readonly events: readonly RemoteEventVersionInput[];
@@ -185,6 +186,13 @@ export interface ReviewBundleCommitInput {
     readonly id: string;
     readonly eventVersionId: string;
     readonly payload: unknown;
+    readonly decision?: {
+      readonly decision: "pending" | "accepted" | "overridden";
+      readonly finalDisposition:
+        "fixed" | "pushback" | "question" | "no_change";
+      readonly userInstructions?: string;
+      readonly questionAnswer?: string;
+    };
   }[];
   readonly hold?: {
     readonly id: string;

@@ -117,12 +117,12 @@ describe("F03 SQLite persistence", () => {
     expect(
       fixture.store.read<{ user_version: number }>("PRAGMA user_version")
         ?.user_version,
-    ).toBe(4);
+    ).toBe(5);
     expect(
       fixture.store.readAll(
         "SELECT version, migration_id, checksum FROM schema_migrations",
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     const repositories = createPersistenceRepositories(fixture.store, {
       clock: { now: () => FIXED_TIME },
     });
@@ -189,7 +189,7 @@ describe("F03 SQLite persistence", () => {
       store
         .readAll("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version),
-    ).toEqual([1, 2, 3, 4]);
+    ).toEqual([1, 2, 3, 4, 5]);
     const files = await readdir(backupRoot);
     expect(files.some((file) => file.endsWith(".sqlite"))).toBe(true);
     const backup = files.find((file) => file.endsWith(".sqlite"));
@@ -343,6 +343,93 @@ describe("F03 SQLite persistence", () => {
     );
   });
 
+  it("persists staged Review Bundle decisions with append-only history and replay", async () => {
+    const fixture = await createFixture();
+    const repositories = seedManagedPr(fixture);
+    const event = {
+      id: "event-proposal-1",
+      managedPrId: "pr-1",
+      sourceKind: "review_comment",
+      sourceId: "comment-proposal-1",
+      observedAt: FIXED_TIME,
+      semanticHash: "hash-proposal-1",
+      payload: { body: "please consider this" },
+    } as const;
+    repositories.persistReviewBundleAtomic({
+      batch: {
+        id: "batch-proposal-1",
+        managedPrId: "pr-1",
+        payload: { eventIds: [event.id] },
+      },
+      bundle: {
+        id: "bundle-proposal-1",
+        managedPrId: "pr-1",
+        state: "READY_FOR_REVIEW",
+        stage: "PROPOSAL_REVIEW",
+        automaticOperationKey: "auto-proposal-1",
+        payload: { profile: "automatic-review" },
+      },
+      events: [event],
+      items: [
+        {
+          id: "item-proposal-1",
+          eventVersionId: event.id,
+          payload: { disposition: "fixed" },
+          decision: { decision: "pending", finalDisposition: "no_change" },
+        },
+      ],
+    });
+
+    const initial = repositories.getReviewBundle("bundle-proposal-1");
+    expect(initial?.stage).toBe("PROPOSAL_REVIEW");
+    expect(initial?.items[0]?.decision.decision).toBe("pending");
+    expect(initial?.items[0]?.decisionHistory).toHaveLength(1);
+
+    const decided = repositories.recordReviewBundleItemDecision({
+      bundleId: "bundle-proposal-1",
+      itemId: "item-proposal-1",
+      decision: "accepted",
+      finalDisposition: "fixed",
+      userInstructions: "Apply the accepted change.",
+      expectedBundleVersion: initial?.version,
+      actionId: "decision-action-1",
+    });
+    expect(decided.items[0]?.decision).toMatchObject({
+      decision: "accepted",
+      finalDisposition: "fixed",
+      userInstructions: "Apply the accepted change.",
+    });
+    expect(decided.items[0]?.decisionHistory).toHaveLength(2);
+    expect(decided.version).toBe((initial?.version ?? 0) + 1);
+
+    const replay = repositories.recordReviewBundleItemDecision({
+      bundleId: "bundle-proposal-1",
+      itemId: "item-proposal-1",
+      decision: "accepted",
+      finalDisposition: "fixed",
+      userInstructions: "Apply the accepted change.",
+      expectedBundleVersion: 999,
+      actionId: "decision-action-1",
+    });
+    expect(replay.version).toBe(decided.version);
+    expect(replay.items[0]?.decisionHistory).toHaveLength(2);
+
+    const reopened = await initializePersistence(
+      { databasePath: fixture.databasePath, backupRoot: fixture.backupRoot },
+      { clock: { now: () => FIXED_TIME }, applicationBuild: "f03-reopen" },
+    );
+    try {
+      const afterRestart = createPersistenceRepositories(reopened).getReviewBundle(
+        "bundle-proposal-1",
+      );
+      expect(afterRestart?.stage).toBe("PROPOSAL_REVIEW");
+      expect(afterRestart?.items[0]?.decision.decision).toBe("accepted");
+      expect(afterRestart?.items[0]?.decisionHistory).toHaveLength(2);
+    } finally {
+      reopened.close();
+    }
+  });
+
   it("round-trips the remaining durable record families without sharing mutable snapshots", async () => {
     const fixture = await createFixture();
     const repositories = seedManagedPr(fixture);
@@ -444,6 +531,14 @@ describe("F03 SQLite persistence", () => {
       destinationBranch: "feature",
       syncSourceSha: "aaaaaaaa",
       prHeadSha: "bbbbbbbb",
+      syncMergeBaseSha: "cccccccc",
+      sourceChangeEvidence: { paths: ["src/source.ts"], summary: "source" },
+      prHeadChangeEvidence: { paths: ["src/feature.ts"], summary: "PR" },
+      userConsultation: {
+        question: "Which intent should win?",
+        competingIntents: ["source", "PR"],
+        requestedAt: FIXED_TIME,
+      },
       reason: { what: "merged", why: "clean", nextAction: "APPROVE" },
       payload: { merge: "clean" },
     });
@@ -451,6 +546,10 @@ describe("F03 SQLite persistence", () => {
       synchronizationOperationId: "sync-op-1",
       path: "src/example.ts",
       reason: { what: "conflict", nextAction: "REVIEW" },
+      source: "source-side text",
+      destination: "PR-side text",
+      mergeBase: "common text",
+      details: { hunk: 1 },
     });
     repositories.appendActivityEvent({
       activityEventId: "activity-1",
@@ -479,6 +578,27 @@ describe("F03 SQLite persistence", () => {
     expect(
       repositories.getSynchronizationResult("sync-op-1")?.conflicts[0]?.path,
     ).toBe("src/example.ts");
+    expect(
+      repositories.getSynchronizationResult("sync-op-1")?.syncMergeBaseSha,
+    ).toBe("cccccccc");
+    expect(
+      repositories.getSynchronizationResult("sync-op-1")?.sourceChangeEvidence,
+    ).toEqual({ paths: ["src/source.ts"], summary: "source" });
+    expect(
+      repositories.getSynchronizationResult("sync-op-1")?.userConsultation,
+    ).toEqual({
+      question: "Which intent should win?",
+      competingIntents: ["source", "PR"],
+      requestedAt: FIXED_TIME,
+    });
+    expect(
+      repositories.getSynchronizationResult("sync-op-1")?.conflicts[0],
+    ).toMatchObject({
+      source: "source-side text",
+      destination: "PR-side text",
+      mergeBase: "common text",
+      details: { hunk: 1 },
+    });
     expect(
       fixture.store.read<{ count: number }>(
         "SELECT COUNT(*) AS count FROM activity_events",

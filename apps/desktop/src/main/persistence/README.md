@@ -2,8 +2,8 @@
 
 This package is the main-process SQLite authority for durable PRMonitor state.
 It uses the pinned Node 24 `node:sqlite` driver, which avoids a native addon and
-is available to the supported Electron runtime. The current schema is version 2
-with two forward-only migrations. `initializePersistence` requires an absolute
+is available to the supported Electron runtime. The current schema is version 5
+with five forward-only migrations. `initializePersistence` requires an absolute
 database path and a separate application-owned backup root; it never derives
 either path from renderer or PR input.
 
@@ -17,9 +17,10 @@ The boundary provides:
   objects, uncontrolled environment values, oversized fields, and unknown
   record shapes; and
 - repositories for settings, configuration snapshots, GitHub identities,
-  checkpoints/observations, immutable feedback, review bundles and holds, AI
-  evidence, validation, worktrees/diffs, synchronization, publication effects,
-  stale history, and activity events.
+  checkpoints/observations, immutable feedback, staged review bundles with
+  per-item decision history and holds, AI evidence, validation, worktrees/diffs,
+  synchronization results with merge-base and both-side conflict evidence,
+  publication effects, stale history, and activity events.
 
 Repositories persist intent and immutable snapshots but do not invoke GitHub,
 Git, validation commands, an AI provider, Electron windows, or publication

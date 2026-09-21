@@ -7,6 +7,7 @@ import {
   PRIMARY_PR_STATES,
   PUBLICATION_PHASES,
   REVIEW_BUNDLE_STATES,
+  REVIEW_BUNDLE_STAGES,
   SYNCHRONIZATION_STATUSES,
   associateEventVersion,
   canPublishReviewBundle,
@@ -55,6 +56,7 @@ import {
   reducePrimaryPr,
   reducePublication,
   reduceReviewBundle,
+  hasCompleteReviewDecisions,
   reduceSynchronization,
   replayPublication,
   resolveConcurrentAutomaticDispatches,
@@ -260,6 +262,70 @@ describe("F02 primary PR state, holds, pause, and admission", () => {
     expect(rejected.ok).toBe(false);
     if (!rejected.ok) expect(rejected.error.code).toBe("REVIEW_HOLD_ACTIVE");
     expect(ready.state).toBe("READY_FOR_REVIEW");
+  });
+
+  it("requires the primary state guard before confirming proposal decisions", () => {
+    const initial = createPrimaryPrSnapshot({ prId, clock });
+    const working = must(
+      reducePrimaryPr(
+        initial,
+        {
+          type: "DISPATCH_AUTOMATIC_REVIEW",
+          action: action("SYSTEM", 0),
+          operationId,
+          bundleId,
+          eligible: true,
+          globalPaused: false,
+        },
+        clock,
+      ),
+    ).state;
+    const ready = must(
+      reducePrimaryPr(
+        working,
+        {
+          type: "REVIEW_COMPLETED",
+          action: action("SYSTEM", working.version),
+          operationId,
+          bundleId,
+        },
+        clock,
+      ),
+    ).state;
+    const incomplete = reducePrimaryPr(
+      ready,
+      {
+        type: "CONFIRM_REVIEW_DECISIONS",
+        action: action("HUMAN", ready.version),
+        operationId,
+        bundleId,
+        proposalStage: "PROPOSAL_REVIEW",
+        decisionsComplete: false,
+        questionAnswersComplete: false,
+      },
+      clock,
+    );
+    expect(incomplete).toMatchObject({
+      ok: false,
+      error: { code: "REVIEW_DECISIONS_REQUIRED" },
+    });
+    const confirmed = must(
+      reducePrimaryPr(
+        ready,
+        {
+          type: "CONFIRM_REVIEW_DECISIONS",
+          action: action("HUMAN", ready.version),
+          operationId,
+          bundleId,
+          proposalStage: "PROPOSAL_REVIEW",
+          decisionsComplete: true,
+          questionAnswersComplete: true,
+        },
+        clock,
+      ),
+    ).state;
+    expect(confirmed.state).toBe("WORKING");
+    expect(confirmed.hold?.bundleId).toBe(bundleId);
   });
 
   it("deterministically admits one concurrent dispatch and never releases on lifecycle events", () => {
@@ -744,6 +810,108 @@ describe("F02 immutable event versions and Review Bundles", () => {
   });
 });
 
+describe("F02 proposal-stage Review Bundle decisions", () => {
+  it("keeps proposal analysis read-only until every item is decided and questions are answered", () => {
+    expect(REVIEW_BUNDLE_STAGES).toEqual(["PROPOSAL_REVIEW", "FINAL_REVIEW"]);
+    const itemId = must(parseReviewBundleItemId("item-1"));
+    let bundle = createReviewBundle({
+      id: bundleId,
+      prId,
+      eventVersionIds: [eventVersionId],
+      stage: "PROPOSAL_REVIEW",
+      items: [
+        {
+          id: itemId,
+          eventVersionId,
+          recommendation: { disposition: "fixed", summary: "change" },
+          decision: { decision: "pending", finalDisposition: "no_change" },
+          decisionHistory: [],
+        },
+      ],
+    });
+    bundle = must(
+      reduceReviewBundle(
+        bundle,
+        {
+          type: "REVIEWABLE_COMPLETION",
+          action: action("SYSTEM", 0),
+        },
+        clock,
+      ),
+    ).state;
+    const blocked = reduceReviewBundle(
+      bundle,
+      {
+        type: "CONFIRM_REVIEW_DECISIONS",
+        action: action("HUMAN", bundle.version),
+        implementationOperationId: operationId,
+      },
+      clock,
+    );
+    expect(blocked).toMatchObject({
+      ok: false,
+      error: { code: "REVIEW_DECISIONS_REQUIRED" },
+    });
+    expect(bundle.stage).toBe("PROPOSAL_REVIEW");
+
+    const questionWithoutAnswer = reduceReviewBundle(
+      bundle,
+      {
+        type: "SET_ITEM_DECISION",
+        action: action("HUMAN", bundle.version),
+        itemId,
+        decision: "overridden",
+        finalDisposition: "question",
+      },
+      clock,
+    );
+    expect(questionWithoutAnswer).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_TRANSITION" },
+    });
+
+    bundle = must(
+      reduceReviewBundle(
+        bundle,
+        {
+          type: "SET_ITEM_DECISION",
+          action: action("HUMAN", bundle.version),
+          itemId,
+          decision: "accepted",
+          finalDisposition: "fixed",
+          userInstructions: "Implement the accepted fix.",
+        },
+        clock,
+      ),
+    ).state;
+    expect(hasCompleteReviewDecisions(bundle)).toBe(true);
+    bundle = must(
+      reduceReviewBundle(
+        bundle,
+        {
+          type: "CONFIRM_REVIEW_DECISIONS",
+          action: action("HUMAN", bundle.version),
+          implementationOperationId: operationId,
+        },
+        clock,
+      ),
+    ).state;
+    expect(bundle.state).toBe("WORKING");
+    bundle = must(
+      reduceReviewBundle(
+        bundle,
+        {
+          type: "IMPLEMENTATION_COMPLETION",
+          action: action("SYSTEM", bundle.version),
+        },
+        laterClock,
+      ),
+    ).state;
+    expect(bundle.stage).toBe("FINAL_REVIEW");
+    expect(canPublishReviewBundle(bundle)).toBe(true);
+  });
+});
+
 describe("F02 synchronization overlay", () => {
   it("tracks branch and repository identity independently from primary review state", () => {
     const sync = createSynchronizationResult({
@@ -933,6 +1101,117 @@ describe("F02 synchronization overlay", () => {
     ).state;
     expect(independentReady.status).toBe("READY_TO_PUBLISH");
     expect(retry.status).toBe("RESOLVING_CONFLICTS");
+  });
+
+  it("stops ambiguous conflicts for explicit consultation and preserves both-side evidence", () => {
+    const base = createSynchronizationResult({
+      id: syncId,
+      prId,
+      prBaseBranch: must(parseBranchName("main")),
+      prHeadBranch: must(parseBranchName("feature")),
+      syncSourceBranch: must(parseBranchName("main")),
+      sourceRepositoryId: repositoryId,
+      destinationRepositoryId: repositoryId,
+      syncSourceSha: sourceSha,
+      prHeadSha: headSha,
+      syncMergeBaseSha: baseSha,
+      sourceChangeEvidence: {
+        paths: ["src/source.ts"],
+        summary: "source intent",
+      },
+      prHeadChangeEvidence: {
+        paths: ["src/feature.ts"],
+        summary: "PR intent",
+      },
+      conflictEvidence: [
+        {
+          path: "src/shared.ts",
+          source: "source branch change",
+          destination: "PR branch change",
+          mergeBase: "common base",
+        },
+      ],
+      operationId: syncId,
+      clock,
+      eligible: true,
+    });
+    const merging = must(
+      reduceSynchronization(
+        base,
+        { type: "BEGIN_MERGE", action: action("HUMAN", 0), eligible: true },
+        clock,
+      ),
+    ).state;
+    const conflict = must(
+      reduceSynchronization(
+        merging,
+        {
+          type: "MERGE_CONFLICT",
+          action: action("SYSTEM", merging.version),
+          reason: unsafeReason(
+            "CONFLICT",
+            "conflict",
+            "source and PR changes overlap",
+            "REVIEW",
+          ),
+        },
+        clock,
+      ),
+    ).state;
+    expect(
+      reduceSynchronization(
+        conflict,
+        {
+          type: "AMBIGUOUS_CONFLICT",
+          action: action("SYSTEM", conflict.version),
+          reason: unsafeReason(
+            "MERGE_CONFLICT_AMBIGUOUS",
+            "ambiguous",
+            "user input is required",
+            "MANUAL_EDIT",
+          ),
+        },
+        clock,
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "AMBIGUOUS_CONFLICT" },
+    });
+    const attention = must(
+      reduceSynchronization(
+        conflict,
+        {
+          type: "AMBIGUOUS_CONFLICT",
+          action: action("SYSTEM", conflict.version),
+          reason: unsafeReason(
+            "MERGE_CONFLICT_AMBIGUOUS",
+            "the conflict has competing valid intents",
+            "a user must choose the intended behavior before resolution continues",
+            "MANUAL_EDIT",
+          ),
+          consultation: {
+            question:
+              "Should the shared behavior preserve source or PR semantics?",
+            competingIntents: [
+              "Preserve source behavior",
+              "Preserve PR behavior",
+            ],
+            requestedAt: laterInstant,
+          },
+        },
+        laterClock,
+      ),
+    ).state;
+    expect(attention.status).toBe("NEEDS_ATTENTION");
+    expect(attention.syncMergeBaseSha).toBe(baseSha);
+    expect(attention.sourceChangeEvidence?.paths).toEqual(["src/source.ts"]);
+    expect(attention.prHeadChangeEvidence?.paths).toEqual(["src/feature.ts"]);
+    expect(attention.conflictEvidence[0]?.path).toBe("src/shared.ts");
+    expect(attention.userConsultation?.competingIntents).toEqual([
+      "Preserve source behavior",
+      "Preserve PR behavior",
+    ]);
+    expect(canPublishSynchronizationResult(attention)).toBe(false);
   });
 });
 

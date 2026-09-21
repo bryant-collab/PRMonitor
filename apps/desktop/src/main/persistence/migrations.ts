@@ -614,6 +614,47 @@ CREATE INDEX IF NOT EXISTS idx_f07_managed_prs_owner
 PRAGMA user_version = 4;
 `;
 
+const MIGRATION_5 = `
+ALTER TABLE review_bundles ADD COLUMN stage TEXT NOT NULL DEFAULT 'FINAL_REVIEW';
+
+CREATE TABLE IF NOT EXISTS review_bundle_item_decisions (
+  decision_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL REFERENCES review_bundles(bundle_id),
+  item_id TEXT NOT NULL REFERENCES review_bundle_items(item_id),
+  decision TEXT NOT NULL CHECK (decision IN ('pending', 'accepted', 'overridden')),
+  final_disposition TEXT NOT NULL CHECK (final_disposition IN ('fixed', 'pushback', 'question', 'no_change')),
+  user_instructions TEXT,
+  question_answer TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE (bundle_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS review_bundle_item_decision_history (
+  history_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL REFERENCES review_bundles(bundle_id),
+  item_id TEXT NOT NULL REFERENCES review_bundle_items(item_id),
+  decision TEXT NOT NULL,
+  final_disposition TEXT NOT NULL,
+  user_instructions TEXT,
+  question_answer TEXT,
+  action_id TEXT,
+  created_at TEXT NOT NULL
+);
+
+ALTER TABLE synchronization_results ADD COLUMN sync_merge_base_sha TEXT;
+ALTER TABLE synchronization_results ADD COLUMN source_change_evidence_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE synchronization_results ADD COLUMN pr_head_change_evidence_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE synchronization_results ADD COLUMN user_consultation_json TEXT;
+ALTER TABLE synchronization_conflicts ADD COLUMN source_text TEXT;
+ALTER TABLE synchronization_conflicts ADD COLUMN destination_text TEXT;
+ALTER TABLE synchronization_conflicts ADD COLUMN merge_base_text TEXT;
+ALTER TABLE synchronization_conflicts ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}';
+
+PRAGMA user_version = 5;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -642,6 +683,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F07-001-managed-pr-add-and-configuration-records",
     sql: MIGRATION_4,
     checksum: checksum(MIGRATION_4),
+  },
+  {
+    version: 5,
+    id: "F02-F03-001-staged-review-and-sync-evidence",
+    sql: MIGRATION_5,
+    checksum: checksum(MIGRATION_5),
   },
 ];
 

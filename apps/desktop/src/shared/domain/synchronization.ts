@@ -3,6 +3,7 @@ import {
   DOMAIN_SCHEMA_VERSION,
   failure,
   parseDomainReason,
+  isSafeJsonValue,
   type ActionReason,
   type DomainResult,
   success,
@@ -37,6 +38,7 @@ import {
   type UtcInstant,
   type WorktreeId,
 } from "./primitives";
+import type { SafeJsonValue } from "./result";
 
 export const SYNCHRONIZATION_STATUSES = [
   "SKIPPED",
@@ -52,6 +54,26 @@ export const SYNCHRONIZATION_STATUSES = [
 ] as const;
 export type SynchronizationStatus = (typeof SYNCHRONIZATION_STATUSES)[number];
 
+export interface SynchronizationChangeEvidence {
+  readonly paths: readonly string[];
+  readonly summary?: string;
+  readonly details?: SafeJsonValue;
+}
+
+export interface SynchronizationConflictEvidence {
+  readonly path: string;
+  readonly source?: string;
+  readonly destination?: string;
+  readonly mergeBase?: string;
+  readonly details?: SafeJsonValue;
+}
+
+export interface SynchronizationUserConsultation {
+  readonly question: string;
+  readonly competingIntents: readonly string[];
+  readonly requestedAt: UtcInstant;
+}
+
 export const SYNCHRONIZATION_TRANSITIONS = [
   ["SKIPPED", "BEGIN_MERGE", "MERGING"],
   ["MERGING", "MERGE_CONFLICT", "RESOLVING_CONFLICTS"],
@@ -59,6 +81,7 @@ export const SYNCHRONIZATION_TRANSITIONS = [
   ["MERGING", "VALIDATION_FAILED", "NEEDS_ATTENTION"],
   ["MERGING", "FAIL", "FAILED"],
   ["RESOLVING_CONFLICTS", "RESOLUTION_SUCCEEDED", "READY_TO_PUBLISH"],
+  ["RESOLVING_CONFLICTS", "AMBIGUOUS_CONFLICT", "NEEDS_ATTENTION"],
   ["RESOLVING_CONFLICTS", "VALIDATION_FAILED", "NEEDS_ATTENTION"],
   ["RESOLVING_CONFLICTS", "FAIL", "FAILED"],
   ["READY_TO_PUBLISH", "MARK_STALE", "STALE"],
@@ -89,6 +112,11 @@ export interface SynchronizationResult {
   readonly destinationRepositoryId: RepositoryId;
   readonly syncSourceSha?: CommitSha;
   readonly prHeadSha?: CommitSha;
+  readonly syncMergeBaseSha?: CommitSha;
+  readonly sourceChangeEvidence?: SynchronizationChangeEvidence;
+  readonly prHeadChangeEvidence?: SynchronizationChangeEvidence;
+  readonly conflictEvidence: readonly SynchronizationConflictEvidence[];
+  readonly userConsultation?: SynchronizationUserConsultation;
   readonly operationId: SynchronizationOperationId;
   readonly worktreeId?: WorktreeId;
   readonly status: SynchronizationStatus;
@@ -110,9 +138,11 @@ export interface SynchronizationProgressAction {
     | "MERGE_CLEAN"
     | "VALIDATION_FAILED"
     | "RESOLUTION_SUCCEEDED"
+    | "AMBIGUOUS_CONFLICT"
     | "FAIL";
   readonly action: ActionRecord;
   readonly reason: ActionReason;
+  readonly consultation?: SynchronizationUserConsultation;
 }
 export interface SynchronizationStaleAction {
   readonly type: "MARK_STALE";
@@ -197,11 +227,13 @@ function applySyncState(
   action: ActionRecord,
   clock: Clock,
   reason: ActionReason,
+  extra: Partial<SynchronizationResult> = {},
 ): TransitionDecision<SynchronizationResult> {
   const event = syncEvent(previous, nextStatus, action, clock, reason);
   return changed(
     {
       ...previous,
+      ...extra,
       status: nextStatus,
       currentReason: reason,
       version: previous.version + 1,
@@ -218,13 +250,16 @@ function syncError<T>(
   code:
     | "INVALID_TRANSITION"
     | "STALE_RESULT"
-    | "PUBLICATION_APPROVAL_REQUIRED" = "INVALID_TRANSITION",
+    | "PUBLICATION_APPROVAL_REQUIRED"
+    | "AMBIGUOUS_CONFLICT" = "INVALID_TRANSITION",
 ): DomainResult<T> {
   return failure(
     createDomainError({
       code,
       category: code === "STALE_RESULT" ? "STALE" : "INVALID_TRANSITION",
-      retryable: code !== "PUBLICATION_APPROVAL_REQUIRED",
+      retryable:
+        code !== "PUBLICATION_APPROVAL_REQUIRED" &&
+        code !== "AMBIGUOUS_CONFLICT",
       userAction: reason.nextAction,
       messageKey: `domain.sync.${code.toLowerCase()}`,
       reason,
@@ -246,6 +281,11 @@ export function createSynchronizationResult(input: {
   readonly destinationRepositoryId: RepositoryId;
   readonly syncSourceSha?: CommitSha;
   readonly prHeadSha?: CommitSha;
+  readonly syncMergeBaseSha?: CommitSha;
+  readonly sourceChangeEvidence?: SynchronizationChangeEvidence;
+  readonly prHeadChangeEvidence?: SynchronizationChangeEvidence;
+  readonly conflictEvidence?: readonly SynchronizationConflictEvidence[];
+  readonly userConsultation?: SynchronizationUserConsultation;
   readonly operationId: SynchronizationOperationId;
   readonly worktreeId?: WorktreeId;
   readonly clock: Clock;
@@ -271,6 +311,19 @@ export function createSynchronizationResult(input: {
       ? {}
       : { syncSourceSha: input.syncSourceSha }),
     ...(input.prHeadSha === undefined ? {} : { prHeadSha: input.prHeadSha }),
+    ...(input.syncMergeBaseSha === undefined
+      ? {}
+      : { syncMergeBaseSha: input.syncMergeBaseSha }),
+    ...(input.sourceChangeEvidence === undefined
+      ? {}
+      : { sourceChangeEvidence: input.sourceChangeEvidence }),
+    ...(input.prHeadChangeEvidence === undefined
+      ? {}
+      : { prHeadChangeEvidence: input.prHeadChangeEvidence }),
+    conflictEvidence: [...(input.conflictEvidence ?? [])],
+    ...(input.userConsultation === undefined
+      ? {}
+      : { userConsultation: input.userConsultation }),
     operationId: input.operationId,
     ...(input.worktreeId === undefined ? {} : { worktreeId: input.worktreeId }),
     status: "SKIPPED",
@@ -329,6 +382,7 @@ export function reduceSynchronization(
     action.type === "MERGE_CLEAN" ||
     action.type === "VALIDATION_FAILED" ||
     action.type === "RESOLUTION_SUCCEEDED" ||
+    action.type === "AMBIGUOUS_CONFLICT" ||
     action.type === "FAIL"
   ) {
     const validSource =
@@ -338,12 +392,29 @@ export function reduceSynchronization(
         ["MERGING", "RESOLVING_CONFLICTS"].includes(result.status)) ||
       (action.type === "RESOLUTION_SUCCEEDED" &&
         result.status === "RESOLVING_CONFLICTS") ||
+      (action.type === "AMBIGUOUS_CONFLICT" &&
+        result.status === "RESOLVING_CONFLICTS") ||
       (action.type === "FAIL" &&
         ["MERGING", "RESOLVING_CONFLICTS", "PUBLISHING"].includes(
           result.status,
         ));
     if (!validSource)
       return syncError(result, invalidReason(result.status, action.type));
+    if (
+      action.type === "AMBIGUOUS_CONFLICT" &&
+      action.consultation === undefined
+    ) {
+      return syncError(
+        result,
+        unsafeReason(
+          "AMBIGUOUS_CONFLICT",
+          "The conflict cannot be resolved deterministically without user input.",
+          "The competing intents and the question requiring a user decision must be persisted before stopping for attention.",
+          "MANUAL_EDIT",
+        ),
+        "AMBIGUOUS_CONFLICT",
+      );
+    }
     const nextStatus: SynchronizationStatus =
       action.type === "MERGE_CONFLICT"
         ? "RESOLVING_CONFLICTS"
@@ -352,9 +423,20 @@ export function reduceSynchronization(
           ? "READY_TO_PUBLISH"
           : action.type === "VALIDATION_FAILED"
             ? "NEEDS_ATTENTION"
-            : "FAILED";
+            : action.type === "AMBIGUOUS_CONFLICT"
+              ? "NEEDS_ATTENTION"
+              : "FAILED";
     return success(
-      applySyncState(result, nextStatus, action.action, clock, action.reason),
+      applySyncState(
+        result,
+        nextStatus,
+        action.action,
+        clock,
+        action.reason,
+        action.type === "AMBIGUOUS_CONFLICT"
+          ? { userConsultation: action.consultation }
+          : {},
+      ),
     );
   }
 
@@ -533,6 +615,11 @@ export function parseSynchronizationResult(
     "destinationRepositoryId",
     "syncSourceSha",
     "prHeadSha",
+    "syncMergeBaseSha",
+    "sourceChangeEvidence",
+    "prHeadChangeEvidence",
+    "conflictEvidence",
+    "userConsultation",
     "operationId",
     "worktreeId",
     "status",
@@ -582,6 +669,10 @@ export function parseSynchronizationResult(
       : parseCommitSha(data.syncSourceSha);
   const headSha =
     data.prHeadSha === undefined ? undefined : parseCommitSha(data.prHeadSha);
+  const mergeBaseSha =
+    data.syncMergeBaseSha === undefined
+      ? undefined
+      : parseCommitSha(data.syncMergeBaseSha);
   const worktreeId =
     data.worktreeId === undefined
       ? undefined
@@ -601,9 +692,238 @@ export function parseSynchronizationResult(
   if (!operationId.ok) return operationId;
   if (syncSha !== undefined && !syncSha.ok) return syncSha;
   if (headSha !== undefined && !headSha.ok) return headSha;
+  if (mergeBaseSha !== undefined && !mergeBaseSha.ok) return mergeBaseSha;
   if (worktreeId !== undefined && !worktreeId.ok) return worktreeId;
   if (!createdAt.ok) return createdAt;
   if (!updatedAt.ok) return updatedAt;
+
+  const parseChangeEvidence = (
+    value: unknown,
+  ): SynchronizationChangeEvidence | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      return undefined;
+    const evidence = value as Record<string, unknown>;
+    if (
+      !Array.isArray(evidence.paths) ||
+      evidence.paths.some((item) => typeof item !== "string")
+    )
+      return undefined;
+    if (
+      Object.keys(evidence).some(
+        (key) => !new Set(["paths", "summary", "details"]).has(key),
+      )
+    )
+      return undefined;
+    if (evidence.summary !== undefined && typeof evidence.summary !== "string")
+      return undefined;
+    if (evidence.details !== undefined && !isSafeJsonValue(evidence.details))
+      return undefined;
+    return {
+      paths: [...(evidence.paths as string[])],
+      ...(evidence.summary === undefined ? {} : { summary: evidence.summary }),
+      ...(evidence.details === undefined ? {} : { details: evidence.details }),
+    };
+  };
+  const sourceChangeEvidence = parseChangeEvidence(data.sourceChangeEvidence);
+  const prHeadChangeEvidence = parseChangeEvidence(data.prHeadChangeEvidence);
+  if (
+    (data.sourceChangeEvidence !== undefined &&
+      sourceChangeEvidence === undefined) ||
+    (data.prHeadChangeEvidence !== undefined &&
+      prHeadChangeEvidence === undefined)
+  ) {
+    return failure(
+      createDomainError({
+        code: "INVALID_CONTRACT",
+        category: "INVALID_INPUT",
+        retryable: false,
+        userAction: "FIX_INPUT",
+        messageKey: "domain.sync.evidence-invalid",
+        reason: unsafeReason(
+          "INVALID_CONTRACT",
+          "Synchronization change evidence is invalid.",
+          "Both branch change sets must be safely inspectable before conflict resolution.",
+          "FIX_INPUT",
+        ),
+      }),
+    );
+  }
+  const conflictEvidence: SynchronizationConflictEvidence[] = [];
+  if (data.conflictEvidence !== undefined) {
+    if (!Array.isArray(data.conflictEvidence))
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.sync.evidence-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "Synchronization conflict evidence is invalid.",
+            "Conflict paths and both-side evidence must be safely inspectable.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    for (const raw of data.conflictEvidence) {
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+        return failure(
+          createDomainError({
+            code: "INVALID_CONTRACT",
+            category: "INVALID_INPUT",
+            retryable: false,
+            userAction: "FIX_INPUT",
+            messageKey: "domain.sync.evidence-invalid",
+            reason: unsafeReason(
+              "INVALID_CONTRACT",
+              "Synchronization conflict evidence is invalid.",
+              "Conflict paths and both-side evidence must be safely inspectable.",
+              "FIX_INPUT",
+            ),
+          }),
+        );
+      const conflict = raw as Record<string, unknown>;
+      if (
+        Object.keys(conflict).some(
+          (key) =>
+            !new Set([
+              "path",
+              "source",
+              "destination",
+              "mergeBase",
+              "details",
+            ]).has(key),
+        )
+      )
+        return failure(
+          createDomainError({
+            code: "INVALID_CONTRACT",
+            category: "INVALID_INPUT",
+            retryable: false,
+            userAction: "FIX_INPUT",
+            messageKey: "domain.sync.evidence-invalid",
+            reason: unsafeReason(
+              "INVALID_CONTRACT",
+              "Synchronization conflict evidence is invalid.",
+              "Conflict paths and both-side evidence must be safely inspectable.",
+              "FIX_INPUT",
+            ),
+          }),
+        );
+      if (
+        typeof conflict.path !== "string" ||
+        (conflict.source !== undefined &&
+          typeof conflict.source !== "string") ||
+        (conflict.destination !== undefined &&
+          typeof conflict.destination !== "string") ||
+        (conflict.mergeBase !== undefined &&
+          typeof conflict.mergeBase !== "string") ||
+        (conflict.details !== undefined && !isSafeJsonValue(conflict.details))
+      )
+        return failure(
+          createDomainError({
+            code: "INVALID_CONTRACT",
+            category: "INVALID_INPUT",
+            retryable: false,
+            userAction: "FIX_INPUT",
+            messageKey: "domain.sync.evidence-invalid",
+            reason: unsafeReason(
+              "INVALID_CONTRACT",
+              "Synchronization conflict evidence is invalid.",
+              "Conflict paths and both-side evidence must be safely inspectable.",
+              "FIX_INPUT",
+            ),
+          }),
+        );
+      conflictEvidence.push({
+        path: conflict.path,
+        ...(conflict.source === undefined ? {} : { source: conflict.source }),
+        ...(conflict.destination === undefined
+          ? {}
+          : { destination: conflict.destination }),
+        ...(conflict.mergeBase === undefined
+          ? {}
+          : { mergeBase: conflict.mergeBase }),
+        ...(conflict.details === undefined
+          ? {}
+          : { details: conflict.details }),
+      });
+    }
+  }
+  let userConsultation: SynchronizationUserConsultation | undefined;
+  if (data.userConsultation !== undefined) {
+    if (
+      typeof data.userConsultation !== "object" ||
+      data.userConsultation === null ||
+      Array.isArray(data.userConsultation)
+    )
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.sync.consultation-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "Synchronization user consultation is invalid.",
+            "Ambiguous conflicts must preserve the question and competing intents safely.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    const consultation = data.userConsultation as Record<string, unknown>;
+    if (
+      Object.keys(consultation).some(
+        (key) =>
+          !new Set(["question", "competingIntents", "requestedAt"]).has(key),
+      )
+    )
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.sync.consultation-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "Synchronization user consultation is invalid.",
+            "Ambiguous conflicts must preserve the question and competing intents safely.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    const requestedAt = parseUtcInstant(consultation.requestedAt);
+    if (
+      typeof consultation.question !== "string" ||
+      !Array.isArray(consultation.competingIntents) ||
+      consultation.competingIntents.some((item) => typeof item !== "string") ||
+      !requestedAt.ok
+    )
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.sync.consultation-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "Synchronization user consultation is invalid.",
+            "Ambiguous conflicts must preserve the question and competing intents safely.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    userConsultation = {
+      question: consultation.question,
+      competingIntents: [...(consultation.competingIntents as string[])],
+      requestedAt: requestedAt.value,
+    };
+  }
   if (
     data.kind !== "synchronization-result" ||
     !SYNCHRONIZATION_STATUSES.includes(data.status as SynchronizationStatus) ||
@@ -673,6 +993,13 @@ export function parseSynchronizationResult(
     destinationRepositoryId: destinationRepo.value,
     ...(syncSha === undefined ? {} : { syncSourceSha: syncSha.value }),
     ...(headSha === undefined ? {} : { prHeadSha: headSha.value }),
+    ...(mergeBaseSha === undefined
+      ? {}
+      : { syncMergeBaseSha: mergeBaseSha.value }),
+    ...(sourceChangeEvidence === undefined ? {} : { sourceChangeEvidence }),
+    ...(prHeadChangeEvidence === undefined ? {} : { prHeadChangeEvidence }),
+    conflictEvidence,
+    ...(userConsultation === undefined ? {} : { userConsultation }),
     operationId: operationId.value,
     ...(worktreeId === undefined ? {} : { worktreeId: worktreeId.value }),
     status: data.status as SynchronizationStatus,

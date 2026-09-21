@@ -2,6 +2,7 @@ import {
   createDomainError,
   DOMAIN_SCHEMA_VERSION,
   failure,
+  isSafeJsonValue,
   parseDomainReason,
   type ActionReason,
   type DomainResult,
@@ -21,6 +22,7 @@ import {
   parseManagedPrId,
   parseRemoteEventVersionId,
   parseReviewBundleId,
+  parseReviewBundleItemId,
   parseSchemaVersion,
   parseWorktreeId,
   type ActionRecord,
@@ -32,6 +34,7 @@ import {
   type ReviewBundleId,
   type WorktreeId,
 } from "./primitives";
+import type { SafeJsonValue } from "./result";
 
 export const REVIEW_BUNDLE_STATES = [
   "WORKING",
@@ -46,8 +49,46 @@ export const REVIEW_BUNDLE_STATES = [
 ] as const;
 export type ReviewBundleState = (typeof REVIEW_BUNDLE_STATES)[number];
 
+export const REVIEW_BUNDLE_STAGES = [
+  "PROPOSAL_REVIEW",
+  "FINAL_REVIEW",
+] as const;
+export type ReviewBundleStage = (typeof REVIEW_BUNDLE_STAGES)[number];
+export const REVIEW_ITEM_DECISIONS = [
+  "pending",
+  "accepted",
+  "overridden",
+] as const;
+export type ReviewItemDecision = (typeof REVIEW_ITEM_DECISIONS)[number];
+export const REVIEW_ITEM_DISPOSITIONS = [
+  "fixed",
+  "pushback",
+  "question",
+  "no_change",
+] as const;
+export type ReviewItemDisposition = (typeof REVIEW_ITEM_DISPOSITIONS)[number];
+
+export interface ReviewBundleItemDecision {
+  readonly decision: ReviewItemDecision;
+  readonly finalDisposition: ReviewItemDisposition;
+  readonly userInstructions?: string;
+  readonly questionAnswer?: string;
+}
+
+export interface ReviewBundleItem {
+  readonly id: string;
+  readonly eventVersionId: RemoteEventVersionId;
+  /** Immutable provider-neutral representation of the AI recommendation. */
+  readonly recommendation: SafeJsonValue;
+  readonly decision: ReviewBundleItemDecision;
+  readonly decisionHistory: readonly ReviewBundleItemDecision[];
+}
+
 export const REVIEW_BUNDLE_TRANSITIONS = [
   ["WORKING", "REVIEWABLE_COMPLETION", "READY_FOR_REVIEW"],
+  ["READY_FOR_REVIEW", "SET_ITEM_DECISION", "READY_FOR_REVIEW"],
+  ["READY_FOR_REVIEW", "CONFIRM_REVIEW_DECISIONS", "WORKING"],
+  ["WORKING", "IMPLEMENTATION_COMPLETION", "READY_FOR_REVIEW"],
   ["WORKING", "BLOCKING_STOP", "NEEDS_ATTENTION"],
   ["WORKING", "REMOTE_HEAD_MOVED", "STALE"],
   ["READY_FOR_REVIEW", "REMOTE_HEAD_MOVED", "STALE"],
@@ -75,8 +116,10 @@ export interface ReviewBundle {
   readonly id: ReviewBundleId;
   readonly prId: ManagedPrId;
   readonly state: ReviewBundleState;
+  readonly stage: ReviewBundleStage;
   readonly version: number;
   readonly eventVersionIds: readonly RemoteEventVersionId[];
+  readonly items: readonly ReviewBundleItem[];
   readonly snapshotRefs: ReviewBundleSnapshotRefs;
   readonly aiOperationId?: AIWorkOperationId;
   readonly currentReason?: ActionReason;
@@ -87,6 +130,28 @@ export interface ReviewBundle {
 
 export interface BundleReviewableCompletionAction {
   readonly type: "REVIEWABLE_COMPLETION";
+  readonly action: ActionRecord;
+  readonly reason?: ActionReason;
+}
+
+export interface BundleItemDecisionAction {
+  readonly type: "SET_ITEM_DECISION";
+  readonly action: ActionRecord;
+  readonly itemId: string;
+  readonly decision: ReviewItemDecision;
+  readonly finalDisposition: ReviewItemDisposition;
+  readonly userInstructions?: string;
+  readonly questionAnswer?: string;
+}
+
+export interface BundleConfirmReviewDecisionsAction {
+  readonly type: "CONFIRM_REVIEW_DECISIONS";
+  readonly action: ActionRecord;
+  readonly implementationOperationId?: AIWorkOperationId;
+}
+
+export interface BundleImplementationCompletionAction {
+  readonly type: "IMPLEMENTATION_COMPLETION";
   readonly action: ActionRecord;
   readonly reason?: ActionReason;
 }
@@ -133,6 +198,9 @@ export interface BundleReevaluateAction {
 
 export type ReviewBundleAction =
   | BundleReviewableCompletionAction
+  | BundleItemDecisionAction
+  | BundleConfirmReviewDecisionsAction
+  | BundleImplementationCompletionAction
   | BundleBlockingStopAction
   | BundleStaleAction
   | BundleApprovePublicationAction
@@ -152,7 +220,42 @@ export function isTerminalReviewBundleState(state: ReviewBundleState): boolean {
 }
 
 export function canPublishReviewBundle(bundle: ReviewBundle): boolean {
-  return bundle.state === "READY_FOR_REVIEW";
+  return bundle.state === "READY_FOR_REVIEW" && bundle.stage === "FINAL_REVIEW";
+}
+
+function hasText(value: string | undefined): boolean {
+  return value !== undefined && value.trim().length > 0;
+}
+
+export function hasCompleteReviewDecisions(bundle: ReviewBundle): boolean {
+  return (
+    bundle.stage === "PROPOSAL_REVIEW" &&
+    bundle.items.every((item) => {
+      if (item.decision.decision === "pending") return false;
+      if (item.decision.finalDisposition === "question") {
+        return hasText(item.decision.questionAnswer);
+      }
+      return true;
+    })
+  );
+}
+
+function decisionRequiredReason(bundle: ReviewBundle): ActionReason {
+  return unsafeReason(
+    "REVIEW_DECISIONS_REQUIRED",
+    "Every proposed review item needs an explicit human decision before implementation.",
+    "The initial AI review is read-only and a question disposition also needs a written answer.",
+    "REVIEW",
+    { bundleId: bundle.id, itemCount: bundle.items.length },
+  );
+}
+
+function decisionIsValid(input: BundleItemDecisionAction): boolean {
+  return (
+    input.decision !== "pending" &&
+    hasText(input.finalDisposition) &&
+    (input.finalDisposition !== "question" || hasText(input.questionAnswer))
+  );
 }
 
 function invalidReason(state: ReviewBundleState, action: string): ActionReason {
@@ -234,6 +337,8 @@ export function createReviewBundle(input: {
   readonly id: ReviewBundleId;
   readonly prId: ManagedPrId;
   readonly eventVersionIds: readonly RemoteEventVersionId[];
+  readonly stage?: ReviewBundleStage;
+  readonly items?: readonly ReviewBundleItem[];
   readonly snapshotRefs?: ReviewBundleSnapshotRefs;
   readonly aiOperationId?: AIWorkOperationId;
 }): ReviewBundle {
@@ -243,8 +348,14 @@ export function createReviewBundle(input: {
     id: input.id,
     prId: input.prId,
     state: "WORKING",
+    stage: input.stage ?? "FINAL_REVIEW",
     version: 0,
     eventVersionIds: [...input.eventVersionIds],
+    items: (input.items ?? []).map((item) => ({
+      ...item,
+      decision: { ...item.decision },
+      decisionHistory: [...item.decisionHistory],
+    })),
     snapshotRefs: input.snapshotRefs ?? {},
     ...(input.aiOperationId === undefined
       ? {}
@@ -307,6 +418,127 @@ export function reduceReviewBundle(
         action.action,
         clock,
         reason,
+      ),
+    );
+  }
+
+  if (action.type === "SET_ITEM_DECISION") {
+    if (
+      bundle.state !== "READY_FOR_REVIEW" ||
+      bundle.stage !== "PROPOSAL_REVIEW" ||
+      action.action.actor !== "HUMAN" ||
+      !decisionIsValid(action)
+    ) {
+      return transitionError(bundle, action, decisionRequiredReason(bundle));
+    }
+    const index = bundle.items.findIndex((item) => item.id === action.itemId);
+    if (index < 0) {
+      return transitionError(bundle, action, decisionRequiredReason(bundle));
+    }
+    const nextDecision: ReviewBundleItemDecision = {
+      decision: action.decision,
+      finalDisposition: action.finalDisposition,
+      ...(action.userInstructions === undefined
+        ? {}
+        : { userInstructions: action.userInstructions }),
+      ...(action.questionAnswer === undefined
+        ? {}
+        : { questionAnswer: action.questionAnswer }),
+    };
+    const items = bundle.items.map((item, itemIndex) =>
+      itemIndex === index
+        ? {
+            ...item,
+            decision: nextDecision,
+            decisionHistory: [...item.decisionHistory, nextDecision],
+          }
+        : item,
+    );
+    return success(
+      applyBundleState(
+        bundle,
+        bundle.state,
+        action.action,
+        clock,
+        unsafeReason(
+          "REVIEW_ITEM_DECISION_RECORDED",
+          "A human decision was recorded for a proposal item.",
+          "The decision is retained as history and will control only the next implementation step.",
+          "NONE",
+          {
+            itemId: action.itemId,
+            decision: action.decision,
+            finalDisposition: action.finalDisposition,
+          },
+        ),
+        { items },
+      ),
+    );
+  }
+
+  if (action.type === "CONFIRM_REVIEW_DECISIONS") {
+    if (
+      bundle.state !== "READY_FOR_REVIEW" ||
+      bundle.stage !== "PROPOSAL_REVIEW" ||
+      action.action.actor !== "HUMAN"
+    ) {
+      return transitionError(bundle, action, decisionRequiredReason(bundle));
+    }
+    if (!hasCompleteReviewDecisions(bundle)) {
+      return failure(
+        createDomainError({
+          code: "REVIEW_DECISIONS_REQUIRED",
+          category: "INVALID_TRANSITION",
+          retryable: false,
+          userAction: "REVIEW",
+          messageKey: "domain.bundle.review-decisions-required",
+          reason: decisionRequiredReason(bundle),
+          priorState: bundle.state,
+          currentState: bundle.state,
+        }),
+      );
+    }
+    const reason = unsafeReason(
+      "REVIEW_DECISIONS_CONFIRMED",
+      "The developer confirmed every Review Proposal decision.",
+      "Only the final human dispositions and instructions may be sent to the worktree-mutating implementation turn.",
+      "NONE",
+      {
+        implementationOperationId:
+          action.implementationOperationId ?? "not-assigned",
+      },
+    );
+    return success(
+      applyBundleState(bundle, "WORKING", action.action, clock, reason, {
+        ...(action.implementationOperationId === undefined
+          ? {}
+          : { aiOperationId: action.implementationOperationId }),
+      }),
+    );
+  }
+
+  if (action.type === "IMPLEMENTATION_COMPLETION") {
+    if (bundle.state !== "WORKING" || bundle.stage !== "PROPOSAL_REVIEW") {
+      return transitionError(
+        bundle,
+        action,
+        invalidReason(bundle.state, action.type),
+      );
+    }
+    return success(
+      applyBundleState(
+        bundle,
+        "READY_FOR_REVIEW",
+        action.action,
+        clock,
+        action.reason ??
+          unsafeReason(
+            "FINAL_REVIEW_READY",
+            "The accepted review decisions produced a final proposed result.",
+            "The complete diff and post-change validation are now ready for separate human publication approval.",
+            "REVIEW",
+          ),
+        { stage: "FINAL_REVIEW" },
       ),
     );
   }
@@ -471,8 +703,14 @@ export function reduceReviewBundle(
           id: action.newBundleId,
           prId: bundle.prId,
           state: "WORKING",
+          stage: bundle.stage,
           version: 0,
           eventVersionIds: [...bundle.eventVersionIds],
+          items: bundle.items.map((item) => ({
+            ...item,
+            decision: { decision: "pending", finalDisposition: "no_change" },
+            decisionHistory: [],
+          })),
           snapshotRefs: bundle.snapshotRefs,
           ...(action.newAiOperationId === undefined
             ? {}
@@ -518,8 +756,10 @@ export function parseReviewBundle(value: unknown): DomainResult<ReviewBundle> {
     "id",
     "prId",
     "state",
+    "stage",
     "version",
     "eventVersionIds",
+    "items",
     "snapshotRefs",
     "aiOperationId",
     "currentReason",
@@ -559,7 +799,10 @@ export function parseReviewBundle(value: unknown): DomainResult<ReviewBundle> {
     !Array.isArray(data.eventVersionIds) ||
     !Array.isArray(data.history) ||
     typeof data.snapshotRefs !== "object" ||
-    data.snapshotRefs === null
+    data.snapshotRefs === null ||
+    (data.stage !== undefined &&
+      !REVIEW_BUNDLE_STAGES.includes(data.stage as ReviewBundleStage)) ||
+    (data.items !== undefined && !Array.isArray(data.items))
   ) {
     return failure(
       createDomainError({
@@ -643,6 +886,186 @@ export function parseReviewBundle(value: unknown): DomainResult<ReviewBundle> {
       : parseReviewBundleId(data.parentBundleId);
   if (aiOperationId !== undefined && !aiOperationId.ok) return aiOperationId;
   if (parentBundleId !== undefined && !parentBundleId.ok) return parentBundleId;
+
+  const parsedItems: ReviewBundleItem[] = [];
+  for (const rawItem of (data.items ?? []) as unknown[]) {
+    if (
+      typeof rawItem !== "object" ||
+      rawItem === null ||
+      Array.isArray(rawItem)
+    ) {
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.bundle.item-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "A Review Bundle item is invalid.",
+            "Item decisions cannot be restored safely.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    }
+    const item = rawItem as Record<string, unknown>;
+    const itemKeys = new Set([
+      "id",
+      "eventVersionId",
+      "recommendation",
+      "decision",
+      "decisionHistory",
+    ]);
+    if (
+      Object.keys(item).some((key) => !itemKeys.has(key)) ||
+      !isSafeJsonValue(item.recommendation)
+    ) {
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.bundle.item-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "A Review Bundle item contains unsupported data.",
+            "AI recommendations and human decisions must remain bounded and safe.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    }
+    const itemId = parseReviewBundleItemId(item.id);
+    const itemEventId = parseRemoteEventVersionId(item.eventVersionId);
+    if (!itemId.ok) return itemId;
+    if (!itemEventId.ok) return itemEventId;
+    const parseDecision = (
+      value: unknown,
+    ): DomainResult<ReviewBundleItemDecision> => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return failure(
+          createDomainError({
+            code: "INVALID_CONTRACT",
+            category: "INVALID_INPUT",
+            retryable: false,
+            userAction: "FIX_INPUT",
+            messageKey: "domain.bundle.decision-invalid",
+            reason: unsafeReason(
+              "INVALID_CONTRACT",
+              "A Review Bundle decision is invalid.",
+              "Human decisions must be explicit and safely serialized.",
+              "FIX_INPUT",
+            ),
+          }),
+        );
+      }
+      const decision = value as Record<string, unknown>;
+      if (
+        Object.keys(decision).some(
+          (key) =>
+            !new Set([
+              "decision",
+              "finalDisposition",
+              "userInstructions",
+              "questionAnswer",
+            ]).has(key),
+        )
+      ) {
+        return failure(
+          createDomainError({
+            code: "INVALID_CONTRACT",
+            category: "INVALID_INPUT",
+            retryable: false,
+            userAction: "FIX_INPUT",
+            messageKey: "domain.bundle.decision-invalid",
+            reason: unsafeReason(
+              "INVALID_CONTRACT",
+              "A Review Bundle decision contains unsupported fields.",
+              "Human decisions must remain bounded and safely serialized.",
+              "FIX_INPUT",
+            ),
+          }),
+        );
+      }
+      if (
+        !REVIEW_ITEM_DECISIONS.includes(
+          decision.decision as ReviewItemDecision,
+        ) ||
+        !REVIEW_ITEM_DISPOSITIONS.includes(
+          decision.finalDisposition as ReviewItemDisposition,
+        ) ||
+        (decision.userInstructions !== undefined &&
+          typeof decision.userInstructions !== "string") ||
+        (decision.questionAnswer !== undefined &&
+          typeof decision.questionAnswer !== "string") ||
+        (decision.finalDisposition === "question" &&
+          !hasText(decision.questionAnswer as string | undefined))
+      ) {
+        return failure(
+          createDomainError({
+            code: "INVALID_CONTRACT",
+            category: "INVALID_INPUT",
+            retryable: false,
+            userAction: "FIX_INPUT",
+            messageKey: "domain.bundle.decision-invalid",
+            reason: unsafeReason(
+              "INVALID_CONTRACT",
+              "A Review Bundle decision is invalid.",
+              "Question dispositions require a written answer and pending decisions cannot be implemented.",
+              "FIX_INPUT",
+            ),
+          }),
+        );
+      }
+      return success({
+        decision: decision.decision as ReviewItemDecision,
+        finalDisposition: decision.finalDisposition as ReviewItemDisposition,
+        ...(decision.userInstructions === undefined
+          ? {}
+          : { userInstructions: decision.userInstructions }),
+        ...(decision.questionAnswer === undefined
+          ? {}
+          : { questionAnswer: decision.questionAnswer }),
+      });
+    };
+    const parsedDecision = parseDecision(item.decision);
+    if (!parsedDecision.ok) return parsedDecision;
+    const historyRaw =
+      item.decisionHistory === undefined ? [] : item.decisionHistory;
+    if (!Array.isArray(historyRaw)) {
+      return failure(
+        createDomainError({
+          code: "INVALID_CONTRACT",
+          category: "INVALID_INPUT",
+          retryable: false,
+          userAction: "FIX_INPUT",
+          messageKey: "domain.bundle.decision-history-invalid",
+          reason: unsafeReason(
+            "INVALID_CONTRACT",
+            "A Review Bundle decision history is invalid.",
+            "Decision history must be an array of safe decisions.",
+            "FIX_INPUT",
+          ),
+        }),
+      );
+    }
+    const history: ReviewBundleItemDecision[] = [];
+    for (const historyItem of historyRaw) {
+      const parsedHistory = parseDecision(historyItem);
+      if (!parsedHistory.ok) return parsedHistory;
+      history.push(parsedHistory.value);
+    }
+    parsedItems.push({
+      id: itemId.value,
+      eventVersionId: itemEventId.value,
+      recommendation: item.recommendation,
+      decision: parsedDecision.value,
+      decisionHistory: history,
+    });
+  }
   const currentReason =
     data.currentReason === undefined
       ? undefined
@@ -697,10 +1120,12 @@ export function parseReviewBundle(value: unknown): DomainResult<ReviewBundle> {
     id: id.value,
     prId: prId.value,
     state: data.state as ReviewBundleState,
+    stage: (data.stage as ReviewBundleStage | undefined) ?? "FINAL_REVIEW",
     version: data.version as number,
     eventVersionIds: eventIds.map(
       (result) => (result as { ok: true; value: RemoteEventVersionId }).value,
     ),
+    items: parsedItems,
     snapshotRefs: {
       ...(prBaseSha === undefined ? {} : { prBaseSha: prBaseSha.value }),
       ...(prHeadSha === undefined ? {} : { prHeadSha: prHeadSha.value }),

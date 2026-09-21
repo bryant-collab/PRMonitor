@@ -1,4 +1,9 @@
-import { accessSync, constants as fsConstants, realpathSync, statSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_OUTPUT_LIMIT_BYTES,
@@ -30,8 +35,10 @@ export type ValidationReason =
   | "SNAPSHOT_MISMATCH"
   | "INVALID_TRANSITION";
 
-export type StepState = "pending" | "running" | "passed" | "failed" | "interrupted" | "not_run";
-export type RunState = "running" | "passed" | "failed" | "interrupted" | "not_run";
+export type StepState =
+  "pending" | "running" | "passed" | "failed" | "interrupted" | "not_run";
+export type RunState =
+  "running" | "passed" | "failed" | "interrupted" | "not_run";
 
 export const TERMINATION_GRACE_PERIOD_MS = 5_000 as const;
 
@@ -73,17 +80,29 @@ function pathFlavor(platform?: "posix" | "win32"): "posix" | "win32" {
   return platform ?? (process.platform === "win32" ? "win32" : "posix");
 }
 
-function trimTrailingSeparators(input: string, platform: "posix" | "win32"): string {
-  const root = platform === "win32" ? path.win32.parse(input).root : path.posix.parse(input).root;
+function trimTrailingSeparators(
+  input: string,
+  platform: "posix" | "win32",
+): string {
+  const root =
+    platform === "win32"
+      ? path.win32.parse(input).root
+      : path.posix.parse(input).root;
   if (input === root) {
     return input;
   }
   return input.replace(/[\\/]+$/u, "");
 }
 
-export function canonicalPathKey(input: string, platform?: "posix" | "win32"): string {
+export function canonicalPathKey(
+  input: string,
+  platform?: "posix" | "win32",
+): string {
   const flavor = pathFlavor(platform);
-  const normalized = flavor === "win32" ? path.win32.normalize(input) : path.posix.normalize(input);
+  const normalized =
+    flavor === "win32"
+      ? path.win32.normalize(input)
+      : path.posix.normalize(input);
   const trimmed = trimTrailingSeparators(normalized, flavor);
   return flavor === "win32" ? trimmed.toLowerCase() : trimmed;
 }
@@ -124,17 +143,35 @@ export function resolveWorkingDirectory(
 ): PathPolicyResult {
   const flavor = pathFlavor(options.platform);
   const port = options.pathPort ?? nativePathPort;
-  if (typeof operationWorktreeRoot !== "string" || operationWorktreeRoot.length === 0) {
-    return { ok: false, reason: "WORKTREE_PATH_INVALID", message: "operation worktree root is empty" };
-  }
-  if (typeof relativeWorkingDirectory !== "string" || relativeWorkingDirectory.length === 0) {
-    return { ok: false, reason: "WORKTREE_PATH_INVALID", message: "working directory is empty" };
-  }
-  if (hasAbsoluteSyntax(relativeWorkingDirectory, flavor) || hasParentTraversal(relativeWorkingDirectory)) {
+  if (
+    typeof operationWorktreeRoot !== "string" ||
+    operationWorktreeRoot.length === 0
+  ) {
     return {
       ok: false,
       reason: "WORKTREE_PATH_INVALID",
-      message: "working directory must be relative and cannot contain parent traversal",
+      message: "operation worktree root is empty",
+    };
+  }
+  if (
+    typeof relativeWorkingDirectory !== "string" ||
+    relativeWorkingDirectory.length === 0
+  ) {
+    return {
+      ok: false,
+      reason: "WORKTREE_PATH_INVALID",
+      message: "working directory is empty",
+    };
+  }
+  if (
+    hasAbsoluteSyntax(relativeWorkingDirectory, flavor) ||
+    hasParentTraversal(relativeWorkingDirectory)
+  ) {
+    return {
+      ok: false,
+      reason: "WORKTREE_PATH_INVALID",
+      message:
+        "working directory must be relative and cannot contain parent traversal",
     };
   }
 
@@ -157,7 +194,11 @@ export function resolveWorkingDirectory(
         message: "working directory does not exist or is not a directory",
       };
     }
-    if (!isPathWithin(canonicalWorktreeRoot, canonicalWorkingDirectory, { platform: flavor })) {
+    if (
+      !isPathWithin(canonicalWorktreeRoot, canonicalWorkingDirectory, {
+        platform: flavor,
+      })
+    ) {
       return {
         ok: false,
         reason: "WORKTREE_PATH_INVALID",
@@ -191,11 +232,17 @@ export interface BoundedNumberFailure {
 
 export type BoundedNumber = BoundedNumberResult | BoundedNumberFailure;
 
-export function effectiveTimeoutSeconds(value: number | undefined | null): BoundedNumber {
+export function effectiveTimeoutSeconds(
+  value: number | undefined | null,
+): BoundedNumber {
   if (value === undefined || value === null) {
     return { ok: true, value: DEFAULT_TIMEOUT_SECONDS };
   }
-  if (!Number.isInteger(value) || value < MIN_TIMEOUT_SECONDS || value > MAX_TIMEOUT_SECONDS) {
+  if (
+    !Number.isInteger(value) ||
+    value < MIN_TIMEOUT_SECONDS ||
+    value > MAX_TIMEOUT_SECONDS
+  ) {
     return {
       ok: false,
       message: `timeoutSeconds must be an integer from ${MIN_TIMEOUT_SECONDS} through ${MAX_TIMEOUT_SECONDS}`,
@@ -204,7 +251,9 @@ export function effectiveTimeoutSeconds(value: number | undefined | null): Bound
   return { ok: true, value };
 }
 
-export function effectiveOutputLimitBytes(value: number | undefined | null): BoundedNumber {
+export function effectiveOutputLimitBytes(
+  value: number | undefined | null,
+): BoundedNumber {
   if (value === undefined || value === null) {
     return { ok: true, value: DEFAULT_OUTPUT_LIMIT_BYTES };
   }
@@ -248,11 +297,17 @@ export function sanitizeEnvironment(
   environment: Record<string, string | undefined>,
   allowedKeys: readonly string[] = DEFAULT_TOOLCHAIN_ENVIRONMENT_KEYS,
 ): Record<string, string> {
-  const allowed = new Map(allowedKeys.map((key) => [key.toLowerCase(), key] as const));
+  const allowed = new Map(
+    allowedKeys.map((key) => [key.toLowerCase(), key] as const),
+  );
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(environment)) {
     const normalizedKey = allowed.get(key.toLowerCase());
-    if (value === undefined || normalizedKey === undefined || SENSITIVE_ENVIRONMENT_KEY.test(key)) {
+    if (
+      value === undefined ||
+      normalizedKey === undefined ||
+      SENSITIVE_ENVIRONMENT_KEY.test(key)
+    ) {
       continue;
     }
     // Environment names are case-insensitive on Windows. Emit one stable
@@ -263,9 +318,17 @@ export function sanitizeEnvironment(
   return result;
 }
 
-export function createControlledEnvironment(input: ControlledEnvironmentInput = {}): Record<string, string> {
-  const result = sanitizeEnvironment(input.toolchainEnvironment ?? {}, input.allowedKeys);
-  if (input.pathValue !== undefined && !SENSITIVE_ENVIRONMENT_KEY.test("PATH")) {
+export function createControlledEnvironment(
+  input: ControlledEnvironmentInput = {},
+): Record<string, string> {
+  const result = sanitizeEnvironment(
+    input.toolchainEnvironment ?? {},
+    input.allowedKeys,
+  );
+  if (
+    input.pathValue !== undefined &&
+    !SENSITIVE_ENVIRONMENT_KEY.test("PATH")
+  ) {
     result.PATH = input.pathValue;
   }
   if (input.pathExtValue !== undefined) {
@@ -291,7 +354,10 @@ function defaultFileExists(candidate: string): boolean {
   }
 }
 
-function defaultExecutable(candidate: string, flavor: "posix" | "win32"): boolean {
+function defaultExecutable(
+  candidate: string,
+  flavor: "posix" | "win32",
+): boolean {
   if (flavor === "win32") {
     return defaultFileExists(candidate);
   }
@@ -307,7 +373,9 @@ function defaultExecutable(candidate: string, flavor: "posix" | "win32"): boolea
 }
 
 function hasFileExtension(input: string, flavor: "posix" | "win32"): boolean {
-  return flavor === "win32" ? path.win32.extname(input).length > 0 : path.posix.extname(input).length > 0;
+  return flavor === "win32"
+    ? path.win32.extname(input).length > 0
+    : path.posix.extname(input).length > 0;
 }
 
 export function resolveExecutable(
@@ -317,11 +385,17 @@ export function resolveExecutable(
   const flavor = pathFlavor(options.platform);
   const environment = options.environment ?? {};
   const exists = options.fileExists ?? defaultFileExists;
-  const isExecutable = options.executable ?? ((candidate: string) => defaultExecutable(candidate, flavor));
+  const isExecutable =
+    options.executable ??
+    ((candidate: string) => defaultExecutable(candidate, flavor));
   const pathValue = environment.PATH ?? environment.Path ?? "";
-  const pathExtValue = environment.PATHEXT ?? environment.Pathext ?? ".COM;.EXE;.BAT;.CMD";
-  const extensions = flavor === "win32" ? pathExtValue.split(";").filter(Boolean) : [""];
-  const isPathLike = /[\\/]/u.test(executable) || (flavor === "win32" && path.win32.isAbsolute(executable));
+  const pathExtValue =
+    environment.PATHEXT ?? environment.Pathext ?? ".COM;.EXE;.BAT;.CMD";
+  const extensions =
+    flavor === "win32" ? pathExtValue.split(";").filter(Boolean) : [""];
+  const isPathLike =
+    /[\\/]/u.test(executable) ||
+    (flavor === "win32" && path.win32.isAbsolute(executable));
 
   const candidates: string[] = [];
   if (isPathLike) {
@@ -338,16 +412,23 @@ export function resolveExecutable(
         : executable;
     candidates.push(pathExecutable);
     if (flavor === "win32" && !hasFileExtension(pathExecutable, flavor)) {
-      candidates.push(...extensions.map((extension) => `${pathExecutable}${extension}`));
+      candidates.push(
+        ...extensions.map((extension) => `${pathExecutable}${extension}`),
+      );
     }
   } else {
     const separator = flavor === "win32" ? ";" : ":";
     const directories = pathValue.split(separator).filter(Boolean);
     for (const directory of directories) {
-      const joined = flavor === "win32" ? path.win32.join(directory, executable) : path.posix.join(directory, executable);
+      const joined =
+        flavor === "win32"
+          ? path.win32.join(directory, executable)
+          : path.posix.join(directory, executable);
       candidates.push(joined);
       if (flavor === "win32" && !hasFileExtension(executable, flavor)) {
-        candidates.push(...extensions.map((extension) => `${joined}${extension}`));
+        candidates.push(
+          ...extensions.map((extension) => `${joined}${extension}`),
+        );
       }
     }
   }
@@ -365,6 +446,7 @@ export interface PreparedCommand {
   stepId: string;
   executable: string;
   arguments: string[];
+  phase?: "baseline" | "post_change" | "both";
   shell: false;
   canonicalWorktreeRoot: string;
   canonicalWorkingDirectory: string;
@@ -393,12 +475,19 @@ export interface ValidationProcessHandle<ProcessId = string> {
 }
 
 export interface ValidationRunnerPort<ProcessId = string> {
-  start(request: ValidationRunnerRequest): Promise<ValidationProcessHandle<ProcessId>>;
+  start(
+    request: ValidationRunnerRequest,
+  ): Promise<ValidationProcessHandle<ProcessId>>;
 }
 
 export type PrepareCommandResult =
   | { ok: true; command: PreparedCommand }
-  | { ok: false; reason: "INVALID_PROFILE" | "WORKTREE_PATH_INVALID" | "EXECUTABLE_NOT_RESOLVED"; message: string };
+  | {
+      ok: false;
+      reason:
+        "INVALID_PROFILE" | "WORKTREE_PATH_INVALID" | "EXECUTABLE_NOT_RESOLVED";
+      message: string;
+    };
 
 export interface PrepareCommandInput {
   step: CommandStep;
@@ -412,14 +501,20 @@ export interface PrepareCommandInput {
   executable?: (candidate: string) => boolean;
 }
 
-export function prepareCommand(input: PrepareCommandInput): PrepareCommandResult {
+export function prepareCommand(
+  input: PrepareCommandInput,
+): PrepareCommandResult {
   const timeout = effectiveTimeoutSeconds(input.step.timeoutSeconds);
   if (!timeout.ok) {
     return { ok: false, reason: "INVALID_PROFILE", message: timeout.message };
   }
   const outputLimit = effectiveOutputLimitBytes(input.step.outputLimitBytes);
   if (!outputLimit.ok) {
-    return { ok: false, reason: "INVALID_PROFILE", message: outputLimit.message };
+    return {
+      ok: false,
+      reason: "INVALID_PROFILE",
+      message: outputLimit.message,
+    };
   }
   const workingDirectory = resolveWorkingDirectory(
     input.operationWorktreeRoot,
@@ -457,6 +552,7 @@ export function prepareCommand(input: PrepareCommandInput): PrepareCommandResult
       stepId: input.step.id,
       executable: input.step.executable,
       arguments: [...input.step.arguments],
+      phase: input.step.phase ?? "post_change",
       shell: false,
       canonicalWorktreeRoot: workingDirectory.canonicalWorktreeRoot,
       canonicalWorkingDirectory: workingDirectory.canonicalWorkingDirectory,
@@ -479,7 +575,10 @@ export interface TransitionFailure {
   message: string;
 }
 
-export function transitionStepState(current: StepState, next: StepState): TransitionResult<StepState> | TransitionFailure {
+export function transitionStepState(
+  current: StepState,
+  next: StepState,
+): TransitionResult<StepState> | TransitionFailure {
   const allowed: Record<StepState, readonly StepState[]> = {
     pending: ["running", "not_run", "failed", "interrupted"],
     running: ["passed", "failed", "interrupted"],
@@ -489,12 +588,19 @@ export function transitionStepState(current: StepState, next: StepState): Transi
     not_run: [],
   };
   if (!allowed[current].includes(next)) {
-    return { ok: false, reason: "INVALID_TRANSITION", message: `cannot transition step ${current} to ${next}` };
+    return {
+      ok: false,
+      reason: "INVALID_TRANSITION",
+      message: `cannot transition step ${current} to ${next}`,
+    };
   }
   return { ok: true, state: next };
 }
 
-export function transitionRunState(current: RunState, next: RunState): TransitionResult<RunState> | TransitionFailure {
+export function transitionRunState(
+  current: RunState,
+  next: RunState,
+): TransitionResult<RunState> | TransitionFailure {
   const allowed: Record<RunState, readonly RunState[]> = {
     running: ["passed", "failed", "interrupted", "not_run"],
     passed: [],
@@ -503,7 +609,11 @@ export function transitionRunState(current: RunState, next: RunState): Transitio
     not_run: [],
   };
   if (!allowed[current].includes(next)) {
-    return { ok: false, reason: "INVALID_TRANSITION", message: `cannot transition run ${current} to ${next}` };
+    return {
+      ok: false,
+      reason: "INVALID_TRANSITION",
+      message: `cannot transition run ${current} to ${next}`,
+    };
   }
   return { ok: true, state: next };
 }
@@ -544,7 +654,9 @@ export function statusFromExit(observation: ExitObservation): ExitStatus {
 
 export interface ProcessControlPort<ProcessId = string> {
   requestGracefulTermination(processTree: ProcessId): Promise<void> | void;
-  listSurvivingProcesses(processTree: ProcessId): Promise<readonly ProcessId[]> | readonly ProcessId[];
+  listSurvivingProcesses(
+    processTree: ProcessId,
+  ): Promise<readonly ProcessId[]> | readonly ProcessId[];
   forceTerminate(processes: readonly ProcessId[]): Promise<void> | void;
 }
 
@@ -568,7 +680,9 @@ export async function terminateProcessTree<ProcessId>(input: {
 }): Promise<TerminationResult<ProcessId>> {
   await input.processControl.requestGracefulTermination(input.processTree);
   await input.clock.wait(TERMINATION_GRACE_PERIOD_MS);
-  const survivors = [...(await input.processControl.listSurvivingProcesses(input.processTree))];
+  const survivors = [
+    ...(await input.processControl.listSurvivingProcesses(input.processTree)),
+  ];
   if (survivors.length > 0) {
     await input.processControl.forceTerminate(survivors);
   }
@@ -581,7 +695,9 @@ export async function terminateProcessTree<ProcessId>(input: {
   };
 }
 
-export function finalizeRestartedRun<T extends { status: RunState; reason?: ValidationReason }>(run: T): T {
+export function finalizeRestartedRun<
+  T extends { status: RunState; reason?: ValidationReason },
+>(run: T): T {
   if (run.status !== "running") {
     return run;
   }

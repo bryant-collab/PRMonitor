@@ -109,6 +109,16 @@ export interface HeldContinuationAction {
   readonly parentBundleId: ReviewBundleId;
 }
 
+export interface ConfirmReviewDecisionsAction {
+  readonly type: "CONFIRM_REVIEW_DECISIONS";
+  readonly action: ActionRecord;
+  readonly operationId: AIWorkOperationId;
+  readonly bundleId: ReviewBundleId;
+  readonly proposalStage: "PROPOSAL_REVIEW";
+  readonly decisionsComplete: boolean;
+  readonly questionAnswersComplete: boolean;
+}
+
 export interface ReleaseReviewHoldAction {
   readonly type:
     | "RELEASE_AFTER_PUBLISHED"
@@ -135,6 +145,7 @@ export type PrimaryPrAction =
   | AutomaticReviewDispatchAction
   | ReviewCompletionAction
   | ReviewBlockedAction
+  | ConfirmReviewDecisionsAction
   | HeldContinuationAction
   | ReleaseReviewHoldAction
   | PassivePrimaryAction;
@@ -143,6 +154,7 @@ export const PRIMARY_ACTION_TYPES = [
   "DISPATCH_AUTOMATIC_REVIEW",
   "REVIEW_COMPLETED",
   "REVIEW_BLOCKED",
+  "CONFIRM_REVIEW_DECISIONS",
   "CONTINUE_AI_WORK",
   "RETRY_RESOLUTION",
   "REEVALUATE",
@@ -459,6 +471,61 @@ export function reducePrimaryPr(
         action.action,
         clock,
         reason,
+      ),
+    );
+  }
+
+  if (action.type === "CONFIRM_REVIEW_DECISIONS") {
+    const reason = unsafeReason(
+      "REVIEW_DECISIONS_REQUIRED",
+      "Review implementation is waiting for complete human decisions.",
+      "The read-only proposal cannot mutate the worktree until every item is accepted or overridden and every question has an answer.",
+      "REVIEW",
+      { bundleId: action.bundleId },
+    );
+    if (
+      action.action.actor !== "HUMAN" ||
+      action.proposalStage !== "PROPOSAL_REVIEW" ||
+      !action.decisionsComplete ||
+      !action.questionAnswersComplete ||
+      state.state !== "READY_FOR_REVIEW" ||
+      state.hold?.bundleId !== action.bundleId ||
+      state.currentBundleId !== action.bundleId
+    ) {
+      return failure(
+        createDomainError({
+          code: "REVIEW_DECISIONS_REQUIRED",
+          category: "INVALID_TRANSITION",
+          retryable: false,
+          userAction: "REVIEW",
+          messageKey: "domain.review.decisions-required",
+          reason,
+          priorState: state.state,
+          currentState: state.state,
+        }),
+      );
+    }
+    return success(
+      changedPrimary(
+        state,
+        {
+          schemaVersion: DOMAIN_SCHEMA_VERSION,
+          kind: "primary-pr-snapshot",
+          prId: state.prId,
+          state: "WORKING",
+          activeAutomaticOperationId: action.operationId,
+          currentBundleId: action.bundleId,
+          hold: state.hold,
+          lastReason: unsafeReason(
+            "REVIEW_DECISIONS_CONFIRMED",
+            "The developer confirmed the complete Review Proposal.",
+            "The implementation operation may receive the final human dispositions and instructions; publication still needs separate approval.",
+            "NONE",
+            { bundleId: action.bundleId },
+          ),
+        },
+        action.action,
+        clock,
       ),
     );
   }

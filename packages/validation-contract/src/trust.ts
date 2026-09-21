@@ -7,12 +7,17 @@ import {
   parseValidationProfile,
   type ProfileIssue,
   type ValidationProfile,
+  type ValidationPhase,
   VALIDATION_SCHEMA_VERSION,
 } from "./schema.js";
 
 export type ValidationSource = "one-run" | "saved" | "checked-in";
 
-export const VALIDATION_SOURCES: readonly ValidationSource[] = ["one-run", "saved", "checked-in"];
+export const VALIDATION_SOURCES: readonly ValidationSource[] = [
+  "one-run",
+  "saved",
+  "checked-in",
+];
 
 export const VALIDATION_SECURITY_NOTICE =
   "Repository validation can execute repository-controlled code. PRMonitor limits the working directory, credentials, time, and captured output; the MVP does not claim an operating-system or network sandbox for validation processes.";
@@ -30,7 +35,11 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function canonicalValue(value: unknown): CanonicalJsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
   if (typeof value === "number") {
@@ -47,13 +56,17 @@ function canonicalValue(value: unknown): CanonicalJsonValue {
     for (const key of Object.keys(value).sort()) {
       const item = value[key];
       if (item === undefined) {
-        throw new TypeError(`canonical JSON cannot contain undefined property: ${key}`);
+        throw new TypeError(
+          `canonical JSON cannot contain undefined property: ${key}`,
+        );
       }
       result[key] = canonicalValue(item);
     }
     return result;
   }
-  throw new TypeError(`canonical JSON cannot contain value of type ${typeof value}`);
+  throw new TypeError(
+    `canonical JSON cannot contain value of type ${typeof value}`,
+  );
 }
 
 /** RFC-8785-shaped deterministic JSON for the contract's JSON-compatible data. */
@@ -77,7 +90,9 @@ export function canonicalProfileJson(input: unknown): string {
   return canonicalizeJson(normalizeValidationProfile(input));
 }
 
-export function normalizeSourceType(source: string): ValidationSource | undefined {
+export function normalizeSourceType(
+  source: string,
+): ValidationSource | undefined {
   switch (source) {
     case "one-run":
     case "one_run":
@@ -148,10 +163,10 @@ export const oneRunAuthorizationSchema = z
   })
   .strict();
 
-export const authorizationRecordSchema = z.discriminatedUnion("authorizationType", [
-  approvalRecordSchema,
-  oneRunAuthorizationSchema,
-]);
+export const authorizationRecordSchema = z.discriminatedUnion(
+  "authorizationType",
+  [approvalRecordSchema, oneRunAuthorizationSchema],
+);
 
 export const authorizationReferenceSchema = z
   .object({
@@ -172,6 +187,7 @@ export interface ProfileSummaryCommand {
   executable: string;
   arguments: string[];
   workingDirectory: string;
+  phase: ValidationPhase;
   timeoutSeconds: number;
   outputLimitBytes: number;
 }
@@ -181,6 +197,7 @@ export interface ProfileSummaryManual {
   id: string;
   label: string;
   instructions: string;
+  phase: ValidationPhase;
 }
 
 export type ProfileSummaryStep = ProfileSummaryCommand | ProfileSummaryManual;
@@ -190,6 +207,7 @@ export interface ConfirmationSummary {
   repositoryId: string;
   schemaVersion: typeof VALIDATION_SCHEMA_VERSION;
   contentHash: string;
+  buildInstructions?: string;
   steps: ProfileSummaryStep[];
   securityNotice: string;
 }
@@ -220,32 +238,49 @@ function requiredIdentity(value: string, name: string): string {
   return value;
 }
 
-function stableRecordId(prefix: string, repositoryId: string, hash: string, operationId?: string): string {
+function stableRecordId(
+  prefix: string,
+  repositoryId: string,
+  hash: string,
+  operationId?: string,
+): string {
   return `${prefix}-${sha256Hex(`${repositoryId}\n${hash}\n${operationId ?? ""}`).slice(0, 24)}`;
 }
 
-export function createApprovalRecord(input: CreateApprovalInput): ApprovalRecord {
+export function createApprovalRecord(
+  input: CreateApprovalInput,
+): ApprovalRecord {
   const repositoryId = requiredIdentity(input.repositoryId, "repositoryId");
   const profile = normalizeValidationProfile(input.profile);
   const contentHash = hashValidationProfile(profile);
   const record: ApprovalRecord = {
     authorizationType: "approval",
-    approvalId: input.approvalId ?? stableRecordId("approval", repositoryId, contentHash, input.source),
+    approvalId:
+      input.approvalId ??
+      stableRecordId("approval", repositoryId, contentHash, input.source),
     repositoryId,
     source: input.source,
     schemaVersion: VALIDATION_SCHEMA_VERSION,
     contentHash,
     approvedAt: requiredIdentity(input.approvedAt, "approvedAt"),
-    ...(input.approvedBy === undefined ? {} : { approvedBy: requiredIdentity(input.approvedBy, "approvedBy") }),
+    ...(input.approvedBy === undefined
+      ? {}
+      : { approvedBy: requiredIdentity(input.approvedBy, "approvedBy") }),
   };
   const parsed = approvalRecordSchema.safeParse(record);
   if (!parsed.success) {
-    throw new TypeError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+    throw new TypeError(
+      parsed.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; "),
+    );
   }
   return parsed.data;
 }
 
-export function createOneRunAuthorization(input: CreateOneRunAuthorizationInput): OneRunAuthorizationRecord {
+export function createOneRunAuthorization(
+  input: CreateOneRunAuthorizationInput,
+): OneRunAuthorizationRecord {
   const repositoryId = requiredIdentity(input.repositoryId, "repositoryId");
   const operationId = requiredIdentity(input.operationId, "operationId");
   const profile = normalizeValidationProfile(input.profile);
@@ -253,7 +288,8 @@ export function createOneRunAuthorization(input: CreateOneRunAuthorizationInput)
   const record: OneRunAuthorizationRecord = {
     authorizationType: "one-run",
     authorizationId:
-      input.authorizationId ?? stableRecordId("one-run", repositoryId, contentHash, operationId),
+      input.authorizationId ??
+      stableRecordId("one-run", repositoryId, contentHash, operationId),
     repositoryId,
     source: "one-run",
     operationId,
@@ -263,11 +299,17 @@ export function createOneRunAuthorization(input: CreateOneRunAuthorizationInput)
     ...(input.authorizedBy === undefined
       ? {}
       : { authorizedBy: requiredIdentity(input.authorizedBy, "authorizedBy") }),
-    ...(input.expiresAt === undefined ? {} : { expiresAt: requiredIdentity(input.expiresAt, "expiresAt") }),
+    ...(input.expiresAt === undefined
+      ? {}
+      : { expiresAt: requiredIdentity(input.expiresAt, "expiresAt") }),
   };
   const parsed = oneRunAuthorizationSchema.safeParse(record);
   if (!parsed.success) {
-    throw new TypeError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+    throw new TypeError(
+      parsed.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; "),
+    );
   }
   return parsed.data;
 }
@@ -298,13 +340,18 @@ export interface EvaluateTrustInput {
   operationEnded?: boolean;
 }
 
-function isExpired(expiresAt: string | undefined, now: string | undefined): boolean {
+function isExpired(
+  expiresAt: string | undefined,
+  now: string | undefined,
+): boolean {
   if (expiresAt === undefined || now === undefined) {
     return false;
   }
   const expires = Date.parse(expiresAt);
   const current = Date.parse(now);
-  return Number.isFinite(expires) && Number.isFinite(current) && current >= expires;
+  return (
+    Number.isFinite(expires) && Number.isFinite(current) && current >= expires
+  );
 }
 
 function hasInvalidExpiration(expiresAt: string | undefined): boolean {
@@ -323,7 +370,9 @@ export function evaluateTrust(input: EvaluateTrustInput): TrustEvaluation {
     return { trusted: false, reason: "MISSING_AUTHORIZATION" };
   }
 
-  const parsedAuthorization = authorizationRecordSchema.safeParse(input.authorization);
+  const parsedAuthorization = authorizationRecordSchema.safeParse(
+    input.authorization,
+  );
   if (!parsedAuthorization.success) {
     return { trusted: false, reason: "INVALID_AUTHORIZATION" };
   }
@@ -366,7 +415,10 @@ export function evaluateTrust(input: EvaluateTrustInput): TrustEvaluation {
     trusted: true,
     authorization: {
       authorizationType: authorization.authorizationType,
-      id: authorization.authorizationType === "approval" ? authorization.approvalId : authorization.authorizationId,
+      id:
+        authorization.authorizationType === "approval"
+          ? authorization.approvalId
+          : authorization.authorizationId,
     },
   };
 }
@@ -376,34 +428,41 @@ export function buildConfirmationSummary(
   input: { source: ValidationSource; repositoryId: string },
 ): ConfirmationSummary {
   const profile = normalizeValidationProfile(profileInput);
-  const steps: ProfileSummaryStep[] = profile.steps.map((step): ProfileSummaryStep => {
-    if (step.kind === "command") {
-      const command: CommandStep = step;
+  const steps: ProfileSummaryStep[] = profile.steps.map(
+    (step): ProfileSummaryStep => {
+      if (step.kind === "command") {
+        const command: CommandStep = step;
+        return {
+          kind: "command",
+          id: command.id,
+          label: command.label,
+          executable: command.executable,
+          arguments: [...command.arguments],
+          workingDirectory: command.workingDirectory,
+          phase: command.phase ?? "post_change",
+          timeoutSeconds: command.timeoutSeconds,
+          outputLimitBytes: command.outputLimitBytes,
+        };
+      }
+      const manual: ManualStep = step;
       return {
-        kind: "command",
-        id: command.id,
-        label: command.label,
-        executable: command.executable,
-        arguments: [...command.arguments],
-        workingDirectory: command.workingDirectory,
-        timeoutSeconds: command.timeoutSeconds,
-        outputLimitBytes: command.outputLimitBytes,
+        kind: "manual",
+        id: manual.id,
+        label: manual.label,
+        instructions: manual.instructions,
+        phase: manual.phase ?? "post_change",
       };
-    }
-    const manual: ManualStep = step;
-    return {
-      kind: "manual",
-      id: manual.id,
-      label: manual.label,
-      instructions: manual.instructions,
-    };
-  });
+    },
+  );
 
   return {
     source: input.source,
     repositoryId: requiredIdentity(input.repositoryId, "repositoryId"),
     schemaVersion: VALIDATION_SCHEMA_VERSION,
     contentHash: hashValidationProfile(profile),
+    ...(profile.buildInstructions === undefined
+      ? {}
+      : { buildInstructions: profile.buildInstructions }),
     steps,
     securityNotice: VALIDATION_SECURITY_NOTICE,
   };
@@ -476,7 +535,11 @@ export type ValidationResolution =
     };
 
 export interface ValidationWarning {
-  code: "NO_PROFILE" | "CONFIRMATION_REQUIRED" | "INVALID_PROFILE" | "VALIDATION_REVIEW_REQUIRED";
+  code:
+    | "NO_PROFILE"
+    | "CONFIRMATION_REQUIRED"
+    | "INVALID_PROFILE"
+    | "VALIDATION_REVIEW_REQUIRED";
   title: string;
   message: string;
   remediation: string;
@@ -491,22 +554,28 @@ export function validationWarning(
       return {
         code,
         title: "Validation not run",
-        message: "No safe validation profile is configured for this repository.",
-        remediation: "Configure a saved profile or provide an approved checked-in profile before running validation.",
+        message:
+          "No safe validation profile is configured for this repository.",
+        remediation:
+          "Configure a saved profile or provide an approved checked-in profile before running validation.",
       };
     case "CONFIRMATION_REQUIRED":
       return {
         code,
         title: "Validation confirmation required",
-        message: "The selected profile has not been explicitly authorized for this repository and operation.",
-        remediation: "Review the exact commands, limits, directories, and manual checks, then confirm the profile or choose Run once.",
+        message:
+          "The selected profile has not been explicitly authorized for this repository and operation.",
+        remediation:
+          "Review the exact commands, limits, directories, and manual checks, then confirm the profile or choose Run once.",
       };
     case "INVALID_PROFILE":
       return {
         code,
         title: "Validation profile is invalid",
-        message: "The selected validation profile cannot be used because one or more fields are invalid.",
-        remediation: "Correct the reported profile fields and load the profile again.",
+        message:
+          "The selected validation profile cannot be used because one or more fields are invalid.",
+        remediation:
+          "Correct the reported profile fields and load the profile again.",
       };
     case "VALIDATION_REVIEW_REQUIRED":
       return {
@@ -515,35 +584,53 @@ export function validationWarning(
         message: `Validation completed with status ${details.status ?? "not passing"}${
           details.reason === undefined ? "" : ` (${details.reason})`
         } and does not grant publication authority.`,
-        remediation: "Inspect the recorded validation evidence and make the separate explicit publication decision.",
+        remediation:
+          "Inspect the recorded validation evidence and make the separate explicit publication decision.",
       };
   }
 }
 
-function candidateEnvelope(input: CandidateInput | undefined): ProfileCandidate | undefined {
+function candidateEnvelope(
+  input: CandidateInput | undefined,
+): ProfileCandidate | undefined {
   if (input === undefined) {
     return undefined;
   }
-  if (isPlainRecord(input) && Object.prototype.hasOwnProperty.call(input, "profile")) {
+  if (
+    isPlainRecord(input) &&
+    Object.prototype.hasOwnProperty.call(input, "profile")
+  ) {
     return input as unknown as ProfileCandidate;
   }
   return { profile: input };
 }
 
-export function resolveValidationProfile(input: ResolveValidationInput): ValidationResolution {
+export function resolveValidationProfile(
+  input: ResolveValidationInput,
+): ValidationResolution {
   const repositoryId = requiredIdentity(input.repositoryId, "repositoryId");
   const selected = [
     {
       source: "one-run" as const,
-      candidate: candidateEnvelope(input.oneRunOverride !== undefined ? input.oneRunOverride : input.oneRun),
+      candidate: candidateEnvelope(
+        input.oneRunOverride !== undefined
+          ? input.oneRunOverride
+          : input.oneRun,
+      ),
     },
     {
       source: "saved" as const,
-      candidate: candidateEnvelope(input.savedProfile !== undefined ? input.savedProfile : input.saved),
+      candidate: candidateEnvelope(
+        input.savedProfile !== undefined ? input.savedProfile : input.saved,
+      ),
     },
     {
       source: "checked-in" as const,
-      candidate: candidateEnvelope(input.checkedInProfile !== undefined ? input.checkedInProfile : input.checkedIn),
+      candidate: candidateEnvelope(
+        input.checkedInProfile !== undefined
+          ? input.checkedInProfile
+          : input.checkedIn,
+      ),
     },
   ].find(({ candidate }) => candidate !== undefined);
 
@@ -552,7 +639,9 @@ export function resolveValidationProfile(input: ResolveValidationInput): Validat
       status: "unavailable",
       source: undefined,
       repositoryId,
-      ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
+      ...(input.operationId === undefined
+        ? {}
+        : { operationId: input.operationId }),
       reason: "NO_PROFILE",
       warning: validationWarning("NO_PROFILE"),
     };
@@ -565,7 +654,9 @@ export function resolveValidationProfile(input: ResolveValidationInput): Validat
       status: "invalid",
       source: selected.source,
       repositoryId,
-      ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
+      ...(input.operationId === undefined
+        ? {}
+        : { operationId: input.operationId }),
       code: parsed.code,
       issues: parsed.issues,
       isAiProposal,
@@ -575,7 +666,8 @@ export function resolveValidationProfile(input: ResolveValidationInput): Validat
 
   const profile = parsed.profile;
   const contentHash = hashValidationProfile(profile);
-  const authorization = selected.candidate?.authorization ?? selected.candidate?.approval;
+  const authorization =
+    selected.candidate?.authorization ?? selected.candidate?.approval;
   const trust = evaluateTrust({
     repositoryId,
     source: selected.source,
@@ -585,14 +677,19 @@ export function resolveValidationProfile(input: ResolveValidationInput): Validat
     now: input.now,
     operationEnded: input.operationEnded,
   });
-  const confirmation = buildConfirmationSummary(profile, { source: selected.source, repositoryId });
+  const confirmation = buildConfirmationSummary(profile, {
+    source: selected.source,
+    repositoryId,
+  });
 
   if (!trust.trusted || trust.authorization === undefined) {
     return {
       status: "confirmation_required",
       source: selected.source,
       repositoryId,
-      ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
+      ...(input.operationId === undefined
+        ? {}
+        : { operationId: input.operationId }),
       profile,
       contentHash,
       confirmation,
@@ -606,7 +703,9 @@ export function resolveValidationProfile(input: ResolveValidationInput): Validat
     status: "ready",
     source: selected.source,
     repositoryId,
-    ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
+    ...(input.operationId === undefined
+      ? {}
+      : { operationId: input.operationId }),
     profile,
     contentHash,
     authorization: trust.authorization,

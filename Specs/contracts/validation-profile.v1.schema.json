@@ -8,6 +8,10 @@
           "type": "number",
           "const": 1
         },
+        "buildInstructions": {
+          "type": "string",
+          "maxLength": 16384
+        },
         "steps": {
           "type": "array",
           "items": {
@@ -50,6 +54,14 @@
                     "maxLength": 512,
                     "pattern": "^(?![\\\\/])(?![A-Za-z]:)(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$",
                     "default": "."
+                  },
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "baseline",
+                      "post_change",
+                      "both"
+                    ]
                   },
                   "timeoutSeconds": {
                     "type": "integer",
@@ -95,6 +107,14 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 16384
+                  },
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "baseline",
+                      "post_change",
+                      "both"
+                    ]
                   }
                 },
                 "required": [

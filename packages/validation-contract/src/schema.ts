@@ -6,16 +6,33 @@ export const MIN_TIMEOUT_SECONDS = 1 as const;
 export const MAX_TIMEOUT_SECONDS = 3_600 as const;
 export const DEFAULT_OUTPUT_LIMIT_BYTES = 1_048_576 as const;
 export const MAX_OUTPUT_LIMIT_BYTES = 1_048_576 as const;
+export const MAX_BUILD_INSTRUCTIONS_LENGTH = 16_384 as const;
 
 export const VALIDATION_PROFILE_PATH = ".prmonitor/validation.json" as const;
 
 const stableIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
+export const validationPhaseSchema = z.enum([
+  "baseline",
+  "post_change",
+  "both",
+]);
+
+function containsControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || codePoint === 127;
+  });
+}
+
 export const stableIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .regex(stableIdPattern, "must start with a letter or digit and contain only letters, digits, '.', '_' or '-'");
+  .regex(
+    stableIdPattern,
+    "must start with a letter or digit and contain only letters, digits, '.', '_' or '-'",
+  );
 
 function isRelativeDirectorySyntax(value: string): boolean {
   if (value.length === 0 || value.includes("\0") || /[\r\n]/u.test(value)) {
@@ -24,7 +41,11 @@ function isRelativeDirectorySyntax(value: string): boolean {
 
   // Validation configuration is portable across hosts. Reject both POSIX and
   // Windows absolute forms even when a profile is being inspected elsewhere.
-  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:/u.test(value)) {
+  if (
+    value.startsWith("/") ||
+    value.startsWith("\\") ||
+    /^[A-Za-z]:/u.test(value)
+  ) {
     return false;
   }
 
@@ -36,9 +57,13 @@ export const relativeWorkingDirectorySchema = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^(?![\\/])(?![A-Za-z]:)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$)).+$/u, "must use relative non-traversing path syntax")
+  .regex(
+    /^(?![\\/])(?![A-Za-z]:)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$)).+$/u,
+    "must use relative non-traversing path syntax",
+  )
   .refine(isRelativeDirectorySyntax, {
-    message: "must be a relative worktree directory without absolute or parent-traversal syntax",
+    message:
+      "must be a relative worktree directory without absolute or parent-traversal syntax",
   })
   .default(".");
 
@@ -46,10 +71,17 @@ export const executableSchema = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^(?:[^\s\0\r\n]+|(?:[A-Za-z]:)?[\\/][^\0\r\n]+)$/u, "must be one executable token, not a shell command string")
-  .refine((value) => !/[\0\r\n]/u.test(value), "must not contain control characters")
+  .regex(
+    /^(?:[^\s\0\r\n]+|(?:[A-Za-z]:)?[\\/][^\0\r\n]+)$/u,
+    "must be one executable token, not a shell command string",
+  )
   .refine(
-    (value) => !/\s/u.test(value) || /[\\/]/u.test(value) || /^[A-Za-z]:/u.test(value),
+    (value) => !/[\0\r\n]/u.test(value),
+    "must not contain control characters",
+  )
+  .refine(
+    (value) =>
+      !/\s/u.test(value) || /[\\/]/u.test(value) || /^[A-Za-z]:/u.test(value),
     "must be one executable token, not a shell command string",
   );
 
@@ -61,6 +93,9 @@ export const commandStepSchema = z
     executable: executableSchema,
     arguments: z.array(z.string().max(16_384)).max(512),
     workingDirectory: relativeWorkingDirectorySchema,
+    // Phase was added without changing the version tag. Older version-1
+    // snapshots default to post-change so their meaning remains stable.
+    phase: validationPhaseSchema.optional(),
     timeoutSeconds: z
       .number()
       .int()
@@ -82,16 +117,27 @@ export const manualStepSchema = z
     id: stableIdSchema,
     label: z.string().min(1).max(256),
     instructions: z.string().min(1).max(16_384),
+    phase: validationPhaseSchema.optional(),
   })
   .strict();
 
 // A plain union keeps the version-1 discriminator required while allowing the
 // command-specific defaults to be applied by Zod before consumers see it.
-export const validationStepSchema = z.union([commandStepSchema, manualStepSchema]);
+export const validationStepSchema = z.union([
+  commandStepSchema,
+  manualStepSchema,
+]);
 
 export const validationProfileV1Schema = z
   .object({
     schemaVersion: z.literal(VALIDATION_SCHEMA_VERSION),
+    buildInstructions: z
+      .string()
+      .max(MAX_BUILD_INSTRUCTIONS_LENGTH)
+      .refine((value) => !containsControlCharacters(value), {
+        message: "must not contain control characters",
+      })
+      .optional(),
     steps: z.array(validationStepSchema).min(1).max(512),
   })
   .strict()
@@ -117,6 +163,8 @@ export type CommandStep = z.infer<typeof commandStepSchema>;
 export type ManualStep = z.infer<typeof manualStepSchema>;
 export type ValidationStep = z.infer<typeof validationStepSchema>;
 export type ValidationProfile = z.infer<typeof validationProfileV1Schema>;
+
+export type ValidationPhase = z.infer<typeof validationPhaseSchema>;
 
 export interface ProfileIssue {
   path: (string | number)[];
@@ -154,7 +202,13 @@ export function parseValidationProfile(input: unknown): ProfileParseResult {
     return {
       ok: false,
       code: "INVALID_PROFILE",
-      issues: [{ path: [], message: "profile must be an object", code: "invalid_type" }],
+      issues: [
+        {
+          path: [],
+          message: "profile must be an object",
+          code: "invalid_type",
+        },
+      ],
     };
   }
 
@@ -166,7 +220,11 @@ export function parseValidationProfile(input: unknown): ProfileParseResult {
   if (!Object.prototype.hasOwnProperty.call(input, "schemaVersion")) {
     const parsed = validationProfileV1Schema.safeParse(input);
     if (!parsed.success) {
-      return { ok: false, code: "INVALID_PROFILE", issues: profileIssues(parsed.error) };
+      return {
+        ok: false,
+        code: "INVALID_PROFILE",
+        issues: profileIssues(parsed.error),
+      };
     }
   }
   if (version !== VALIDATION_SCHEMA_VERSION) {
@@ -186,10 +244,28 @@ export function parseValidationProfile(input: unknown): ProfileParseResult {
 
   const parsed = validationProfileV1Schema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, code: "INVALID_PROFILE", issues: profileIssues(parsed.error) };
+    return {
+      ok: false,
+      code: "INVALID_PROFILE",
+      issues: profileIssues(parsed.error),
+    };
   }
 
-  return { ok: true, schemaVersion: VALIDATION_SCHEMA_VERSION, profile: parsed.data };
+  const normalized = {
+    ...parsed.data,
+    ...(parsed.data.buildInstructions === undefined
+      ? {}
+      : { buildInstructions: parsed.data.buildInstructions }),
+    steps: parsed.data.steps.map((step) => ({
+      ...step,
+      phase: step.phase ?? "post_change",
+    })),
+  } as ValidationProfile;
+  return {
+    ok: true,
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
+    profile: normalized,
+  };
 }
 
 export class ValidationProfileError extends Error {
@@ -198,7 +274,13 @@ export class ValidationProfileError extends Error {
   public readonly schemaVersion: unknown;
 
   public constructor(result: Extract<ProfileParseResult, { ok: false }>) {
-    super(result.issues.map((issue) => `${issue.path.join(".") || "profile"}: ${issue.message}`).join("; "));
+    super(
+      result.issues
+        .map(
+          (issue) => `${issue.path.join(".") || "profile"}: ${issue.message}`,
+        )
+        .join("; "),
+    );
     this.name = "ValidationProfileError";
     this.code = result.code;
     this.issues = result.issues;
@@ -216,6 +298,8 @@ export function assertValidationProfile(input: unknown): ValidationProfile {
 
 export const VALIDATION_PROFILE_EXAMPLE: ValidationProfile = {
   schemaVersion: VALIDATION_SCHEMA_VERSION,
+  buildInstructions:
+    "Run the repository's supported checks from the operation worktree.",
   steps: [
     {
       kind: "command",
@@ -224,6 +308,7 @@ export const VALIDATION_PROFILE_EXAMPLE: ValidationProfile = {
       executable: "npm",
       arguments: ["test"],
       workingDirectory: ".",
+      phase: "both",
       timeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
       outputLimitBytes: DEFAULT_OUTPUT_LIMIT_BYTES,
     },
@@ -231,7 +316,9 @@ export const VALIDATION_PROFILE_EXAMPLE: ValidationProfile = {
       kind: "manual",
       id: "visual-check",
       label: "Visual check",
-      instructions: "Inspect the affected screen at the supported desktop sizes.",
+      instructions:
+        "Inspect the affected screen at the supported desktop sizes.",
+      phase: "post_change",
     },
   ],
 };

@@ -28,7 +28,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 0 - Decisions and foundations
 
-- [~] **F00 - Deterministic validation configuration contract**
+- [x] **F00 - Deterministic validation configuration contract**
   - **Depends on:** Nothing.
   - **Deliver:** Resolve the overview's pre-implementation TODO: define where validation commands and repository-specific build instructions come from, precedence and trust rules, user confirmation requirements, baseline-versus-proposed execution phases, working-directory rules, timeouts, cancellation, output limits/redaction, manual-test records, and behavior when no safe command is configured. Record the decisions in the PRD and update the contract consumed by later features.
   - **Exit:** Later validation, review, revision, and synchronization features can consume one stable contract without inventing their own command-source, build-instruction, execution-phase, or safety rules.
@@ -40,13 +40,13 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** A production-mode desktop shell and automated test suite build from a clean checkout without disturbing the standalone spec-linter.
   - **Primary application criteria:** Architectural enabler; no criterion is closed by scaffolding alone.
 
-- [~] **F02 - Domain contracts and deterministic state machines**
+- [x] **F02 - Domain contracts and deterministic state machines**
   - **Depends on:** F01.
   - **Deliver:** Define provider-neutral domain IDs, clocks, errors, result/reason types, PR primary states, Review Bundle states/stages, per-item proposal decisions, synchronization states, publication phases, and allowed transitions. Keep global pause and synchronization as overlays rather than competing PR state machines. Add transition and invariant tests for the proposal-before-mutation review flow.
   - **Exit:** Invalid transitions, concurrent automatic review work for one PR, accidental hold release, and implementation before required per-item human decisions are rejected by deterministic domain code.
   - **Primary application criteria:** Enables APP-AC-16, APP-AC-24, APP-AC-25, APP-AC-49, APP-AC-68, APP-AC-71, APP-AC-72, and APP-AC-75.
 
-- [~] **F03 - SQLite persistence, migrations, and transactional repositories**
+- [x] **F03 - SQLite persistence, migrations, and transactional repositories**
   - **Depends on:** F02.
   - **Deliver:** Add SQLite initialization and versioned migrations for settings, servers, repositories, PRs, immutable remote-event versions, batches, staged Review Bundles/items and per-item human decisions, AI operations/turns/conversations, build/validation profiles and phase-specific results, synchronization, publication/response state, and activity events. Implement transaction boundaries, uniqueness/idempotency constraints, restart-safe repositories, and migration/backup failure handling.
   - **Exit:** Representative state survives process restart; migration tests cover empty, current, and upgrade databases; concurrency and uniqueness constraints enforce the domain invariants.
