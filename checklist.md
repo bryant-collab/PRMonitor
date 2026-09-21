@@ -58,13 +58,13 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 1 - GitHub setup and managed PRs
 
-- [ ] **F05 - Secure GitHub server profiles and authentication**
+- [x] **F05 - Secure GitHub server profiles and authentication**
   - **Depends on:** F03-F04.
   - **Deliver:** Add GitHub.com/GHES server configuration and connection testing. Store tokens in the host secure credential store, persist only safe references/metadata in SQLite, redact secrets from logs and errors, and make authentication available only to deterministic GitHub infrastructure.
   - **Exit:** A user can configure and verify a GitHub Enterprise Server, restart the app, and reconnect without a plaintext credential entering SQLite, renderer state, or AI context.
   - **Primary application criteria:** APP-AC-01.
 
-- [ ] **F06 - GitHub REST client and remote identity model**
+- [x] **F06 - GitHub REST client and remote identity model**
   - **Depends on:** F05.
   - **Deliver:** Implement the deterministic GitHub client for PR metadata, repositories, refs, review comments, reviews, issue comments, comment posting, pagination, conditional requests, rate-limit/error normalization, and current-remote verification. Represent base/head repositories explicitly so forks and GHES URL/API differences cannot select a same-named branch from the wrong repository.
   - **Exit:** Contract tests against fixtures/fakes prove resource independence, pagination, conditional metadata, retry classification, and explicit repository/ref identity.
