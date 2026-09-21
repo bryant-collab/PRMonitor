@@ -2961,6 +2961,19 @@ export class PersistenceRepositories {
     );
   }
 
+  public listSynchronizationResults(): readonly SynchronizationResultRecord[] {
+    const rows = this.store.readAll(
+      "SELECT synchronization_operation_id FROM synchronization_results ORDER BY updated_at DESC, synchronization_operation_id ASC",
+    );
+    return rows
+      .map((row) =>
+        this.getSynchronizationResult(
+          rowString(row, "synchronization_operation_id"),
+        ),
+      )
+      .filter((result): result is SynchronizationResultRecord => result !== undefined);
+  }
+
   public createPublicationIntent(
     input: PublicationIntentInput,
   ): PublicationIntentRecord {

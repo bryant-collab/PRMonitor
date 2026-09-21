@@ -18,6 +18,11 @@ import type {
   GithubServerSettingsView,
 } from "../shared/github-server";
 import type { AddPrAttemptView, ManagedPrCandidateView, ManagedPrReadModel } from "../shared/managed-pr";
+import {
+  acceptManagedPrInboxSnapshot,
+  type ManagedPrInboxReadModel,
+} from "../shared/inbox";
+import { ManagedPrInbox } from "./ManagedPrInbox";
 
 function operationNeedsAction(operation: GithubCredentialOperationView): boolean {
   return ["FAILED", "CANCELLED", "RECOVERY_REQUIRED", "CLEANUP_PENDING"].includes(
@@ -50,6 +55,10 @@ export function StartupApp() {
   const [prContext, setPrContext] = useState("");
   const [prOverride, setPrOverride] = useState("");
   const [prClonePath, setPrClonePath] = useState("");
+  const [inboxSnapshot, setInboxSnapshot] = useState<ManagedPrInboxReadModel>();
+  const [inboxLoading, setInboxLoading] = useState(true);
+  const [inboxError, setInboxError] = useState<string>();
+  const [inboxLastKnown, setInboxLastKnown] = useState(false);
 
   useEffect(() => {
     document.title = APPLICATION_TITLE;
@@ -59,6 +68,14 @@ export function StartupApp() {
     let active = true;
     const bridge = window.prmonitor;
     if (bridge === undefined) return () => undefined;
+    let hadInboxSnapshot = false;
+    const unsubscribeInbox = bridge.onInboxUpdated((snapshot) => {
+      if (!active) return;
+      setInboxSnapshot((current) => acceptManagedPrInboxSnapshot(current, snapshot));
+      setInboxLoading(false);
+      setInboxError(undefined);
+      setInboxLastKnown(false);
+    });
     void bridge.ready().then(async () => {
       const [stateResponse, settingsResponse] = await Promise.all([
         bridge.readCurrentState(),
@@ -77,6 +94,31 @@ export function StartupApp() {
         setManagedPrs(managedResponse.value.value.managedPrs);
         setAddAttempts(managedResponse.value.value.attempts);
       }
+      if (!active) return;
+      const inboxResponse = await bridge.readInbox();
+      if (!active) return;
+      if (inboxResponse.ok && inboxResponse.value.kind === "managed-pr-inbox") {
+        const snapshot = inboxResponse.value.snapshot;
+        hadInboxSnapshot = true;
+        setInboxSnapshot((current) => acceptManagedPrInboxSnapshot(current, snapshot));
+        setInboxError(undefined);
+        setInboxLastKnown(false);
+      } else {
+        setInboxError(inboxResponse.ok ? "The inbox returned an invalid read model." : inboxResponse.error.message);
+      }
+      setInboxLoading(false);
+      const subscription = await bridge.subscribeInbox();
+      if (!active) return;
+      if (!subscription.ok || subscription.value.kind !== "managed-pr-inbox") {
+        setInboxError(subscription.ok ? "The inbox subscription returned an invalid read model." : subscription.error.message);
+        setInboxLastKnown(hadInboxSnapshot);
+      } else {
+        const snapshot = subscription.value.snapshot;
+        hadInboxSnapshot = true;
+        setInboxSnapshot((current) => acceptManagedPrInboxSnapshot(current, snapshot));
+        setInboxError(undefined);
+        setInboxLastKnown(false);
+      }
     });
     const unsubscribe = bridge.onOpenTarget((target) => {
       if (!active) return;
@@ -89,7 +131,39 @@ export function StartupApp() {
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeInbox();
     };
+  }, []);
+
+  const retryInbox = useCallback(async () => {
+    const bridge = window.prmonitor;
+    if (bridge === undefined) return;
+    setInboxLoading(true);
+    const response = await bridge.readInbox();
+    if (response.ok && response.value.kind === "managed-pr-inbox") {
+      const snapshot = response.value.snapshot;
+      setInboxSnapshot((current) => acceptManagedPrInboxSnapshot(current, snapshot));
+      setInboxError(undefined);
+      setInboxLastKnown(false);
+    } else {
+      setInboxError(response.ok ? "The inbox returned an invalid read model." : response.error.message);
+      setInboxLastKnown(inboxSnapshot !== undefined);
+    }
+    setInboxLoading(false);
+  }, [inboxSnapshot]);
+
+  const navigateFromInbox = useCallback(async (managedPrId: string, destination: "details" | "settings") => {
+    const response = await window.prmonitor?.navigateManagedPr(managedPrId, destination);
+    if (response?.ok && response.value.kind === "navigation-target") {
+      setTargetLabel(`${response.value.target.kind.toLowerCase()}:${response.value.target.id ?? ""}`);
+      if (destination === "details") void openManagedPr(managedPrId);
+      return;
+    }
+    setInboxError(response?.ok === false ? response.error.message : "Navigation was not completed safely.");
+  }, []);
+
+  const focusAddPr = useCallback(() => {
+    document.querySelector<HTMLInputElement>('form[aria-label="Add a pull request"] input')?.focus();
   }, []);
 
   const focusStatus = useCallback((event: MouseEvent<HTMLAnchorElement>) => {
@@ -351,6 +425,15 @@ export function StartupApp() {
             : `Main process ${state.lifecycle.phase.toLowerCase().replaceAll("_", " ")}.`}
         </div>
         <p className="scope-note">Current target: {targetLabel}.</p>
+        <ManagedPrInbox
+          snapshot={inboxSnapshot}
+          loading={inboxLoading}
+          error={inboxError}
+          lastKnown={inboxLastKnown}
+          onRetry={() => void retryInbox()}
+          onNavigate={(managedPrId, destination) => void navigateFromInbox(managedPrId, destination)}
+          onAddPr={focusAddPr}
+        />
         <section className="server-settings" aria-labelledby="server-settings-heading">
           <div className="section-heading">
             <div>

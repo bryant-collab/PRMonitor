@@ -34,6 +34,7 @@ import {
   type WindowOpenResult,
 } from "./window-manager";
 import { ManagedPrService } from "./managed-pr-service";
+import { createManagedPrInboxService, type ManagedPrInboxService } from "./managed-pr-inbox-service";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -49,6 +50,7 @@ let ipcRouter: IpcRouter | undefined;
 let windowManager: WindowManager | undefined;
 let githubServerService: GithubServerService | undefined;
 let managedPrService: ManagedPrService | undefined;
+let managedPrInboxService: ManagedPrInboxService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -227,6 +229,10 @@ async function initializeMainProcessPersistence(): Promise<void> {
   });
   persistenceRepositories = createPersistenceRepositories(persistenceStore);
   const f07Repositories = createF07PersistenceRepositories(persistenceStore);
+  managedPrInboxService = createManagedPrInboxService({
+    managedPrs: f07Repositories,
+    persistence: persistenceRepositories,
+  });
   githubServerService = new GithubServerService({
     repositories: persistenceRepositories,
     credentialStore: new ElectronSecureCredentialStore(
@@ -275,6 +281,15 @@ async function startMainProcess(): Promise<void> {
     throw new Error(
       started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
     );
+
+  const refreshManagedPrInbox = (): void => {
+    try {
+      managedPrInboxService?.refresh();
+    } catch {
+      // A malformed optional inbox projection must not change the outcome of
+      // the authoritative managed-PR operation that triggered this refresh.
+    }
+  };
 
   ipcRouter = new IpcRouter(ipcMain, {
     readCurrentState: () => createCurrentState(),
@@ -346,12 +361,18 @@ async function startMainProcess(): Promise<void> {
     addManagedPr: (input) => {
       if (managedPrService === undefined)
         return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
-      return managedPrService.add(input);
+      return managedPrService.add(input).then((result) => {
+        refreshManagedPrInbox();
+        return result;
+      });
     },
     retryManagedPrAdd: (attemptId) => {
       if (managedPrService === undefined)
         return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
-      return managedPrService.retryAdd(attemptId);
+      return managedPrService.retryAdd(attemptId).then((result) => {
+        refreshManagedPrInbox();
+        return result;
+      });
     },
     readManagedPrCandidates: (managedPrId) => {
       if (managedPrService === undefined)
@@ -372,23 +393,45 @@ async function startMainProcess(): Promise<void> {
     attachManagedPrClone: (input) => {
       if (managedPrService === undefined)
         return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
-      return managedPrService.attachClone(input);
+      return managedPrService.attachClone(input).then((result) => {
+        refreshManagedPrInbox();
+        return result;
+      });
     },
     clearManagedPrClone: (input) => {
       if (managedPrService === undefined)
         return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
-      return managedPrService.clearClone(input);
+      return managedPrService.clearClone(input).then((result) => {
+        refreshManagedPrInbox();
+        return result;
+      });
     },
     saveManagedPrConfiguration: (input) => {
       if (managedPrService === undefined)
         return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
-      return managedPrService.saveConfiguration(input);
+      return managedPrService.saveConfiguration(input).then((result) => {
+        refreshManagedPrInbox();
+        return result;
+      });
+    },
+    readInbox: () => {
+      if (managedPrInboxService === undefined)
+        throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
+      return managedPrInboxService.read();
+    },
+    navigateManagedPr: (managedPrId, destination) => {
+      if (managedPrInboxService === undefined)
+        throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
+      return managedPrInboxService.target(managedPrId, destination);
     },
     onRendererReady: (senderId) => {
       windowManager?.markRendererReady(senderId);
     },
   });
   ipcRouter.install();
+  managedPrInboxService?.subscribe((snapshot) => {
+    ipcRouter?.publishInbox(snapshot);
+  });
 
   const platform =
     process.platform === "win32"

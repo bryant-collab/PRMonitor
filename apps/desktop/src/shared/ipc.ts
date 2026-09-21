@@ -1,6 +1,10 @@
 import { isSafeText } from "./domain/result";
 import { parseOpenTargetRecord, type OpenTarget } from "./routing";
 import {
+  isManagedPrInboxReadModel,
+  type ManagedPrInboxReadModel,
+} from "./inbox";
+import {
   isGithubServerProfileView,
   isGithubServerSettingsView,
   type GithubServerProfileInput,
@@ -25,7 +29,7 @@ export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
 // typed request while retaining a bounded IPC payload.
 export const IPC_MAX_REQUEST_BYTES = 64 * 1024;
-export const IPC_MAX_RESPONSE_BYTES = 64 * 1024;
+export const IPC_MAX_RESPONSE_BYTES = 512 * 1024;
 
 export const IPC_CHANNELS = {
   request: "prmonitor:ipc:v1:request",
@@ -52,7 +56,10 @@ export type IpcRequestType =
   | "managed-pr.clone.pick"
   | "managed-pr.clone.attach"
   | "managed-pr.clone.clear"
-  | "managed-pr.configuration.save";
+  | "managed-pr.configuration.save"
+  | "inbox.read"
+  | "inbox.subscribe"
+  | "inbox.navigate";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -140,6 +147,17 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "managed-pr.configuration.save";
       readonly payload: ManagedPrConfigurationInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "inbox.read" | "inbox.subscribe";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "inbox.navigate";
+      readonly payload: {
+        readonly managedPrId: string;
+        readonly destination: "details" | "settings";
+      };
     });
 
 export interface IpcError {
@@ -206,7 +224,9 @@ export type IpcResponseValue =
   | { readonly kind: "managed-pr-details"; readonly managedPr: ManagedPrReadModel | null }
   | { readonly kind: "managed-pr-operation"; readonly operation: ManagedPrOperationView }
   | { readonly kind: "managed-pr-candidates"; readonly value: ManagedPrCandidateListView }
-  | { readonly kind: "managed-pr-folder"; readonly path?: string };
+  | { readonly kind: "managed-pr-folder"; readonly path?: string }
+  | { readonly kind: "managed-pr-inbox"; readonly snapshot: ManagedPrInboxReadModel }
+  | { readonly kind: "navigation-target"; readonly target: OpenTarget };
 
 export type IpcResponse =
   | {
@@ -226,6 +246,12 @@ export interface IpcOpenTargetEvent {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
   readonly type: "open-target";
   readonly target: OpenTarget;
+}
+
+export interface IpcInboxUpdateEvent {
+  readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
+  readonly type: "inbox-update";
+  readonly snapshot: ManagedPrInboxReadModel;
 }
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -452,6 +478,10 @@ function parseResponseValue(value: unknown): boolean {
     return hasExactKeys(value, ["kind", "value"]) && isManagedPrCandidateListView(value.value);
   if (value.kind === "managed-pr-folder")
     return hasExactKeys(value, ["kind"], ["path"]) && (value.path === undefined || safeManagedPath(value.path));
+  if (value.kind === "managed-pr-inbox")
+    return hasExactKeys(value, ["kind", "snapshot"]) && isManagedPrInboxReadModel(value.snapshot);
+  if (value.kind === "navigation-target")
+    return hasExactKeys(value, ["kind", "target"]) && parseOpenTargetRecord(value.target).ok;
   return false;
 }
 
@@ -636,9 +666,14 @@ export function parseIpcRequest(
       } as IpcRequest,
     };
   }
-  if (value.type === "managed-pr.list" || value.type === "managed-pr.clone.pick") {
+  if (
+    value.type === "managed-pr.list" ||
+    value.type === "managed-pr.clone.pick" ||
+    value.type === "inbox.read" ||
+    value.type === "inbox.subscribe"
+  ) {
     if (Object.keys(value.payload).length !== 0)
-      return invalidRequest("This managed-PR request does not accept a payload.");
+      return invalidRequest("This read request does not accept a payload.");
     return { ok: true, value: { ...base, type: value.type, payload: {} } as IpcRequest };
   }
   if (
@@ -750,6 +785,25 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "inbox.navigate") {
+    if (
+      !hasExactKeys(value.payload, ["managedPrId", "destination"]) ||
+      !safeGithubIdentifier(value.payload.managedPrId) ||
+      !["details", "settings"].includes(String(value.payload.destination))
+    )
+      return invalidRequest("The managed-PR navigation request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          managedPrId: value.payload.managedPrId,
+          destination: value.payload.destination as "details" | "settings",
+        },
+      },
+    };
+  }
   return invalidRequest("The IPC request type is not allowlisted.");
 }
 
@@ -796,6 +850,19 @@ export function parseIpcOpenTargetEvent(
   )
     return false;
   return parseOpenTargetRecord(value.target).ok;
+}
+
+export function parseIpcInboxUpdateEvent(
+  value: unknown,
+): value is IpcInboxUpdateEvent {
+  if (
+    !isPlainRecord(value) ||
+    value.schemaVersion !== IPC_SCHEMA_VERSION ||
+    value.type !== "inbox-update"
+  )
+    return false;
+  return hasExactKeys(value, ["schemaVersion", "type", "snapshot"]) &&
+    isManagedPrInboxReadModel(value.snapshot);
 }
 
 export function boundedIpcResponse(value: IpcResponse): IpcResponse {
@@ -846,7 +913,16 @@ export interface PrMonitorPreloadApi {
   readonly attachManagedPrClone: (input: ManagedPrCloneInput) => Promise<IpcResponse>;
   readonly clearManagedPrClone: (managedPrId: string, expectedVersion: number) => Promise<IpcResponse>;
   readonly saveManagedPrConfiguration: (input: ManagedPrConfigurationInput) => Promise<IpcResponse>;
+  readonly readInbox: () => Promise<IpcResponse>;
+  readonly subscribeInbox: () => Promise<IpcResponse>;
+  readonly navigateManagedPr: (
+    managedPrId: string,
+    destination: "details" | "settings",
+  ) => Promise<IpcResponse>;
   readonly onOpenTarget: (listener: (target: OpenTarget) => void) => () => void;
+  readonly onInboxUpdated: (
+    listener: (snapshot: ManagedPrInboxReadModel) => void,
+  ) => () => void;
 }
 
 declare global {

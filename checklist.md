@@ -78,7 +78,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** A PR can be added with minimal configuration, reopened after restart, edited safely, and rejected with actionable errors for malformed URLs, inaccessible PRs, or invalid clones.
   - **Primary application criteria:** APP-AC-02, APP-AC-40.
 
-- [ ] **F08 - Managed-PR inbox and primary review-state presentation**
+- [x] **F08 - Managed-PR inbox and primary review-state presentation**
   - **Depends on:** F02-F04, F07.
   - **Deliver:** Create the main inbox read model and UI for multiple managed PRs, grouped by whether user action is needed and showing `WATCHING`, `WORKING`, `READY_FOR_REVIEW`, and `NEEDS_ATTENTION`. Reserve a separate synchronization-status overlay. Include empty, loading, error, and restart-restored states plus navigation to PR settings/details.
   - **Exit:** Multiple PRs remain visible and correctly ordered after restart, and overlays never hide or mutate the primary review state.

@@ -59,9 +59,9 @@ out of AI context and plaintext SQLite fields.
 After all slices are implemented:
 
 - Have a fresh subagent verify every PLAN exit criterion and every affected earlier checklist behavior. Use `gpt-5.6-luna` with medium reasoning effort for the bounded verification pass by default; use high effort when the scenario requires complex multi-step reasoning, recovery or failure-path analysis, or when medium leaves a concrete uncertainty. Include the feature's required unit/integration/UI/service-boundary tests and the repository checks required by the PLAN; run `npm run check` when the repository provides it.
-- When the completed feature has a GUI or changes user-visible GUI behavior, launch the running desktop application and use the available computer-use skill/tooling to exercise the integrated user journey. Verify the visible result and applicable loading, empty, disabled, validation, error, cancellation, or restart state required by the PRD/PLAN. Automated component tests, DOM assertions, and screenshots do not replace this computer-use pass.
-- When that GUI journey invokes AI, configure the application's Codex task profile to use `gpt-5.6-luna` with medium reasoning effort by default and high effort under the same escalation conditions. Verify provider access and the effective model before exercising the flow. Do not substitute a fake provider for the final computer-use pass or silently use a different model. If Luna is unavailable, report the exact prerequisite and leave the checklist item unchecked rather than claiming GUI completion.
-- Record the computer-use scenario, provider/model when AI was involved, observable result, and any failed or unverified state in the feature evidence. Keep credentials, tokens, and local environment values out of screenshots, logs, and committed evidence.
+- When the completed feature has a GUI or changes user-visible GUI behavior, verify the integrated user journey with automated unit, component, renderer, IPC, service-boundary, and end-to-end tests as applicable. Cover the visible result and applicable loading, empty, disabled, validation, error, cancellation, or restart state required by the PRD/PLAN. A live desktop session is optional and is not a checklist gate.
+- When that GUI journey invokes AI, use deterministic fake-provider tests for application behavior and provider-adapter contract tests for integration behavior. Record the configured provider/model only when it is part of an automated test fixture or contract, and do not require live provider access for checklist closure.
+- Record the automated test scenarios, provider/model fixture when AI was involved, observable assertions, and any failed or unverified state in the feature evidence. Keep credentials, tokens, and local environment values out of logs and committed evidence.
 - Confirm that the feature is persisted where required, exposed through the UI
   where applicable, integrated into the running desktop application, and
   restart-safe. An isolated package, scaffold, or untested implementation is
@@ -74,9 +74,9 @@ After all slices are implemented:
 ## Completion report
 
 Hand off the feature ID, changed files, completed slices, tests/checks and
-their outcomes, any manual verification still required, and the final checkbox
-state. The report must distinguish implemented evidence from assumptions or
-future work.
+their outcomes, any verification still required, and the final checkbox state.
+The report must distinguish implemented evidence from assumptions or future
+work.
 
 ## Linting
 

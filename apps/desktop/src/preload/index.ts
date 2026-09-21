@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC_CHANNELS,
   type IpcRequestType,
+  parseIpcInboxUpdateEvent,
   parseIpcOpenTargetEvent,
   type IpcResponse,
   type PrMonitorPreloadApi,
@@ -36,6 +37,7 @@ function invoke(
     | ManagedPrConfigurationInput
     | { readonly managedPrId: string }
     | { readonly attemptId: string }
+    | { readonly managedPrId: string; readonly destination: "details" | "settings" }
     | { readonly managedPrId: string; readonly expectedVersion: number },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
@@ -73,10 +75,22 @@ const api: PrMonitorPreloadApi = {
   attachManagedPrClone: (input) => invoke("managed-pr.clone.attach", input),
   clearManagedPrClone: (managedPrId, expectedVersion) => invoke("managed-pr.clone.clear", { managedPrId, expectedVersion }),
   saveManagedPrConfiguration: (input) => invoke("managed-pr.configuration.save", input),
+  readInbox: () => invoke("inbox.read", {}),
+  subscribeInbox: () => invoke("inbox.subscribe", {}),
+  navigateManagedPr: (managedPrId, destination) =>
+    invoke("inbox.navigate", { managedPrId, destination }),
   onOpenTarget: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (!parseIpcOpenTargetEvent(payload)) return;
       listener(payload.target);
+    };
+    ipcRenderer.on(IPC_CHANNELS.event, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.event, handler);
+  },
+  onInboxUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (!parseIpcInboxUpdateEvent(payload)) return;
+      listener(payload.snapshot);
     };
     ipcRenderer.on(IPC_CHANNELS.event, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.event, handler);

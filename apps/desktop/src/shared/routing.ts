@@ -12,6 +12,7 @@ export const OPEN_TARGET_MAX_ID_LENGTH = 128;
 export type OpenTargetKind =
   | "HOME"
   | "MANAGED_PR"
+  | "MANAGED_PR_SETTINGS"
   | "REVIEW_BUNDLE"
   | "SYNCHRONIZATION_BATCH"
   | "SYNCHRONIZATION_RESULT";
@@ -37,6 +38,7 @@ const TARGET_KIND_BY_HOST: Readonly<Record<string, OpenTargetKind>> = {
   home: "HOME",
   pr: "MANAGED_PR",
   "managed-pr": "MANAGED_PR",
+  "pr-settings": "MANAGED_PR_SETTINGS",
   "review-bundle": "REVIEW_BUNDLE",
   "sync-batch": "SYNCHRONIZATION_BATCH",
   "sync-result": "SYNCHRONIZATION_RESULT",
@@ -211,6 +213,25 @@ export function parseOpenTargetRecord(
     );
   }
   return success(record as unknown as OpenTarget);
+}
+
+export type ManagedPrNavigationDestination = "details" | "settings";
+
+export function buildManagedPrTarget(
+  managedPrId: string,
+  destination: ManagedPrNavigationDestination,
+): OpenTarget {
+  if (!validateIdentifier(managedPrId))
+    throw new Error("INVALID_MANAGED_PR_TARGET_ID");
+  const kind: OpenTargetKind =
+    destination === "settings" ? "MANAGED_PR_SETTINGS" : "MANAGED_PR";
+  const requestId = requestIdFor(`prmonitor://${destination === "settings" ? "pr-settings" : "pr"}/${managedPrId}`);
+  return {
+    schemaVersion: OPEN_TARGET_SCHEMA_VERSION,
+    kind,
+    id: managedPrId,
+    requestId,
+  };
 }
 
 export function parseLaunchArguments(

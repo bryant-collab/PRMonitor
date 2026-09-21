@@ -1,11 +1,13 @@
 import {
   boundedIpcResponse,
   IPC_CHANNELS,
+  IPC_MAX_RESPONSE_BYTES,
   parseIpcOpenTargetEvent,
   parseIpcRequest,
   type CurrentState,
   type IpcError,
   type IpcOpenTargetEvent,
+  type IpcInboxUpdateEvent,
   type IpcRequest,
   type IpcResponse,
   type LifecycleStatus,
@@ -25,6 +27,11 @@ import type {
   ManagedPrReadModel,
   ManagedPrListView,
 } from "../shared/managed-pr";
+import {
+  isManagedPrInboxReadModel,
+  type ManagedPrInboxReadModel,
+} from "../shared/inbox";
+import type { ManagedPrNavigationDestination } from "../shared/routing";
 
 export interface IpcSenderLike {
   readonly id: number;
@@ -82,6 +89,11 @@ export interface IpcServices {
   readonly attachManagedPrClone?: (input: ManagedPrCloneInput) => Promise<ManagedPrOperationView>;
   readonly clearManagedPrClone?: (input: { readonly managedPrId: string; readonly expectedVersion: number }) => Promise<ManagedPrOperationView>;
   readonly saveManagedPrConfiguration?: (input: ManagedPrConfigurationInput) => Promise<ManagedPrOperationView>;
+  readonly readInbox?: () => ManagedPrInboxReadModel;
+  readonly navigateManagedPr?: (
+    managedPrId: string,
+    destination: ManagedPrNavigationDestination,
+  ) => OpenTarget;
   readonly onRendererReady?: (senderId: number, sessionId: string) => void;
 }
 
@@ -112,6 +124,7 @@ function successResponse(
 
 export class IpcRouter {
   private readonly sessions = new Map<number, RendererSession>();
+  private readonly inboxSubscribers = new Set<number>();
   private installed = false;
 
   public constructor(
@@ -130,11 +143,15 @@ export class IpcRouter {
   public attachRenderer(sender: IpcSenderLike): void {
     // The webContents object is kept only as a scoped reply/event target.
     // It never becomes application state or a capability supplied by the renderer.
-    if (sender.isDestroyed?.()) this.sessions.delete(sender.id);
+    if (sender.isDestroyed?.()) {
+      this.sessions.delete(sender.id);
+      this.inboxSubscribers.delete(sender.id);
+    }
   }
 
   public detachRenderer(senderId: number): void {
     this.sessions.delete(senderId);
+    this.inboxSubscribers.delete(senderId);
   }
 
   public async handle(
@@ -335,6 +352,31 @@ export class IpcRouter {
           }),
         );
       }
+      if (request.type === "inbox.read" || request.type === "inbox.subscribe") {
+        if (this.services.readInbox === undefined)
+          throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
+        const snapshot = this.services.readInbox();
+        if (request.type === "inbox.subscribe") this.inboxSubscribers.add(sender.id);
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-inbox",
+            snapshot,
+          }),
+        );
+      }
+      if (request.type === "inbox.navigate") {
+        if (this.services.navigateManagedPr === undefined)
+          throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "navigation-target",
+            target: this.services.navigateManagedPr(
+              request.payload.managedPrId,
+              request.payload.destination,
+            ),
+          }),
+        );
+      }
       if (request.type === "managed-pr.read") {
         if (this.services.readManagedPr === undefined)
           throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
@@ -456,6 +498,37 @@ export class IpcRouter {
 
   public hasSession(senderId: number): boolean {
     return this.sessions.has(senderId);
+  }
+
+  public publishInbox(snapshot: ManagedPrInboxReadModel): number {
+    if (!isManagedPrInboxReadModel(snapshot)) return 0;
+    let delivered = 0;
+    const event: IpcInboxUpdateEvent = {
+      schemaVersion: 1,
+      type: "inbox-update",
+      snapshot,
+    };
+    try {
+      if (new TextEncoder().encode(JSON.stringify(event)).byteLength > IPC_MAX_RESPONSE_BYTES)
+        return 0;
+    } catch {
+      return 0;
+    }
+    for (const senderId of this.inboxSubscribers) {
+      const session = this.sessions.get(senderId);
+      if (session === undefined || session.sender.isDestroyed?.()) {
+        this.inboxSubscribers.delete(senderId);
+        continue;
+      }
+      try {
+        session.sender.send(IPC_CHANNELS.event, event);
+        delivered += 1;
+      } catch {
+        this.sessions.delete(senderId);
+        this.inboxSubscribers.delete(senderId);
+      }
+    }
+    return delivered;
   }
 }
 
