@@ -16,6 +16,15 @@ import type {
   GithubServerProfileView,
   GithubServerSettingsView,
 } from "../shared/github-server";
+import type {
+  ManagedPrAddInput,
+  ManagedPrCloneInput,
+  ManagedPrConfigurationInput,
+  ManagedPrCandidateListView,
+  ManagedPrOperationView,
+  ManagedPrReadModel,
+  ManagedPrListView,
+} from "../shared/managed-pr";
 
 export interface IpcSenderLike {
   readonly id: number;
@@ -64,6 +73,15 @@ export interface IpcServices {
     readonly serverId: string;
     readonly operationId: string;
   }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  readonly readManagedPrs?: () => ManagedPrListView;
+  readonly readManagedPr?: (managedPrId: string) => Promise<ManagedPrReadModel | undefined>;
+  readonly addManagedPr?: (input: ManagedPrAddInput) => Promise<ManagedPrOperationView>;
+  readonly retryManagedPrAdd?: (attemptId: string) => Promise<ManagedPrOperationView>;
+  readonly readManagedPrCandidates?: (managedPrId: string) => Promise<ManagedPrCandidateListView>;
+  readonly pickManagedPrFolder?: () => Promise<string | undefined>;
+  readonly attachManagedPrClone?: (input: ManagedPrCloneInput) => Promise<ManagedPrOperationView>;
+  readonly clearManagedPrClone?: (input: { readonly managedPrId: string; readonly expectedVersion: number }) => Promise<ManagedPrOperationView>;
+  readonly saveManagedPrConfiguration?: (input: ManagedPrConfigurationInput) => Promise<ManagedPrOperationView>;
   readonly onRendererReady?: (senderId: number, sessionId: string) => void;
 }
 
@@ -304,6 +322,97 @@ export class IpcRouter {
             kind: "github-operation",
             operationId: result.operationId,
             profile: result.profile,
+          }),
+        );
+      }
+      if (request.type === "managed-pr.list") {
+        if (this.services.readManagedPrs === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-list",
+            value: this.services.readManagedPrs(),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.read") {
+        if (this.services.readManagedPr === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-details",
+            managedPr: (await this.services.readManagedPr(request.payload.managedPrId)) ?? null,
+          }),
+        );
+      }
+      if (request.type === "managed-pr.add") {
+        if (this.services.addManagedPr === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-operation",
+            operation: await this.services.addManagedPr(request.payload),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.retry") {
+        if (this.services.retryManagedPrAdd === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-operation",
+            operation: await this.services.retryManagedPrAdd(request.payload.attemptId),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.candidates") {
+        if (this.services.readManagedPrCandidates === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-candidates",
+            value: await this.services.readManagedPrCandidates(request.payload.managedPrId),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.clone.pick") {
+        if (this.services.pickManagedPrFolder === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        const selected = await this.services.pickManagedPrFolder();
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-folder",
+            ...(selected === undefined ? {} : { path: selected }),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.clone.attach") {
+        if (this.services.attachManagedPrClone === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-operation",
+            operation: await this.services.attachManagedPrClone(request.payload),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.clone.clear") {
+        if (this.services.clearManagedPrClone === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-operation",
+            operation: await this.services.clearManagedPrClone(request.payload),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.configuration.save") {
+        if (this.services.saveManagedPrConfiguration === undefined)
+          throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-operation",
+            operation: await this.services.saveManagedPrConfiguration(request.payload),
           }),
         );
       }

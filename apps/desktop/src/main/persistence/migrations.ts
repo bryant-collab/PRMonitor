@@ -524,6 +524,96 @@ CREATE INDEX IF NOT EXISTS idx_github_credential_operations_recovery
 PRAGMA user_version = 3;
 `;
 
+const MIGRATION_4 = `
+CREATE TABLE IF NOT EXISTS f07_add_pr_attempts (
+  attempt_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  canonical_pr_key TEXT NOT NULL UNIQUE,
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  correlation_id TEXT NOT NULL,
+  profile_version INTEGER NOT NULL,
+  normalized_url TEXT NOT NULL,
+  parsed_input_json TEXT NOT NULL,
+  parsed_input_hash TEXT NOT NULL,
+  context_present INTEGER NOT NULL CHECK (context_present IN (0, 1)),
+  context_text TEXT,
+  override_present INTEGER NOT NULL CHECK (override_present IN (0, 1)),
+  override_text TEXT,
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCEEDED', 'CANCELLED', 'FAILED', 'RECOVERY_REQUIRED')),
+  managed_pr_id TEXT REFERENCES managed_prs(managed_pr_id),
+  reason_json TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f07_pr_configuration_revisions (
+  revision_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  revision INTEGER NOT NULL,
+  context_present INTEGER NOT NULL CHECK (context_present IN (0, 1)),
+  context_text TEXT,
+  override_present INTEGER NOT NULL CHECK (override_present IN (0, 1)),
+  override_text TEXT,
+  content_hash TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('ADD_PR', 'USER_EDIT')),
+  created_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS f07_managed_prs (
+  managed_pr_id TEXT PRIMARY KEY REFERENCES managed_prs(managed_pr_id),
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  canonical_pr_key TEXT NOT NULL,
+  canonical_url TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  repository_name TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  base_repository_key TEXT NOT NULL,
+  head_repository_key TEXT NOT NULL,
+  base_branch TEXT NOT NULL,
+  head_branch TEXT NOT NULL,
+  base_sha TEXT NOT NULL,
+  head_sha TEXT NOT NULL,
+  remote_state TEXT NOT NULL CHECK (remote_state IN ('OPEN', 'CLOSED')),
+  merged INTEGER NOT NULL CHECK (merged IN (0, 1)),
+  default_branch TEXT,
+  remote_snapshot_json TEXT NOT NULL,
+  remote_snapshot_hash TEXT NOT NULL,
+  primary_state TEXT NOT NULL,
+  local_setup_status TEXT NOT NULL CHECK (local_setup_status IN ('LOCAL_CLONE_REQUIRED', 'VALID', 'DIRTY', 'MISSING', 'INVALID', 'UNKNOWN')),
+  current_configuration_revision_id TEXT NOT NULL,
+  current_configuration_revision INTEGER NOT NULL,
+  last_operation_reason_json TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (server_id, canonical_pr_key)
+);
+
+CREATE TABLE IF NOT EXISTS f07_local_clone_associations (
+  association_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL UNIQUE REFERENCES managed_prs(managed_pr_id),
+  canonical_root TEXT NOT NULL,
+  repository_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('VALID', 'DIRTY', 'MISSING', 'INVALID', 'UNKNOWN')),
+  clean_state TEXT NOT NULL CHECK (clean_state IN ('CLEAN', 'DIRTY', 'UNKNOWN')),
+  validation_snapshot_json TEXT NOT NULL,
+  validated_at TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f07_add_attempts_status
+  ON f07_add_pr_attempts(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_f07_clone_candidates
+  ON f07_local_clone_associations(canonical_root, updated_at);
+CREATE INDEX IF NOT EXISTS idx_f07_managed_prs_owner
+  ON f07_managed_prs(server_id, owner, repository_name, number);
+PRAGMA user_version = 4;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -546,6 +636,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F05-001-secure-github-auth-records",
     sql: MIGRATION_3,
     checksum: checksum(MIGRATION_3),
+  },
+  {
+    version: 4,
+    id: "F07-001-managed-pr-add-and-configuration-records",
+    sql: MIGRATION_4,
+    checksum: checksum(MIGRATION_4),
   },
 ];
 

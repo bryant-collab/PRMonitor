@@ -151,6 +151,151 @@ h1 {
   font: inherit;
 }
 
+.managed-pr-settings {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #d6dfeb;
+}
+
+.managed-pr-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.managed-pr-form label,
+.clone-panel label {
+  display: grid;
+  gap: 0.35rem;
+  color: #29435e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.managed-pr-form input,
+.managed-pr-form textarea,
+.managed-pr-form select,
+.clone-panel input {
+  min-width: 0;
+  width: 100%;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid #a9b9cb;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #18202a;
+  font: inherit;
+}
+
+.managed-pr-form textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.managed-pr-form input:focus-visible,
+.managed-pr-form textarea:focus-visible,
+.managed-pr-form select:focus-visible,
+.clone-panel input:focus-visible,
+.link-button:focus-visible {
+  outline: 3px solid #0a4f9a;
+  outline-offset: 2px;
+}
+
+.label-optional {
+  color: #6a7e94;
+  font-weight: 400;
+}
+
+.managed-pr-list {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.25rem;
+}
+
+.managed-pr-attempts {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0;
+  padding: 0.8rem;
+  border: 1px solid #e0b35a;
+  border-radius: 0.55rem;
+  background: #fffaf0;
+}
+
+.managed-pr-attempts h3 {
+  margin: 0;
+  color: #684000;
+  font-size: 0.95rem;
+}
+
+.managed-pr-card,
+.managed-pr-details,
+.clone-panel {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #c7d1df;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.managed-pr-card-selected {
+  border-color: #2066b1;
+  box-shadow: 0 0 0 2px rgb(32 102 177 / 14%);
+}
+
+.managed-pr-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
+.managed-pr-card h3 button {
+  overflow-wrap: anywhere;
+}
+
+.managed-pr-details {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  background: #fff;
+}
+
+.managed-pr-details h3,
+.clone-panel h4 {
+  margin: 0;
+}
+
+.clone-panel {
+  display: grid;
+  gap: 0.8rem;
+  background: #f8fbff;
+}
+
+.clone-candidates {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.45rem;
+  background: #fff;
+}
+
+.clone-candidates h5 {
+  margin: 0;
+  color: #405a78;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0a4f9a;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+
 .server-form input:focus-visible,
 .server-form button:focus-visible,
 .profile-actions button:focus-visible {

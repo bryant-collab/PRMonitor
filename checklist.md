@@ -70,7 +70,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Contract tests against fixtures/fakes prove resource independence, pagination, conditional metadata, retry classification, and explicit repository/ref identity.
   - **Primary application criteria:** Enables APP-AC-02, APP-AC-08, APP-AC-29, APP-AC-44, APP-AC-50, and APP-AC-65.
 
-- [ ] **F07 - Add and manage a pull request**
+- [x] **F07 - Add and manage a pull request**
   - **Depends on:** F03, F05-F06.
   - **Deliver:** Build the add-PR vertical slice: parse GitHub/GHES PR URLs; fetch metadata; identify base/head branches, repositories, and SHAs; locate or let the user select an existing local clone; validate that clone; and persist the managed PR. Support editing optional multi-line PR Intent / Context and `syncSourceBranchOverride` while preserving historical snapshots used by existing results.
   - **Exit:** A PR can be added with minimal configuration, reopened after restart, edited safely, and rejected with actionable errors for malformed URLs, inaccessible PRs, or invalid clones.

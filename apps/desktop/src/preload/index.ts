@@ -1,11 +1,17 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC_CHANNELS,
+  type IpcRequestType,
   parseIpcOpenTargetEvent,
   type IpcResponse,
   type PrMonitorPreloadApi,
 } from "../shared/ipc";
 import type { GithubServerProfileInput } from "../shared/github-server";
+import type {
+  ManagedPrAddInput,
+  ManagedPrCloneInput,
+  ManagedPrConfigurationInput,
+} from "../shared/managed-pr";
 
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
@@ -16,18 +22,7 @@ function requestId(): string {
 }
 
 function invoke(
-  type:
-    | "renderer.ready"
-    | "app.read-current-state"
-    | "lifecycle.status"
-    | "lifecycle.shutdown"
-    | "github.settings.read"
-    | "github.profile.upsert"
-    | "github.credential.submit"
-    | "github.connection.test"
-    | "github.operation.retry"
-    | "github.operation.cleanup"
-    | "github.profile.remove",
+  type: IpcRequestType,
   payload:
     | Record<string, never>
     | { readonly sessionId: string }
@@ -35,7 +30,13 @@ function invoke(
     | GithubServerProfileInput
     | { readonly serverId: string; readonly token: string }
     | { readonly serverId: string }
-    | { readonly operationId: string },
+    | { readonly operationId: string }
+    | ManagedPrAddInput
+    | ManagedPrCloneInput
+    | ManagedPrConfigurationInput
+    | { readonly managedPrId: string }
+    | { readonly attemptId: string }
+    | { readonly managedPrId: string; readonly expectedVersion: number },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -63,6 +64,15 @@ const api: PrMonitorPreloadApi = {
     invoke("github.operation.cleanup", { operationId }),
   removeGithubProfile: (serverId) =>
     invoke("github.profile.remove", { serverId }),
+  readManagedPrs: () => invoke("managed-pr.list", {}),
+  readManagedPr: (managedPrId) => invoke("managed-pr.read", { managedPrId }),
+  addManagedPr: (input) => invoke("managed-pr.add", input),
+  retryManagedPrAdd: (attemptId) => invoke("managed-pr.retry", { attemptId }),
+  readManagedPrCandidates: (managedPrId) => invoke("managed-pr.candidates", { managedPrId }),
+  pickManagedPrFolder: () => invoke("managed-pr.clone.pick", {}),
+  attachManagedPrClone: (input) => invoke("managed-pr.clone.attach", input),
+  clearManagedPrClone: (managedPrId, expectedVersion) => invoke("managed-pr.clone.clear", { managedPrId, expectedVersion }),
+  saveManagedPrConfiguration: (input) => invoke("managed-pr.configuration.save", input),
   onOpenTarget: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (!parseIpcOpenTargetEvent(payload)) return;

@@ -17,6 +17,12 @@ import {
   SecureGithubCredentialBroker,
   type GithubCredentialBroker,
 } from "./github-credential-broker";
+import { GithubRestClient } from "./github-rest-client";
+import type {
+  GithubPullRequestIdentity,
+  GithubPullRequestMetadata,
+  GithubRestResult,
+} from "../shared/github-rest";
 import {
   createOpaqueCredentialReference,
   SecureCredentialStoreError,
@@ -228,6 +234,38 @@ export class GithubServerService {
       profiles,
       operations,
     };
+  }
+
+  /**
+   * F07 receives only a verified profile record. The request-scoped credential
+   * capability stays inside the F06 client and never crosses this boundary.
+   */
+  public getVerifiedProfile(serverId: string): GithubServerProfileRecord | undefined {
+    const profile = this.options.repositories.getGithubServerProfile(serverId);
+    return profile?.auth?.status === "VERIFIED" && profile.auth.activeRevision !== undefined
+      ? profile
+      : undefined;
+  }
+
+  public getPullRequestMetadata(input: {
+    readonly profile: GithubServerProfileRecord;
+    readonly identity: GithubPullRequestIdentity;
+    readonly correlationId: string;
+    readonly signal?: AbortSignal;
+  }): Promise<GithubRestResult<GithubPullRequestMetadata>> {
+    const current = this.requireProfile(input.profile.serverId);
+    const client = new GithubRestClient({
+      broker: this.broker,
+      transport: this.options.transport,
+      profile: current,
+    });
+    return client.getPullRequest({
+      profile: current,
+      serverId: current.serverId,
+      identity: input.identity,
+      correlationId: input.correlationId,
+      signal: input.signal,
+    });
   }
 
   public upsertProfile(input: GithubServerProfileInput): GithubServerProfileView {

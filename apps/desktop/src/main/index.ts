@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -13,6 +13,7 @@ import {
   initializePersistence,
   type PersistenceRepositories,
   type PersistenceStore,
+  createF07PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -32,6 +33,7 @@ import {
   type ManagedWindowLike,
   type WindowOpenResult,
 } from "./window-manager";
+import { ManagedPrService } from "./managed-pr-service";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -46,6 +48,7 @@ let lifecycle: LifecycleCoordinator | undefined;
 let ipcRouter: IpcRouter | undefined;
 let windowManager: WindowManager | undefined;
 let githubServerService: GithubServerService | undefined;
+let managedPrService: ManagedPrService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -82,7 +85,12 @@ const accessibilityProbe = `(() => {
   const skipLink = document.querySelector(".skip-link");
   const status = document.querySelector("#${STARTUP_STATUS_ID}");
   const heading = document.querySelectorAll("h1");
-  if (!skipLink || !status) return { ok: false, reason: "required-target-missing" };
+  const managedPrForm = document.querySelector('form[aria-label="Add a pull request"]');
+  const managedPrHeading = document.querySelector("#managed-pr-heading");
+  const managedPrControls = managedPrForm === null
+    ? []
+    : [...managedPrForm.querySelectorAll("input, textarea, select, button")];
+  if (!skipLink || !status || !managedPrForm || !managedPrHeading) return { ok: false, reason: "required-target-missing" };
   const skipIndex = focusable.indexOf(skipLink);
   const statusIndex = focusable.indexOf(status);
   skipLink.focus();
@@ -95,6 +103,10 @@ const accessibilityProbe = `(() => {
       status.getAttribute("role") === "status" &&
       status.getAttribute("aria-live") === "polite" &&
       status.getAttribute("data-prmonitor-ready") === "true" &&
+      managedPrForm.getAttribute("aria-label") === "Add a pull request" &&
+      managedPrHeading.textContent?.trim() === "Add and manage a PR" &&
+      managedPrControls.length >= 7 &&
+      managedPrControls.every((element) => element.tagName === "BUTTON" || element.labels?.length > 0 || element.getAttribute("aria-label") !== null) &&
       skipIndex >= 0 && statusIndex > skipIndex && skipFocused && enterMovesFocus,
     forcedColors: window.matchMedia("(forced-colors: active)").matches,
     title: document.title,
@@ -214,6 +226,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
     backupRoot: path.join(userDataDirectory, "backups"),
   });
   persistenceRepositories = createPersistenceRepositories(persistenceStore);
+  const f07Repositories = createF07PersistenceRepositories(persistenceStore);
   githubServerService = new GithubServerService({
     repositories: persistenceRepositories,
     credentialStore: new ElectronSecureCredentialStore(
@@ -223,6 +236,16 @@ async function initializeMainProcessPersistence(): Promise<void> {
     transport: new FetchGithubHttpTransport(),
   });
   githubServerService.reconcileStartup();
+  managedPrService = new ManagedPrService({
+    repositories: f07Repositories,
+    profileForServerId: (serverId) => githubServerService?.getVerifiedProfile(serverId),
+    getPullRequest: (input) => {
+      if (githubServerService === undefined)
+        return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
+      return githubServerService.getPullRequestMetadata(input);
+    },
+  });
+  managedPrService.reconcileStartup();
 }
 
 function createCurrentState(): CurrentState {
@@ -309,6 +332,57 @@ async function startMainProcess(): Promise<void> {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
       return githubServerService.removeProfile(input);
+    },
+    readManagedPrs: () => {
+      if (managedPrService === undefined)
+        throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
+      return managedPrService.list();
+    },
+    readManagedPr: (managedPrId) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.read(managedPrId);
+    },
+    addManagedPr: (input) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.add(input);
+    },
+    retryManagedPrAdd: (attemptId) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.retryAdd(attemptId);
+    },
+    readManagedPrCandidates: (managedPrId) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.candidates(managedPrId);
+    },
+    pickManagedPrFolder: async () => {
+      const owner = windowManager?.visibleWindow as unknown as BrowserWindow | undefined;
+      const options = {
+        properties: ["openDirectory", "dontAddToRecent"] as ("openDirectory" | "dontAddToRecent")[],
+        title: "Choose an existing local Git clone",
+      };
+      const selection = owner === undefined
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(owner, options);
+      return selection.canceled ? undefined : selection.filePaths[0];
+    },
+    attachManagedPrClone: (input) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.attachClone(input);
+    },
+    clearManagedPrClone: (input) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.clearClone(input);
+    },
+    saveManagedPrConfiguration: (input) => {
+      if (managedPrService === undefined)
+        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+      return managedPrService.saveConfiguration(input);
     },
     onRendererReady: (senderId) => {
       windowManager?.markRendererReady(senderId);
@@ -403,6 +477,7 @@ if (primaryInstance.acquire(process.argv)) {
 
 app.on("will-quit", () => {
   githubServerService = undefined;
+  managedPrService = undefined;
   persistenceStore?.close();
   persistenceStore = undefined;
 });

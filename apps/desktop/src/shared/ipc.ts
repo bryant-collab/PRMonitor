@@ -7,9 +7,24 @@ import {
   type GithubServerProfileView,
   type GithubServerSettingsView,
 } from "./github-server";
+import {
+  isManagedPrCandidateListView,
+  isManagedPrListView,
+  isManagedPrOperationView,
+  isManagedPrReadModel,
+  type ManagedPrAddInput,
+  type ManagedPrCloneInput,
+  type ManagedPrConfigurationInput,
+  type ManagedPrCandidateListView,
+  type ManagedPrOperationView,
+  type ManagedPrReadModel,
+  type ManagedPrListView,
+} from "./managed-pr";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
-export const IPC_MAX_REQUEST_BYTES = 16 * 1024;
+// F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
+// typed request while retaining a bounded IPC payload.
+export const IPC_MAX_REQUEST_BYTES = 64 * 1024;
 export const IPC_MAX_RESPONSE_BYTES = 64 * 1024;
 
 export const IPC_CHANNELS = {
@@ -28,7 +43,16 @@ export type IpcRequestType =
   | "github.connection.test"
   | "github.operation.retry"
   | "github.operation.cleanup"
-  | "github.profile.remove";
+  | "github.profile.remove"
+  | "managed-pr.list"
+  | "managed-pr.read"
+  | "managed-pr.add"
+  | "managed-pr.retry"
+  | "managed-pr.candidates"
+  | "managed-pr.clone.pick"
+  | "managed-pr.clone.attach"
+  | "managed-pr.clone.clear"
+  | "managed-pr.configuration.save";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -80,6 +104,42 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "github.profile.remove";
       readonly payload: { readonly serverId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.list";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.read";
+      readonly payload: { readonly managedPrId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.add";
+      readonly payload: ManagedPrAddInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.retry";
+      readonly payload: { readonly attemptId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.candidates";
+      readonly payload: { readonly managedPrId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.clone.pick";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.clone.attach";
+      readonly payload: ManagedPrCloneInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.clone.clear";
+      readonly payload: { readonly managedPrId: string; readonly expectedVersion: number };
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.configuration.save";
+      readonly payload: ManagedPrConfigurationInput;
     });
 
 export interface IpcError {
@@ -141,7 +201,12 @@ export type IpcResponseValue =
       readonly kind: "github-operation";
       readonly operationId: string;
       readonly profile: GithubServerProfileView;
-    };
+    }
+  | { readonly kind: "managed-pr-list"; readonly value: ManagedPrListView }
+  | { readonly kind: "managed-pr-details"; readonly managedPr: ManagedPrReadModel | null }
+  | { readonly kind: "managed-pr-operation"; readonly operation: ManagedPrOperationView }
+  | { readonly kind: "managed-pr-candidates"; readonly value: ManagedPrCandidateListView }
+  | { readonly kind: "managed-pr-folder"; readonly path?: string };
 
 export type IpcResponse =
   | {
@@ -221,6 +286,36 @@ function safeProfileText(value: unknown, maximum: number): value is string {
       return codePoint > 31 && codePoint !== 127;
     })
   );
+}
+
+function safeManagedMultilineText(value: unknown, maximum: number): value is string {
+  return (
+    typeof value === "string" &&
+    byteLength(value) <= maximum &&
+    [...value].every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return (
+        (codePoint > 31 || codePoint === 9 || codePoint === 10 || codePoint === 13) &&
+        codePoint !== 127
+      );
+    })
+  );
+}
+
+function safeManagedPath(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 4_096 &&
+    [...value].every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint > 31 && codePoint !== 127;
+    })
+  );
+}
+
+function safeVersion(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
 function hasExactKeys(
@@ -347,6 +442,16 @@ function parseResponseValue(value: unknown): boolean {
       safeGithubIdentifier(value.operationId) &&
       isGithubServerProfileView(value.profile)
     );
+  if (value.kind === "managed-pr-list")
+    return hasExactKeys(value, ["kind", "value"]) && isManagedPrListView(value.value);
+  if (value.kind === "managed-pr-details")
+    return hasExactKeys(value, ["kind", "managedPr"]) && (value.managedPr === null || isManagedPrReadModel(value.managedPr));
+  if (value.kind === "managed-pr-operation")
+    return hasExactKeys(value, ["kind", "operation"]) && isManagedPrOperationView(value.operation);
+  if (value.kind === "managed-pr-candidates")
+    return hasExactKeys(value, ["kind", "value"]) && isManagedPrCandidateListView(value.value);
+  if (value.kind === "managed-pr-folder")
+    return hasExactKeys(value, ["kind"], ["path"]) && (value.path === undefined || safeManagedPath(value.path));
   return false;
 }
 
@@ -531,6 +636,120 @@ export function parseIpcRequest(
       } as IpcRequest,
     };
   }
+  if (value.type === "managed-pr.list" || value.type === "managed-pr.clone.pick") {
+    if (Object.keys(value.payload).length !== 0)
+      return invalidRequest("This managed-PR request does not accept a payload.");
+    return { ok: true, value: { ...base, type: value.type, payload: {} } as IpcRequest };
+  }
+  if (
+    value.type === "managed-pr.read" ||
+    value.type === "managed-pr.retry" ||
+    value.type === "managed-pr.candidates"
+  ) {
+    const key = value.type === "managed-pr.retry" ? "attemptId" : "managedPrId";
+    if (!hasExactKeys(value.payload, [key]) || !safeGithubIdentifier(value.payload[key]))
+      return invalidRequest("The managed-PR identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { [key]: value.payload[key] },
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "managed-pr.add") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["serverId", "url"],
+        ["context", "syncSourceBranchOverride", "localClonePath"],
+      ) ||
+      !safeGithubIdentifier(value.payload.serverId) ||
+      !safeManagedMultilineText(value.payload.url, 2_048) ||
+      (value.payload.context !== undefined && !safeManagedMultilineText(value.payload.context, 32 * 1024)) ||
+      (value.payload.syncSourceBranchOverride !== undefined && !safeManagedMultilineText(value.payload.syncSourceBranchOverride, 255)) ||
+      (value.payload.localClonePath !== undefined && !safeManagedPath(value.payload.localClonePath))
+    )
+      return invalidRequest("The managed-PR add request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          serverId: value.payload.serverId,
+          url: value.payload.url,
+          ...(value.payload.context === undefined ? {} : { context: value.payload.context }),
+          ...(value.payload.syncSourceBranchOverride === undefined ? {} : { syncSourceBranchOverride: value.payload.syncSourceBranchOverride }),
+          ...(value.payload.localClonePath === undefined ? {} : { localClonePath: value.payload.localClonePath }),
+        },
+      },
+    };
+  }
+  if (value.type === "managed-pr.clone.attach") {
+    if (
+      !hasExactKeys(value.payload, ["managedPrId", "expectedVersion", "path"]) ||
+      !safeGithubIdentifier(value.payload.managedPrId) ||
+      !safeVersion(value.payload.expectedVersion) ||
+      !safeManagedPath(value.payload.path)
+    )
+      return invalidRequest("The managed-PR clone attachment request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          managedPrId: value.payload.managedPrId,
+          expectedVersion: value.payload.expectedVersion,
+          path: value.payload.path,
+        },
+      },
+    };
+  }
+  if (value.type === "managed-pr.clone.clear") {
+    if (
+      !hasExactKeys(value.payload, ["managedPrId", "expectedVersion"]) ||
+      !safeGithubIdentifier(value.payload.managedPrId) ||
+      !safeVersion(value.payload.expectedVersion)
+    )
+      return invalidRequest("The managed-PR clone clearing request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          managedPrId: value.payload.managedPrId,
+          expectedVersion: value.payload.expectedVersion,
+        },
+      },
+    };
+  }
+  if (value.type === "managed-pr.configuration.save") {
+    if (
+      !hasExactKeys(value.payload, ["managedPrId", "expectedVersion", "context", "syncSourceBranchOverride"]) ||
+      !safeGithubIdentifier(value.payload.managedPrId) ||
+      !safeVersion(value.payload.expectedVersion) ||
+      !safeManagedMultilineText(value.payload.context, 32 * 1024) ||
+      !safeManagedMultilineText(value.payload.syncSourceBranchOverride, 255)
+    )
+      return invalidRequest("The managed-PR configuration request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          managedPrId: value.payload.managedPrId,
+          expectedVersion: value.payload.expectedVersion,
+          context: value.payload.context,
+          syncSourceBranchOverride: value.payload.syncSourceBranchOverride,
+        },
+      },
+    };
+  }
   return invalidRequest("The IPC request type is not allowlisted.");
 }
 
@@ -618,6 +837,15 @@ export interface PrMonitorPreloadApi {
   readonly retryGithubOperation: (operationId: string) => Promise<IpcResponse>;
   readonly cleanupGithubOperation: (operationId: string) => Promise<IpcResponse>;
   readonly removeGithubProfile: (serverId: string) => Promise<IpcResponse>;
+  readonly readManagedPrs: () => Promise<IpcResponse>;
+  readonly readManagedPr: (managedPrId: string) => Promise<IpcResponse>;
+  readonly addManagedPr: (input: ManagedPrAddInput) => Promise<IpcResponse>;
+  readonly retryManagedPrAdd: (attemptId: string) => Promise<IpcResponse>;
+  readonly readManagedPrCandidates: (managedPrId: string) => Promise<IpcResponse>;
+  readonly pickManagedPrFolder: () => Promise<IpcResponse>;
+  readonly attachManagedPrClone: (input: ManagedPrCloneInput) => Promise<IpcResponse>;
+  readonly clearManagedPrClone: (managedPrId: string, expectedVersion: number) => Promise<IpcResponse>;
+  readonly saveManagedPrConfiguration: (input: ManagedPrConfigurationInput) => Promise<IpcResponse>;
   readonly onOpenTarget: (listener: (target: OpenTarget) => void) => () => void;
 }
 
