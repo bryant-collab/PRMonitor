@@ -70,7 +70,7 @@ describe("F01 workspace contract", () => {
       /(?:require|import)\s*\([^)]*(?:node:|electron)/u,
     );
     expect(renderer).not.toMatch(
-      /@openai\/codex-sdk|@prmonitor\/spec-linter|github|sqlite|child_process/iu,
+      /@openai\/codex-sdk|@prmonitor\/spec-linter|sqlite|child_process/iu,
     );
 
     const shared = await source("src/shared/startup.ts");

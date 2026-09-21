@@ -69,6 +69,226 @@ h1 {
   color: #405a78;
 }
 
+.server-settings {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #d6dfeb;
+}
+
+.section-heading,
+.profile-card-heading,
+.operation-row,
+.profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section-heading {
+  align-items: flex-start;
+}
+
+.section-heading h2,
+.profile-card h3,
+.operation-list h3 {
+  margin: 0;
+}
+
+.section-heading h2 {
+  font-size: 1.45rem;
+}
+
+.section-help,
+.field-help,
+.empty-state,
+.profile-card p,
+.operation-row,
+.profile-reason {
+  color: #405a78;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.section-help {
+  margin: 0.5rem 0 1rem;
+}
+
+.store-state,
+.status-pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #a9b9cb;
+  border-radius: 999px;
+  color: #29435e;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.server-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.server-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #29435e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.server-form input {
+  min-width: 0;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid #a9b9cb;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #18202a;
+  font: inherit;
+}
+
+.server-form input:focus-visible,
+.server-form button:focus-visible,
+.profile-actions button:focus-visible {
+  outline: 3px solid #0a4f9a;
+  outline-offset: 2px;
+}
+
+.server-form button,
+.profile-actions button {
+  width: fit-content;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #0a4f9a;
+  border-radius: 0.4rem;
+  background: #0a4f9a;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.server-form button:disabled,
+.profile-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.secondary-button {
+  border-color: #71849b !important;
+  background: #fff !important;
+  color: #29435e !important;
+}
+
+.field-help {
+  margin: -0.55rem 0 0;
+  font-size: 0.78rem;
+}
+
+.form-message {
+  margin: 1rem 0 0;
+  padding: 0.7rem;
+  border-left: 4px solid #2066b1;
+  background: #e9f2ff;
+  color: #12395e;
+  font-weight: 600;
+}
+
+.profile-list,
+.operation-list {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.25rem;
+}
+
+.profile-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #c7d1df;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.profile-card-selected {
+  border-color: #2066b1;
+  box-shadow: 0 0 0 2px rgb(32 102 177 / 14%);
+}
+
+.profile-card h3 {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
+.profile-card-heading p {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-details {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.85rem 0;
+}
+
+.profile-details div {
+  min-width: 0;
+}
+
+.profile-details dt {
+  color: #405a78;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.profile-details dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  color: #18202a;
+  font-size: 0.85rem;
+}
+
+.profile-reason {
+  margin: 0.7rem 0;
+  padding: 0.6rem;
+  border-left: 4px solid #b66a00;
+  background: #fff7e8;
+  color: #684000;
+}
+
+.profile-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.operation-list {
+  padding-top: 1rem;
+  border-top: 1px solid #d6dfeb;
+}
+
+.operation-row {
+  align-items: flex-start;
+  padding: 0.7rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.45rem;
+  background: #fff;
+}
+
+@media (max-width: 560px) {
+  .startup-card {
+    padding: 1.5rem;
+  }
+
+  .profile-card-heading,
+  .operation-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .skip-link {
   position: absolute;
   top: 0.75rem;

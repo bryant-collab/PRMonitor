@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -19,6 +19,9 @@ import {
   LifecycleCoordinator,
 } from "./lifecycle";
 import { IpcRouter } from "./ipc-router";
+import { FetchGithubHttpTransport } from "./github-connection-test";
+import { GithubServerService } from "./github-server-service";
+import { ElectronSecureCredentialStore } from "./secure-credential-store";
 import { PrimaryInstanceCoordinator } from "./instance-routing";
 import {
   ElectronWindowPlatformAdapter,
@@ -42,6 +45,7 @@ let persistenceRepositories: PersistenceRepositories | undefined;
 let lifecycle: LifecycleCoordinator | undefined;
 let ipcRouter: IpcRouter | undefined;
 let windowManager: WindowManager | undefined;
+let githubServerService: GithubServerService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -210,6 +214,15 @@ async function initializeMainProcessPersistence(): Promise<void> {
     backupRoot: path.join(userDataDirectory, "backups"),
   });
   persistenceRepositories = createPersistenceRepositories(persistenceStore);
+  githubServerService = new GithubServerService({
+    repositories: persistenceRepositories,
+    credentialStore: new ElectronSecureCredentialStore(
+      path.join(userDataDirectory, "secure-credentials"),
+      safeStorage,
+    ),
+    transport: new FetchGithubHttpTransport(),
+  });
+  githubServerService.reconcileStartup();
 }
 
 function createCurrentState(): CurrentState {
@@ -257,6 +270,45 @@ async function startMainProcess(): Promise<void> {
           },
         }
       );
+    },
+    readGithubSettings: () => {
+      if (githubServerService === undefined)
+        throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+      return githubServerService.readSettings();
+    },
+    upsertGithubProfile: (input) => {
+      if (githubServerService === undefined)
+        throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+      return githubServerService.upsertProfile(input);
+    },
+    submitGithubCredential: (input) => {
+      if (githubServerService === undefined)
+        return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
+      return githubServerService.submitCredential({
+        serverId: input.serverId,
+        value: input.token,
+        operationId: input.operationId,
+      });
+    },
+    testGithubConnection: (input) => {
+      if (githubServerService === undefined)
+        return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
+      return githubServerService.testConnection(input);
+    },
+    retryGithubOperation: (operationId) => {
+      if (githubServerService === undefined)
+        return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
+      return githubServerService.retryOperation(operationId);
+    },
+    cleanupGithubOperation: (operationId) => {
+      if (githubServerService === undefined)
+        return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
+      return githubServerService.cleanupOperation(operationId);
+    },
+    removeGithubProfile: (input) => {
+      if (githubServerService === undefined)
+        return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
+      return githubServerService.removeProfile(input);
     },
     onRendererReady: (senderId) => {
       windowManager?.markRendererReady(senderId);
@@ -350,6 +402,7 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  githubServerService = undefined;
   persistenceStore?.close();
   persistenceStore = undefined;
 });

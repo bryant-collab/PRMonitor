@@ -117,12 +117,12 @@ describe("F03 SQLite persistence", () => {
     expect(
       fixture.store.read<{ user_version: number }>("PRAGMA user_version")
         ?.user_version,
-    ).toBe(2);
+    ).toBe(3);
     expect(
       fixture.store.readAll(
         "SELECT version, migration_id, checksum FROM schema_migrations",
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     const repositories = createPersistenceRepositories(fixture.store, {
       clock: { now: () => FIXED_TIME },
     });
@@ -189,7 +189,7 @@ describe("F03 SQLite persistence", () => {
       store
         .readAll("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 3]);
     const files = await readdir(backupRoot);
     expect(files.some((file) => file.endsWith(".sqlite"))).toBe(true);
     const backup = files.find((file) => file.endsWith(".sqlite"));

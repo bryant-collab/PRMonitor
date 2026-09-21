@@ -11,6 +11,11 @@ import {
   type LifecycleStatus,
 } from "../shared/ipc";
 import { parseOpenTargetRecord, type OpenTarget } from "../shared/routing";
+import type {
+  GithubServerProfileInput,
+  GithubServerProfileView,
+  GithubServerSettingsView,
+} from "../shared/github-server";
 
 export interface IpcSenderLike {
   readonly id: number;
@@ -36,6 +41,29 @@ export interface IpcServices {
     readonly ok: boolean;
     readonly error?: IpcError;
   }>;
+  readonly readGithubSettings?: () => GithubServerSettingsView;
+  readonly upsertGithubProfile?: (
+    input: GithubServerProfileInput,
+  ) => GithubServerProfileView | Promise<GithubServerProfileView>;
+  readonly submitGithubCredential?: (input: {
+    readonly serverId: string;
+    readonly token: string;
+    readonly operationId: string;
+  }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  readonly testGithubConnection?: (input: {
+    readonly serverId: string;
+    readonly operationId: string;
+  }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  readonly retryGithubOperation?: (
+    operationId: string,
+  ) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  readonly cleanupGithubOperation?: (
+    operationId: string,
+  ) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  readonly removeGithubProfile?: (input: {
+    readonly serverId: string;
+    readonly operationId: string;
+  }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
   readonly onRendererReady?: (senderId: number, sessionId: string) => void;
 }
 
@@ -184,17 +212,112 @@ export class IpcRouter {
           }),
         );
       }
+      if (request.type === "github.settings.read") {
+        if (this.services.readGithubSettings === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-settings",
+            settings: this.services.readGithubSettings(),
+          }),
+        );
+      }
+      if (request.type === "github.profile.upsert") {
+        if (this.services.upsertGithubProfile === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        const profile = await this.services.upsertGithubProfile(request.payload);
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-profile",
+            profile,
+          }),
+        );
+      }
+      if (request.type === "github.credential.submit") {
+        if (this.services.submitGithubCredential === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        const result = await this.services.submitGithubCredential({
+          serverId: request.payload.serverId,
+          token: request.payload.token,
+          operationId: request.requestId,
+        });
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-operation",
+            operationId: result.operationId,
+            profile: result.profile,
+          }),
+        );
+      }
+      if (request.type === "github.connection.test") {
+        if (this.services.testGithubConnection === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        const result = await this.services.testGithubConnection({
+          serverId: request.payload.serverId,
+          operationId: request.requestId,
+        });
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-operation",
+            operationId: result.operationId,
+            profile: result.profile,
+          }),
+        );
+      }
+      if (request.type === "github.operation.retry") {
+        if (this.services.retryGithubOperation === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        const result = await this.services.retryGithubOperation(
+          request.payload.operationId,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-operation",
+            operationId: result.operationId,
+            profile: result.profile,
+          }),
+        );
+      }
+      if (request.type === "github.operation.cleanup") {
+        if (this.services.cleanupGithubOperation === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        const result = await this.services.cleanupGithubOperation(
+          request.payload.operationId,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-operation",
+            operationId: result.operationId,
+            profile: result.profile,
+          }),
+        );
+      }
+      if (request.type === "github.profile.remove") {
+        if (this.services.removeGithubProfile === undefined)
+          throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+        const result = await this.services.removeGithubProfile({
+          serverId: request.payload.serverId,
+          operationId: request.requestId,
+        });
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "github-operation",
+            operationId: result.operationId,
+            profile: result.profile,
+          }),
+        );
+      }
       return errorResponse(
         "ipc-unknown",
         "UNKNOWN_CHANNEL",
         "The IPC request type is not allowlisted.",
       );
-    } catch {
-      return errorResponse(
-        request.requestId,
-        "HANDLER_FAILED",
-        "The main-process handler failed safely.",
-      );
+    } catch (error) {
+      const safeMessage =
+        error instanceof Error && error.message.length <= 512
+          ? error.message
+          : "The main-process handler failed safely.";
+      return errorResponse(request.requestId, "HANDLER_FAILED", safeMessage);
     }
   }
 

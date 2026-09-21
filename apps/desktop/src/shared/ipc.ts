@@ -1,5 +1,12 @@
 import { isSafeText } from "./domain/result";
 import { parseOpenTargetRecord, type OpenTarget } from "./routing";
+import {
+  isGithubServerProfileView,
+  isGithubServerSettingsView,
+  type GithubServerProfileInput,
+  type GithubServerProfileView,
+  type GithubServerSettingsView,
+} from "./github-server";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 export const IPC_MAX_REQUEST_BYTES = 16 * 1024;
@@ -14,7 +21,14 @@ export type IpcRequestType =
   | "renderer.ready"
   | "app.read-current-state"
   | "lifecycle.status"
-  | "lifecycle.shutdown";
+  | "lifecycle.shutdown"
+  | "github.settings.read"
+  | "github.profile.upsert"
+  | "github.credential.submit"
+  | "github.connection.test"
+  | "github.operation.retry"
+  | "github.operation.cleanup"
+  | "github.profile.remove";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -38,6 +52,34 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "lifecycle.shutdown";
       readonly payload: { readonly command: "Shutdown PRMonitor" };
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.settings.read";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.profile.upsert";
+      readonly payload: GithubServerProfileInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.credential.submit";
+      readonly payload: { readonly serverId: string; readonly token: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.connection.test";
+      readonly payload: { readonly serverId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.operation.retry";
+      readonly payload: { readonly operationId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.operation.cleanup";
+      readonly payload: { readonly operationId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "github.profile.remove";
+      readonly payload: { readonly serverId: string };
     });
 
 export interface IpcError {
@@ -92,7 +134,14 @@ export type IpcResponseValue =
   | { readonly kind: "renderer-ready"; readonly sessionId: string }
   | { readonly kind: "current-state"; readonly state: CurrentState }
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
-  | { readonly kind: "shutdown"; readonly status: LifecycleStatus };
+  | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
+  | { readonly kind: "github-settings"; readonly settings: GithubServerSettingsView }
+  | { readonly kind: "github-profile"; readonly profile: GithubServerProfileView }
+  | {
+      readonly kind: "github-operation";
+      readonly operationId: string;
+      readonly profile: GithubServerProfileView;
+    };
 
 export type IpcResponse =
   | {
@@ -143,6 +192,34 @@ function safeText(value: unknown, maximum = 2_048): value is string {
     value.length <= maximum &&
     !SECRET_KEY.test(value) &&
     isSafeText(value)
+  );
+}
+
+function safeGithubIdentifier(value: unknown): value is string {
+  return typeof value === "string" && SAFE_ID.test(value);
+}
+
+function safeCredentialValue(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    byteLength(value) <= 4_096 &&
+    [...value].every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint > 31 && codePoint !== 127;
+    })
+  );
+}
+
+function safeProfileText(value: unknown, maximum: number): value is string {
+  return (
+    typeof value === "string" &&
+    byteLength(value) <= maximum &&
+    isSafeText(value) &&
+    [...value].every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint > 31 && codePoint !== 127;
+    })
   );
 }
 
@@ -254,6 +331,22 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "status"]) &&
       parseLifecycleStatus(value.status)
     );
+  if (value.kind === "github-settings")
+    return (
+      hasExactKeys(value, ["kind", "settings"]) &&
+      isGithubServerSettingsView(value.settings)
+    );
+  if (value.kind === "github-profile")
+    return (
+      hasExactKeys(value, ["kind", "profile"]) &&
+      isGithubServerProfileView(value.profile)
+    );
+  if (value.kind === "github-operation")
+    return (
+      hasExactKeys(value, ["kind", "operationId", "profile"]) &&
+      safeGithubIdentifier(value.operationId) &&
+      isGithubServerProfileView(value.profile)
+    );
   return false;
 }
 
@@ -295,8 +388,7 @@ export function parseIpcRequest(
     value.schemaVersion !== IPC_SCHEMA_VERSION ||
     !safeRequestId(value.requestId) ||
     typeof value.type !== "string" ||
-    !isPlainRecord(value.payload) ||
-    Object.keys(value.payload).some((key) => SECRET_KEY.test(key))
+    !isPlainRecord(value.payload)
   ) {
     return invalidRequest(
       "The IPC request has an invalid version, identity, type, or payload.",
@@ -350,6 +442,93 @@ export function parseIpcRequest(
         type: value.type,
         payload: { command: "Shutdown PRMonitor" },
       },
+    };
+  }
+  if (value.type === "github.credential.submit") {
+    if (
+      !hasExactKeys(value.payload, ["serverId", "token"]) ||
+      !safeGithubIdentifier(value.payload.serverId) ||
+      !safeCredentialValue(value.payload.token)
+    ) {
+      return invalidRequest("The protected access submission is invalid.");
+    }
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          serverId: value.payload.serverId,
+          token: value.payload.token,
+        },
+      },
+    };
+  }
+  if (value.type === "github.settings.read") {
+    if (Object.keys(value.payload).length !== 0)
+      return invalidRequest("The GitHub settings read does not accept a payload.");
+    return { ok: true, value: { ...base, type: value.type, payload: {} } };
+  }
+  if (value.type === "github.profile.upsert") {
+    if (
+      !hasExactKeys(value.payload, ["displayName", "serverUrl"], ["expectedVersion"]) ||
+      !safeProfileText(value.payload.displayName, 120) ||
+      !safeProfileText(value.payload.serverUrl, 2_048) ||
+      (value.payload.expectedVersion !== undefined &&
+        (typeof value.payload.expectedVersion !== "number" ||
+          !Number.isSafeInteger(value.payload.expectedVersion) ||
+          value.payload.expectedVersion < 1))
+    )
+      return invalidRequest("The GitHub server profile input is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          displayName: value.payload.displayName,
+          serverUrl: value.payload.serverUrl,
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+        },
+      },
+    };
+  }
+  if (
+    value.type === "github.connection.test" ||
+    value.type === "github.profile.remove"
+  ) {
+    if (
+      !hasExactKeys(value.payload, ["serverId"]) ||
+      !safeGithubIdentifier(value.payload.serverId)
+    )
+      return invalidRequest("The GitHub server identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { serverId: value.payload.serverId },
+      } as IpcRequest,
+    };
+  }
+  if (
+    value.type === "github.operation.retry" ||
+    value.type === "github.operation.cleanup"
+  ) {
+    if (
+      !hasExactKeys(value.payload, ["operationId"]) ||
+      !safeGithubIdentifier(value.payload.operationId)
+    )
+      return invalidRequest("The GitHub operation identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { operationId: value.payload.operationId },
+      } as IpcRequest,
     };
   }
   return invalidRequest("The IPC request type is not allowlisted.");
@@ -427,6 +606,18 @@ export interface PrMonitorPreloadApi {
   readonly readCurrentState: () => Promise<IpcResponse>;
   readonly getLifecycleStatus: () => Promise<IpcResponse>;
   readonly requestShutdown: () => Promise<IpcResponse>;
+  readonly readGithubSettings: () => Promise<IpcResponse>;
+  readonly upsertGithubProfile: (
+    input: GithubServerProfileInput,
+  ) => Promise<IpcResponse>;
+  readonly submitGithubCredential: (
+    serverId: string,
+    token: string,
+  ) => Promise<IpcResponse>;
+  readonly testGithubConnection: (serverId: string) => Promise<IpcResponse>;
+  readonly retryGithubOperation: (operationId: string) => Promise<IpcResponse>;
+  readonly cleanupGithubOperation: (operationId: string) => Promise<IpcResponse>;
+  readonly removeGithubProfile: (serverId: string) => Promise<IpcResponse>;
   readonly onOpenTarget: (listener: (target: OpenTarget) => void) => () => void;
 }
 

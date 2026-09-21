@@ -474,6 +474,56 @@ CREATE INDEX IF NOT EXISTS idx_activity_correlation ON activity_events(correlati
 PRAGMA user_version = 2;
 `;
 
+const MIGRATION_3 = `
+CREATE TABLE IF NOT EXISTS github_server_auth (
+  server_id TEXT PRIMARY KEY REFERENCES github_servers(server_id),
+  status TEXT NOT NULL,
+  store_state TEXT NOT NULL,
+  active_ref TEXT,
+  active_revision INTEGER,
+  candidate_ref TEXT,
+  candidate_revision INTEGER,
+  account_login TEXT,
+  account_name TEXT,
+  verified_at TEXT,
+  last_test_at TEXT,
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((active_ref IS NULL AND active_revision IS NULL) OR (active_ref IS NOT NULL AND active_revision IS NOT NULL AND active_revision > 0)),
+  CHECK ((candidate_ref IS NULL AND candidate_revision IS NULL) OR (candidate_ref IS NOT NULL AND candidate_revision IS NOT NULL AND candidate_revision > 0))
+);
+
+CREATE TABLE IF NOT EXISTS github_credential_operations (
+  operation_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  profile_version INTEGER NOT NULL,
+  operation_kind TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  candidate_ref TEXT,
+  candidate_revision INTEGER,
+  previous_active_ref TEXT,
+  previous_active_revision INTEGER,
+  endpoint_snapshot_json TEXT NOT NULL,
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  test_result_json TEXT NOT NULL DEFAULT '{}',
+  cleanup_state TEXT NOT NULL DEFAULT 'NOT_REQUIRED',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((candidate_ref IS NULL AND candidate_revision IS NULL) OR (candidate_ref IS NOT NULL AND candidate_revision IS NOT NULL AND candidate_revision > 0)),
+  CHECK ((previous_active_ref IS NULL AND previous_active_revision IS NULL) OR (previous_active_ref IS NOT NULL AND previous_active_revision IS NOT NULL AND previous_active_revision > 0))
+);
+
+CREATE INDEX IF NOT EXISTS idx_github_credential_operations_server
+  ON github_credential_operations(server_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_github_credential_operations_recovery
+  ON github_credential_operations(phase, cleanup_state, updated_at);
+PRAGMA user_version = 3;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -490,6 +540,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F03-002-domain-record-families",
     sql: MIGRATION_2,
     checksum: checksum(MIGRATION_2),
+  },
+  {
+    version: 3,
+    id: "F05-001-secure-github-auth-records",
+    sql: MIGRATION_3,
+    checksum: checksum(MIGRATION_3),
   },
 ];
 

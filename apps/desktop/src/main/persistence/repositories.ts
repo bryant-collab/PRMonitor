@@ -17,6 +17,16 @@ import type {
   SqlRow,
 } from "./types";
 import type { PersistenceStore } from "./database";
+import type {
+  GithubReasonCategory,
+  GithubReasonCode,
+  GithubReasonNextAction,
+  GithubSafeReason,
+  GithubSecureStoreState,
+  GithubServerKind,
+  GithubServerStatus,
+} from "../../shared/github-server";
+import { isGithubSafeReason } from "../../shared/github-server";
 
 type Payload = unknown;
 type JsonObject = { readonly [key: string]: SafeJsonValue };
@@ -116,6 +126,75 @@ export interface PublicationIntentRecord<
   }[];
 }
 
+export interface GithubServerAuthRecord {
+  readonly serverId: string;
+  readonly status: GithubServerStatus;
+  readonly storeState: GithubSecureStoreState;
+  readonly activeRef?: string;
+  readonly activeRevision?: number;
+  readonly candidateRef?: string;
+  readonly candidateRevision?: number;
+  readonly accountLogin?: string;
+  readonly accountName?: string;
+  readonly verifiedAt?: string;
+  readonly lastTestAt?: string;
+  readonly reason?: GithubSafeReason;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface GithubServerProfileRecord<T = JsonObject>
+  extends PersistedRecord<T> {
+  readonly serverId: string;
+  readonly host: string;
+  readonly apiBaseUrl: string;
+  readonly kind: GithubServerKind;
+  readonly webOrigin: string;
+  readonly displayName: string;
+  readonly auth?: GithubServerAuthRecord;
+}
+
+export interface GithubCredentialOperationRecord {
+  readonly operationId: string;
+  readonly idempotencyKey: string;
+  readonly serverId: string;
+  readonly profileVersion: number;
+  readonly operationKind: "SAVE_AND_TEST" | "TEST_CONNECTION" | "REMOVE";
+  readonly phase:
+    | "INTENT"
+    | "CANDIDATE_STORED"
+    | "TESTING"
+    | "VERIFIED"
+    | "ACTIVATED"
+    | "CLEANUP_PENDING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELLED"
+    | "RECOVERY_REQUIRED";
+  readonly candidateRef?: string;
+  readonly candidateRevision?: number;
+  readonly previousActiveRef?: string;
+  readonly previousActiveRevision?: number;
+  readonly endpointSnapshot: {
+    readonly serverId: string;
+    readonly kind: GithubServerKind;
+    readonly webOrigin: string;
+    readonly apiBaseUrl: string;
+    readonly profileVersion: number;
+  };
+  readonly reason?: GithubSafeReason;
+  readonly testResult: {
+    readonly login?: string;
+    readonly name?: string;
+    readonly verifiedAt?: string;
+  };
+  readonly cleanupState: "NOT_REQUIRED" | "PENDING" | "COMPLETED" | "RECOVERY_REQUIRED";
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 function now(clock: PersistenceClock): string {
   const value = clock.now();
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) {
@@ -149,6 +228,94 @@ function rowOptionalString(row: SqlRow, key: string): string | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value !== "string") throw new Error(`F03_INVALID_ROW_${key}`);
   return value;
+}
+
+function rowOptionalNumber(row: SqlRow, key: string): number | undefined {
+  const value = row[key];
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "number") throw new Error(`F05_INVALID_ROW_${key}`);
+  return value;
+}
+
+function jsonColumn(row: SqlRow, key: string): unknown {
+  const value = rowString(row, key);
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    throw new Error(`F05_INVALID_JSON_${key}`);
+  }
+}
+
+function safeReason(value: unknown): GithubSafeReason | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.code !== "string" ||
+    typeof candidate.category !== "string" ||
+    typeof candidate.message !== "string" ||
+    typeof candidate.nextAction !== "string" ||
+    typeof candidate.correlationId !== "string"
+  )
+    return undefined;
+  return {
+    code: candidate.code as GithubReasonCode,
+    category: candidate.category as GithubReasonCategory,
+    message: candidate.message,
+    nextAction: candidate.nextAction as GithubReasonNextAction,
+    correlationId: candidate.correlationId,
+  };
+}
+
+function protectedReference(
+  store: PersistenceStore,
+  value: string,
+  label: string,
+): void {
+  if (!/^prmonitor\.github\.v1\.[0-9a-f-]{16,80}$/u.test(value))
+    throw repositoryError(
+      store,
+      "SECURITY_VIOLATION",
+      `${label} must be an opaque host-store reference.`,
+    );
+}
+
+function safeOperationKind(value: string): GithubCredentialOperationRecord["operationKind"] {
+  if (value === "SAVE_AND_TEST" || value === "TEST_CONNECTION" || value === "REMOVE")
+    return value;
+  throw new Error("F05_INVALID_OPERATION_KIND");
+}
+
+function safeOperationPhase(value: string): GithubCredentialOperationRecord["phase"] {
+  const phases: readonly GithubCredentialOperationRecord["phase"][] = [
+    "INTENT",
+    "CANDIDATE_STORED",
+    "TESTING",
+    "VERIFIED",
+    "ACTIVATED",
+    "CLEANUP_PENDING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "RECOVERY_REQUIRED",
+  ];
+  if (!phases.includes(value as GithubCredentialOperationRecord["phase"]))
+    throw new Error("F05_INVALID_OPERATION_PHASE");
+  return value as GithubCredentialOperationRecord["phase"];
+}
+
+function safeCleanupState(
+  value: string,
+): GithubCredentialOperationRecord["cleanupState"] {
+  const states: readonly GithubCredentialOperationRecord["cleanupState"][] = [
+    "NOT_REQUIRED",
+    "PENDING",
+    "COMPLETED",
+    "RECOVERY_REQUIRED",
+  ];
+  if (!states.includes(value as GithubCredentialOperationRecord["cleanupState"]))
+    throw new Error("F05_INVALID_CLEANUP_STATE");
+  return value as GithubCredentialOperationRecord["cleanupState"];
 }
 
 function encode(value: unknown): ReturnType<typeof encodeSnapshot> {
@@ -217,7 +384,7 @@ function recordFromJsonRow<T>(
 
 function repositoryError(
   store: PersistenceStore,
-  code: "CONFLICT" | "NOT_FOUND" | "INVALID_RECORD",
+  code: "CONFLICT" | "NOT_FOUND" | "INVALID_RECORD" | "SECURITY_VIOLATION",
   what: string,
 ): PersistenceError {
   return new PersistenceError({
@@ -484,7 +651,7 @@ export class PersistenceRepositories {
     text(input.host, "GitHub server host");
     text(input.apiBaseUrl, "GitHub API base URL");
     if (input.credentialRef !== undefined)
-      text(input.credentialRef, "credential reference");
+      protectedReference(this.store, input.credentialRef, "credential reference");
     const metadata = encode(input.metadata ?? {});
     const timestamp = now(this.clock);
     return this.store.transaction((transaction) => {
@@ -534,6 +701,525 @@ export class PersistenceRepositories {
       if (row === undefined) throw new Error("F03_SERVER_NOT_READABLE");
       return recordFromRow<JsonObject>(row, "id");
     });
+  }
+
+  public putGithubServerAuth(input: {
+    readonly serverId: string;
+    readonly status: GithubServerStatus;
+    readonly storeState: GithubSecureStoreState;
+    readonly activeRef?: string | null;
+    readonly activeRevision?: number | null;
+    readonly candidateRef?: string | null;
+    readonly candidateRevision?: number | null;
+    readonly accountLogin?: string | null;
+    readonly accountName?: string | null;
+    readonly verifiedAt?: string | null;
+    readonly lastTestAt?: string | null;
+    readonly reason?: GithubSafeReason | null;
+    readonly expectedVersion?: number;
+  }): GithubServerAuthRecord {
+    id(input.serverId, "GitHub server identifier");
+    text(input.status, "GitHub server authentication status");
+    text(input.storeState, "GitHub secure-store state");
+    for (const [value, label] of [
+      [input.activeRef, "active protected reference"],
+      [input.candidateRef, "candidate protected reference"],
+    ] as const) {
+      if (value !== undefined && value !== null) text(value, label);
+    }
+    for (const [value, label] of [
+      [input.accountLogin, "GitHub account login"],
+      [input.accountName, "GitHub account name"],
+      [input.verifiedAt, "GitHub verification time"],
+      [input.lastTestAt, "GitHub test time"],
+    ] as const) {
+      if (value !== undefined && value !== null) text(value, label);
+    }
+    for (const [value, label] of [
+      [input.activeRevision, "active credential revision"],
+      [input.candidateRevision, "candidate credential revision"],
+    ] as const) {
+      if (
+        value !== undefined &&
+        value !== null &&
+        (!Number.isSafeInteger(value) || value < 1)
+      )
+        throw repositoryError(
+          this.store,
+          "INVALID_RECORD",
+          `${label} must be a positive integer.`,
+        );
+    }
+    for (const [value, label] of [
+      [input.activeRef, "active protected reference"],
+      [input.candidateRef, "candidate protected reference"],
+    ] as const) {
+      if (value !== undefined && value !== null)
+        protectedReference(this.store, value, label);
+    }
+    if (
+      input.reason !== undefined &&
+      input.reason !== null &&
+      !isGithubSafeReason(input.reason)
+    )
+      throw repositoryError(
+        this.store,
+        "SECURITY_VIOLATION",
+        "The GitHub authentication reason is not secret-safe.",
+      );
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const server = transaction.get(
+        "SELECT server_id FROM github_servers WHERE server_id = ?",
+        input.serverId,
+      );
+      if (server === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The GitHub server profile does not exist.",
+        );
+      const existing = transaction.get(
+        "SELECT * FROM github_server_auth WHERE server_id = ?",
+        input.serverId,
+      );
+      const currentVersion =
+        existing === undefined ? 0 : rowNumber(existing, "version");
+      if (
+        input.expectedVersion !== undefined &&
+        input.expectedVersion !== currentVersion
+      )
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The GitHub authentication state changed before this update was committed.",
+        );
+
+      const activeRef =
+        input.activeRef === undefined
+          ? rowOptionalString(existing ?? {}, "active_ref")
+          : input.activeRef ?? undefined;
+      const activeRevision =
+        input.activeRevision === undefined
+          ? rowOptionalNumber(existing ?? {}, "active_revision")
+          : input.activeRevision ?? undefined;
+      const candidateRef =
+        input.candidateRef === undefined
+          ? rowOptionalString(existing ?? {}, "candidate_ref")
+          : input.candidateRef ?? undefined;
+      const candidateRevision =
+        input.candidateRevision === undefined
+          ? rowOptionalNumber(existing ?? {}, "candidate_revision")
+          : input.candidateRevision ?? undefined;
+      const accountLogin =
+        input.accountLogin === undefined
+          ? rowOptionalString(existing ?? {}, "account_login")
+          : input.accountLogin ?? undefined;
+      const accountName =
+        input.accountName === undefined
+          ? rowOptionalString(existing ?? {}, "account_name")
+          : input.accountName ?? undefined;
+      const verifiedAt =
+        input.verifiedAt === undefined
+          ? rowOptionalString(existing ?? {}, "verified_at")
+          : input.verifiedAt ?? undefined;
+      const lastTestAt =
+        input.lastTestAt === undefined
+          ? rowOptionalString(existing ?? {}, "last_test_at")
+          : input.lastTestAt ?? undefined;
+      const reasonJson =
+        input.reason === undefined
+          ? rowString(existing ?? { reason_json: "{}" }, "reason_json")
+          : encode(input.reason ?? {}).payload;
+      if (existing === undefined) {
+        transaction.run(
+          "INSERT INTO github_server_auth (server_id, status, store_state, active_ref, active_revision, candidate_ref, candidate_revision, account_login, account_name, verified_at, last_test_at, reason_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+          input.serverId,
+          input.status,
+          input.storeState,
+          activeRef ?? null,
+          activeRevision ?? null,
+          candidateRef ?? null,
+          candidateRevision ?? null,
+          accountLogin ?? null,
+          accountName ?? null,
+          verifiedAt ?? null,
+          lastTestAt ?? null,
+          reasonJson,
+          timestamp,
+          timestamp,
+        );
+      } else {
+        transaction.run(
+          "UPDATE github_server_auth SET status = ?, store_state = ?, active_ref = ?, active_revision = ?, candidate_ref = ?, candidate_revision = ?, account_login = ?, account_name = ?, verified_at = ?, last_test_at = ?, reason_json = ?, version = ?, updated_at = ? WHERE server_id = ? AND version = ?",
+          input.status,
+          input.storeState,
+          activeRef ?? null,
+          activeRevision ?? null,
+          candidateRef ?? null,
+          candidateRevision ?? null,
+          accountLogin ?? null,
+          accountName ?? null,
+          verifiedAt ?? null,
+          lastTestAt ?? null,
+          reasonJson,
+          currentVersion + 1,
+          timestamp,
+          input.serverId,
+          currentVersion,
+        );
+      }
+      transaction.run(
+        "UPDATE github_servers SET credential_ref = ?, updated_at = ? WHERE server_id = ?",
+        activeRef ?? null,
+        timestamp,
+        input.serverId,
+      );
+      const row = transaction.get(
+        "SELECT * FROM github_server_auth WHERE server_id = ?",
+        input.serverId,
+      );
+      if (row === undefined) throw new Error("F05_AUTH_NOT_READABLE");
+      return this.githubServerAuthFromRow(row);
+    });
+  }
+
+  public getGithubServerAuth(
+    serverId: string,
+  ): GithubServerAuthRecord | undefined {
+    id(serverId, "GitHub server identifier");
+    const row = this.store.read(
+      "SELECT * FROM github_server_auth WHERE server_id = ?",
+      serverId,
+    );
+    return row === undefined ? undefined : this.githubServerAuthFromRow(row);
+  }
+
+  public listGithubServerAuth(): readonly GithubServerAuthRecord[] {
+    return this.store
+      .readAll("SELECT * FROM github_server_auth ORDER BY created_at, server_id")
+      .map((row) => this.githubServerAuthFromRow(row));
+  }
+
+  public getGithubServerProfile<T = JsonObject>(
+    serverId: string,
+  ): GithubServerProfileRecord<T> | undefined {
+    id(serverId, "GitHub server identifier");
+    const row = this.store.read(
+      "SELECT * FROM github_servers WHERE server_id = ?",
+      serverId,
+    );
+    return row === undefined ? undefined : this.githubServerProfileFromRow<T>(row);
+  }
+
+  public listGithubServerProfiles<T = JsonObject>(): readonly GithubServerProfileRecord<T>[] {
+    return this.store
+      .readAll("SELECT * FROM github_servers ORDER BY created_at, server_id")
+      .map((row) => this.githubServerProfileFromRow<T>(row));
+  }
+
+  private githubServerAuthFromRow(row: SqlRow): GithubServerAuthRecord {
+    const reason = safeReason(jsonColumn(row, "reason_json"));
+    return {
+      serverId: rowString(row, "server_id"),
+      status: rowString(row, "status") as GithubServerStatus,
+      storeState: rowString(row, "store_state") as GithubSecureStoreState,
+      ...(rowOptionalString(row, "active_ref") === undefined
+        ? {}
+        : { activeRef: rowOptionalString(row, "active_ref") }),
+      ...(rowOptionalNumber(row, "active_revision") === undefined
+        ? {}
+        : { activeRevision: rowOptionalNumber(row, "active_revision") }),
+      ...(rowOptionalString(row, "candidate_ref") === undefined
+        ? {}
+        : { candidateRef: rowOptionalString(row, "candidate_ref") }),
+      ...(rowOptionalNumber(row, "candidate_revision") === undefined
+        ? {}
+        : { candidateRevision: rowOptionalNumber(row, "candidate_revision") }),
+      ...(rowOptionalString(row, "account_login") === undefined
+        ? {}
+        : { accountLogin: rowOptionalString(row, "account_login") }),
+      ...(rowOptionalString(row, "account_name") === undefined
+        ? {}
+        : { accountName: rowOptionalString(row, "account_name") }),
+      ...(rowOptionalString(row, "verified_at") === undefined
+        ? {}
+        : { verifiedAt: rowOptionalString(row, "verified_at") }),
+      ...(rowOptionalString(row, "last_test_at") === undefined
+        ? {}
+        : { lastTestAt: rowOptionalString(row, "last_test_at") }),
+      ...(reason === undefined ? {} : { reason }),
+      version: rowNumber(row, "version"),
+      createdAt: rowString(row, "created_at"),
+      updatedAt: rowString(row, "updated_at"),
+    };
+  }
+
+  private githubServerProfileFromRow<T>(row: SqlRow): GithubServerProfileRecord<T> {
+    const metadata = JSON.parse(rowString(row, "metadata_json")) as Record<string, unknown>;
+    const displayName =
+      typeof metadata.displayName === "string"
+        ? metadata.displayName
+        : rowString(row, "host");
+    const kind =
+      metadata.kind === "GITHUB_COM" || metadata.kind === "GHES"
+        ? metadata.kind
+        : rowString(row, "host").toLowerCase() === "github.com"
+          ? "GITHUB_COM"
+          : "GHES";
+    const webOrigin =
+      typeof metadata.webOrigin === "string"
+        ? metadata.webOrigin
+        : `https://${rowString(row, "host")}`;
+    const persisted = recordFromJsonRow<T>(
+      {
+        id: rowString(row, "server_id"),
+        payload_json: rowString(row, "metadata_json"),
+        version: rowNumber(row, "version"),
+        created_at: rowString(row, "created_at"),
+        updated_at: rowString(row, "updated_at"),
+      },
+      "id",
+      "payload_json",
+    );
+    return {
+      ...persisted,
+      serverId: rowString(row, "server_id"),
+      host: rowString(row, "host"),
+      apiBaseUrl: rowString(row, "api_base_url"),
+      kind,
+      webOrigin,
+      displayName,
+      auth: this.getGithubServerAuth(rowString(row, "server_id")),
+    };
+  }
+
+  public createGithubCredentialOperation(input: {
+    readonly operationId: string;
+    readonly idempotencyKey: string;
+    readonly serverId: string;
+    readonly profileVersion: number;
+    readonly operationKind: GithubCredentialOperationRecord["operationKind"];
+    readonly phase: GithubCredentialOperationRecord["phase"];
+    readonly candidateRef?: string;
+    readonly candidateRevision?: number;
+    readonly previousActiveRef?: string;
+    readonly previousActiveRevision?: number;
+    readonly endpointSnapshot: GithubCredentialOperationRecord["endpointSnapshot"];
+    readonly reason?: GithubSafeReason;
+    readonly testResult?: GithubCredentialOperationRecord["testResult"];
+    readonly cleanupState?: GithubCredentialOperationRecord["cleanupState"];
+  }): GithubCredentialOperationRecord {
+    id(input.operationId, "GitHub credential operation identifier");
+    text(input.idempotencyKey, "GitHub credential operation idempotency key");
+    id(input.serverId, "GitHub server identifier");
+    for (const [value, label] of [
+      [input.candidateRef, "candidate protected reference"],
+      [input.previousActiveRef, "previous active protected reference"],
+    ] as const) {
+      if (value !== undefined) protectedReference(this.store, value, label);
+    }
+    if (input.reason !== undefined && !isGithubSafeReason(input.reason))
+      throw repositoryError(
+        this.store,
+        "SECURITY_VIOLATION",
+        "The GitHub operation reason is not secret-safe.",
+      );
+    if (!Number.isSafeInteger(input.profileVersion) || input.profileVersion < 1)
+      throw repositoryError(
+        this.store,
+        "INVALID_RECORD",
+        "The GitHub profile version must be a positive integer.",
+      );
+    const endpoint = encode(input.endpointSnapshot);
+    const reasonPayload = encode(input.reason ?? {}).payload;
+    const testPayload = encode(input.testResult ?? {}).payload;
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const server = transaction.get(
+        "SELECT server_id FROM github_servers WHERE server_id = ?",
+        input.serverId,
+      );
+      if (server === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The GitHub server profile does not exist.",
+        );
+      transaction.run(
+        "INSERT OR IGNORE INTO github_credential_operations (operation_id, idempotency_key, server_id, profile_version, operation_kind, phase, candidate_ref, candidate_revision, previous_active_ref, previous_active_revision, endpoint_snapshot_json, reason_json, test_result_json, cleanup_state, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        input.operationId,
+        input.idempotencyKey,
+        input.serverId,
+        input.profileVersion,
+        input.operationKind,
+        input.phase,
+        input.candidateRef ?? null,
+        input.candidateRevision ?? null,
+        input.previousActiveRef ?? null,
+        input.previousActiveRevision ?? null,
+        endpoint.payload,
+        reasonPayload,
+        testPayload,
+        input.cleanupState ?? "NOT_REQUIRED",
+        timestamp,
+        timestamp,
+      );
+      const row = transaction.get(
+        "SELECT * FROM github_credential_operations WHERE operation_id = ? OR idempotency_key = ? ORDER BY operation_id = ? DESC LIMIT 1",
+        input.operationId,
+        input.idempotencyKey,
+        input.operationId,
+      );
+      if (row === undefined) throw new Error("F05_OPERATION_NOT_READABLE");
+      return this.githubCredentialOperationFromRow(row);
+    });
+  }
+
+  public updateGithubCredentialOperation(input: {
+    readonly operationId: string;
+    readonly expectedVersion: number;
+    readonly phase?: GithubCredentialOperationRecord["phase"];
+    readonly candidateRef?: string | null;
+    readonly candidateRevision?: number | null;
+    readonly reason?: GithubSafeReason | null;
+    readonly testResult?: GithubCredentialOperationRecord["testResult"];
+    readonly cleanupState?: GithubCredentialOperationRecord["cleanupState"];
+  }): GithubCredentialOperationRecord {
+    id(input.operationId, "GitHub credential operation identifier");
+    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
+      throw repositoryError(
+        this.store,
+        "INVALID_RECORD",
+        "The GitHub credential operation version must be a positive integer.",
+      );
+    if (input.candidateRef !== undefined && input.candidateRef !== null)
+      protectedReference(this.store, input.candidateRef, "candidate protected reference");
+    if (input.reason !== undefined && input.reason !== null && !isGithubSafeReason(input.reason))
+      throw repositoryError(
+        this.store,
+        "SECURITY_VIOLATION",
+        "The GitHub operation reason is not secret-safe.",
+      );
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const existing = transaction.get(
+        "SELECT * FROM github_credential_operations WHERE operation_id = ?",
+        input.operationId,
+      );
+      if (existing === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The GitHub credential operation does not exist.",
+        );
+      const currentVersion = rowNumber(existing, "version");
+      if (currentVersion !== input.expectedVersion)
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The GitHub credential operation changed before this update was committed.",
+        );
+      const phase = input.phase ?? safeOperationPhase(rowString(existing, "phase"));
+      const candidateRef =
+        input.candidateRef === undefined
+          ? rowOptionalString(existing, "candidate_ref")
+          : input.candidateRef ?? undefined;
+      const candidateRevision =
+        input.candidateRevision === undefined
+          ? rowOptionalNumber(existing, "candidate_revision")
+          : input.candidateRevision ?? undefined;
+      const reasonJson =
+        input.reason === undefined
+          ? rowString(existing, "reason_json")
+          : encode(input.reason ?? {}).payload;
+      const testResultJson =
+        input.testResult === undefined
+          ? rowString(existing, "test_result_json")
+          : encode(input.testResult).payload;
+      const cleanupState =
+        input.cleanupState ?? safeCleanupState(rowString(existing, "cleanup_state"));
+      transaction.run(
+        "UPDATE github_credential_operations SET phase = ?, candidate_ref = ?, candidate_revision = ?, reason_json = ?, test_result_json = ?, cleanup_state = ?, version = ?, updated_at = ? WHERE operation_id = ? AND version = ?",
+        phase,
+        candidateRef ?? null,
+        candidateRevision ?? null,
+        reasonJson,
+        testResultJson,
+        cleanupState,
+        currentVersion + 1,
+        timestamp,
+        input.operationId,
+        currentVersion,
+      );
+      const row = transaction.get(
+        "SELECT * FROM github_credential_operations WHERE operation_id = ?",
+        input.operationId,
+      );
+      if (row === undefined) throw new Error("F05_OPERATION_NOT_READABLE");
+      return this.githubCredentialOperationFromRow(row);
+    });
+  }
+
+  public getGithubCredentialOperation(
+    operationId: string,
+  ): GithubCredentialOperationRecord | undefined {
+    id(operationId, "GitHub credential operation identifier");
+    const row = this.store.read(
+      "SELECT * FROM github_credential_operations WHERE operation_id = ?",
+      operationId,
+    );
+    return row === undefined ? undefined : this.githubCredentialOperationFromRow(row);
+  }
+
+  public listGithubCredentialOperations(): readonly GithubCredentialOperationRecord[] {
+    return this.store
+      .readAll(
+        "SELECT * FROM github_credential_operations ORDER BY updated_at DESC, operation_id",
+      )
+      .map((row) => this.githubCredentialOperationFromRow(row));
+  }
+
+  private githubCredentialOperationFromRow(
+    row: SqlRow,
+  ): GithubCredentialOperationRecord {
+    const endpoint = jsonColumn(row, "endpoint_snapshot_json");
+    if (typeof endpoint !== "object" || endpoint === null || Array.isArray(endpoint))
+      throw new Error("F05_INVALID_ENDPOINT_SNAPSHOT");
+    const result = jsonColumn(row, "test_result_json");
+    const testResult =
+      typeof result === "object" && result !== null && !Array.isArray(result)
+        ? result
+        : {};
+    return {
+      operationId: rowString(row, "operation_id"),
+      idempotencyKey: rowString(row, "idempotency_key"),
+      serverId: rowString(row, "server_id"),
+      profileVersion: rowNumber(row, "profile_version"),
+      operationKind: safeOperationKind(rowString(row, "operation_kind")),
+      phase: safeOperationPhase(rowString(row, "phase")),
+      ...(rowOptionalString(row, "candidate_ref") === undefined
+        ? {}
+        : { candidateRef: rowOptionalString(row, "candidate_ref") }),
+      ...(rowOptionalNumber(row, "candidate_revision") === undefined
+        ? {}
+        : { candidateRevision: rowOptionalNumber(row, "candidate_revision") }),
+      ...(rowOptionalString(row, "previous_active_ref") === undefined
+        ? {}
+        : { previousActiveRef: rowOptionalString(row, "previous_active_ref") }),
+      ...(rowOptionalNumber(row, "previous_active_revision") === undefined
+        ? {}
+        : { previousActiveRevision: rowOptionalNumber(row, "previous_active_revision") }),
+      endpointSnapshot: endpoint as GithubCredentialOperationRecord["endpointSnapshot"],
+      ...(safeReason(jsonColumn(row, "reason_json")) === undefined
+        ? {}
+        : { reason: safeReason(jsonColumn(row, "reason_json")) }),
+      testResult: testResult as GithubCredentialOperationRecord["testResult"],
+      cleanupState: safeCleanupState(rowString(row, "cleanup_state")),
+      version: rowNumber(row, "version"),
+      createdAt: rowString(row, "created_at"),
+      updatedAt: rowString(row, "updated_at"),
+    };
   }
 
   public putRepository(input: {

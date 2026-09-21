@@ -161,7 +161,7 @@ describe("F01 deterministic foundation harness", () => {
       );
       if (relative.startsWith(`shared${path.sep}domain${path.sep}`)) continue;
       expect(contents, relative).not.toMatch(
-        /from ["'][^"']*(?:sqlite|github|worktree|publication|watcher|scheduler|tray|notification|deep-link)[^"']*["']/iu,
+        /from ["'][^"']*(?:sqlite|worktree|publication|watcher|scheduler|tray|notification|deep-link)[^"']*["']/iu,
       );
     }
   });
