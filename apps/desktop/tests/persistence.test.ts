@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   MAX_PERSISTED_TEXT_BYTES,
   MIGRATIONS,
+  PERSISTENCE_SCHEMA_VERSION,
   PersistenceError,
   createPersistenceRepositories,
   decodeSnapshot,
@@ -117,12 +118,12 @@ describe("F03 SQLite persistence", () => {
     expect(
       fixture.store.read<{ user_version: number }>("PRAGMA user_version")
         ?.user_version,
-    ).toBe(5);
+    ).toBe(PERSISTENCE_SCHEMA_VERSION);
     expect(
       fixture.store.readAll(
         "SELECT version, migration_id, checksum FROM schema_migrations",
       ),
-    ).toHaveLength(5);
+    ).toHaveLength(MIGRATIONS.length);
     const repositories = createPersistenceRepositories(fixture.store, {
       clock: { now: () => FIXED_TIME },
     });
@@ -189,7 +190,7 @@ describe("F03 SQLite persistence", () => {
       store
         .readAll("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version),
-    ).toEqual([1, 2, 3, 4, 5]);
+    ).toEqual(MIGRATIONS.map((migration) => migration.version));
     const files = await readdir(backupRoot);
     expect(files.some((file) => file.endsWith(".sqlite"))).toBe(true);
     const backup = files.find((file) => file.endsWith(".sqlite"));

@@ -3,7 +3,6 @@ import type {
   GithubReasonCode,
   GithubReasonNextAction,
   GithubSafeReason,
-  GithubServerKind,
 } from "../shared/github-server";
 import type { GithubCredentialBroker, GithubRequestCapability } from "./github-credential-broker";
 import type {

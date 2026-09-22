@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC_CHANNELS,
+  parseIpcActivityUpdateEvent,
   type IpcRequestType,
   parseIpcInboxUpdateEvent,
   parseIpcOpenTargetEvent,
   type IpcResponse,
   type PrMonitorPreloadApi,
 } from "../shared/ipc";
+import type { ActivityEventView, ActivityQuery } from "../shared/activity";
 import type { GithubServerProfileInput } from "../shared/github-server";
 import type {
   ManagedPrAddInput,
@@ -38,7 +40,9 @@ function invoke(
     | { readonly managedPrId: string }
     | { readonly attemptId: string }
     | { readonly managedPrId: string; readonly destination: "details" | "settings" }
-    | { readonly managedPrId: string; readonly expectedVersion: number },
+    | { readonly managedPrId: string; readonly expectedVersion: number }
+    | ActivityQuery
+    | { readonly eventId: string }
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -77,6 +81,9 @@ const api: PrMonitorPreloadApi = {
   saveManagedPrConfiguration: (input) => invoke("managed-pr.configuration.save", input),
   readInbox: () => invoke("inbox.read", {}),
   subscribeInbox: () => invoke("inbox.subscribe", {}),
+  readActivity: (query = {}) => invoke("activity.query", query),
+  subscribeActivity: (query = {}) => invoke("activity.subscribe", query),
+  navigateActivity: (eventId) => invoke("activity.navigate", { eventId }),
   navigateManagedPr: (managedPrId, destination) =>
     invoke("inbox.navigate", { managedPrId, destination }),
   onOpenTarget: (listener) => {
@@ -91,6 +98,14 @@ const api: PrMonitorPreloadApi = {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (!parseIpcInboxUpdateEvent(payload)) return;
       listener(payload.snapshot);
+    };
+    ipcRenderer.on(IPC_CHANNELS.event, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.event, handler);
+  },
+  onActivityUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (!parseIpcActivityUpdateEvent(payload)) return;
+      listener(payload.event as ActivityEventView);
     };
     ipcRenderer.on(IPC_CHANNELS.event, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.event, handler);

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PersistenceRepositories } from "./persistence/repositories";
+import { activityReasonForLifecycle, type ActivityWriter } from "./activity-service";
 import type { IpcError, LifecyclePhase, LifecycleStatus } from "../shared/ipc";
 
 export const LIFECYCLE_SETTING_KEY = "f04.lifecycle";
@@ -304,6 +305,7 @@ export class LifecycleCoordinator {
 
 export function createPersistenceLifecyclePersistence(
   repositories: PersistenceRepositories,
+  activityWriter?: ActivityWriter,
 ): LifecyclePersistence {
   return {
     read: () => {
@@ -314,18 +316,60 @@ export function createPersistenceLifecyclePersistence(
     },
     write: (status, reasonCode) => {
       repositories.putSetting(LIFECYCLE_SETTING_KEY, status);
-      repositories.appendActivityEvent({
-        activityEventId: `${status.correlationId}:${reasonCode}`,
+      if (activityWriter === undefined) {
+        repositories.appendActivityEvent({
+          activityEventId: `${status.correlationId}:${reasonCode}`,
+          correlationId: status.correlationId,
+          ownerType: "APPLICATION_LIFECYCLE",
+          ownerId: status.sessionId,
+          severity: status.phase === "RECOVERY_REQUIRED" ? "ERROR" : "INFO",
+          reasonCode,
+          payload: {
+            phase: status.phase,
+            incompleteHandoff: status.incompleteHandoff,
+          },
+        });
+        return;
+      }
+      const reason = activityReasonForLifecycle(reasonCode);
+      const outcome = activityWriter.append({
+        eventId: `${status.correlationId}:${reasonCode}`,
+        eventType:
+          status.phase === "RECOVERY_REQUIRED"
+            ? "LIFECYCLE_FAILED"
+            : status.phase === "STOPPED"
+              ? "LIFECYCLE_COMPLETED"
+              : "LIFECYCLE_STARTED",
+        stage: "LIFECYCLE",
         correlationId: status.correlationId,
-        ownerType: "APPLICATION_LIFECYCLE",
-        ownerId: status.sessionId,
+        operationId: status.sessionId,
+        owner: { type: "APPLICATION_LIFECYCLE", id: status.sessionId },
+        occurrenceAt: status.updatedAt,
         severity: status.phase === "RECOVERY_REQUIRED" ? "ERROR" : "INFO",
-        reasonCode,
-        payload: {
+        reason: {
+          code: reasonCode as Parameters<ActivityWriter["append"]>[0]["reason"]["code"],
+          ...reason,
+        },
+        summary: reasonCode,
+        details: {
           phase: status.phase,
           incompleteHandoff: status.incompleteHandoff,
         },
       });
+      if (outcome.outcome === "rejected") {
+        // The legacy repository record is a safe compatibility fallback for a
+        // producer reason that predates the F09 catalog. It never controls
+        // lifecycle state or authorizes work.
+        repositories.appendActivityEvent({
+          activityEventId: `${status.correlationId}:${reasonCode}:legacy`,
+          correlationId: status.correlationId,
+          ownerType: "APPLICATION_LIFECYCLE",
+          ownerId: status.sessionId,
+          severity: status.phase === "RECOVERY_REQUIRED" ? "ERROR" : "INFO",
+          reasonCode: "PROGRESS",
+          payload: { phase: status.phase, incompleteHandoff: status.incompleteHandoff },
+        });
+      }
     },
   };
 }

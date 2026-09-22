@@ -32,6 +32,13 @@ import {
   type ManagedPrInboxReadModel,
 } from "../shared/inbox";
 import type { ManagedPrNavigationDestination } from "../shared/routing";
+import {
+  isActivityEvent,
+  matchesActivityQuery,
+  type ActivityEventView,
+  type ActivityQuery,
+  type ActivityQuerySnapshot,
+} from "../shared/activity";
 
 export interface IpcSenderLike {
   readonly id: number;
@@ -90,6 +97,8 @@ export interface IpcServices {
   readonly clearManagedPrClone?: (input: { readonly managedPrId: string; readonly expectedVersion: number }) => Promise<ManagedPrOperationView>;
   readonly saveManagedPrConfiguration?: (input: ManagedPrConfigurationInput) => Promise<ManagedPrOperationView>;
   readonly readInbox?: () => ManagedPrInboxReadModel;
+  readonly readActivity?: (query: ActivityQuery) => ActivityQuerySnapshot;
+  readonly navigateActivity?: (eventId: string) => OpenTarget | undefined;
   readonly navigateManagedPr?: (
     managedPrId: string,
     destination: ManagedPrNavigationDestination,
@@ -125,6 +134,7 @@ function successResponse(
 export class IpcRouter {
   private readonly sessions = new Map<number, RendererSession>();
   private readonly inboxSubscribers = new Set<number>();
+  private readonly activitySubscribers = new Map<number, ActivityQuery>();
   private installed = false;
 
   public constructor(
@@ -146,12 +156,14 @@ export class IpcRouter {
     if (sender.isDestroyed?.()) {
       this.sessions.delete(sender.id);
       this.inboxSubscribers.delete(sender.id);
+      this.activitySubscribers.delete(sender.id);
     }
   }
 
   public detachRenderer(senderId: number): void {
     this.sessions.delete(senderId);
     this.inboxSubscribers.delete(senderId);
+    this.activitySubscribers.delete(senderId);
   }
 
   public async handle(
@@ -377,6 +389,36 @@ export class IpcRouter {
           }),
         );
       }
+      if (request.type === "activity.query" || request.type === "activity.subscribe") {
+        if (this.services.readActivity === undefined)
+          throw new Error("PRMONITOR_ACTIVITY_SERVICE_NOT_READY");
+        const snapshot = await this.services.readActivity(request.payload);
+        if (request.type === "activity.subscribe")
+          this.activitySubscribers.set(sender.id, request.payload);
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "activity-query",
+            snapshot,
+          }),
+        );
+      }
+      if (request.type === "activity.navigate") {
+        if (this.services.navigateActivity === undefined)
+          throw new Error("PRMONITOR_ACTIVITY_SERVICE_NOT_READY");
+        const target = this.services.navigateActivity(request.payload.eventId);
+        if (target === undefined)
+          return errorResponse(
+            request.requestId,
+            "HANDLER_FAILED",
+            "The related activity target is no longer available.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "activity-navigation",
+            target,
+          }),
+        );
+      }
       if (request.type === "managed-pr.read") {
         if (this.services.readManagedPr === undefined)
           throw new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY");
@@ -518,6 +560,7 @@ export class IpcRouter {
       const session = this.sessions.get(senderId);
       if (session === undefined || session.sender.isDestroyed?.()) {
         this.inboxSubscribers.delete(senderId);
+        this.activitySubscribers.delete(senderId);
         continue;
       }
       try {
@@ -526,6 +569,38 @@ export class IpcRouter {
       } catch {
         this.sessions.delete(senderId);
         this.inboxSubscribers.delete(senderId);
+      }
+    }
+    return delivered;
+  }
+
+  public publishActivity(event: ActivityEventView): number {
+    if (!isActivityEvent(event)) return 0;
+    const envelope = {
+      schemaVersion: 1 as const,
+      type: "activity-update" as const,
+      event,
+    };
+    try {
+      if (new TextEncoder().encode(JSON.stringify(envelope)).byteLength > IPC_MAX_RESPONSE_BYTES)
+        return 0;
+    } catch {
+      return 0;
+    }
+    let delivered = 0;
+    for (const [senderId, query] of this.activitySubscribers) {
+      const session = this.sessions.get(senderId);
+      if (session === undefined || session.sender.isDestroyed?.()) {
+        this.activitySubscribers.delete(senderId);
+        continue;
+      }
+      if (!matchesActivityQuery(event, query)) continue;
+      try {
+        session.sender.send(IPC_CHANNELS.event, envelope);
+        delivered += 1;
+      } catch {
+        this.sessions.delete(senderId);
+        this.activitySubscribers.delete(senderId);
       }
     }
     return delivered;

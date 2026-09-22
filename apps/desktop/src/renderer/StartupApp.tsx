@@ -23,6 +23,7 @@ import {
   type ManagedPrInboxReadModel,
 } from "../shared/inbox";
 import { ManagedPrInbox } from "./ManagedPrInbox";
+import { ActivityViewer } from "./ActivityViewer";
 
 function operationNeedsAction(operation: GithubCredentialOperationView): boolean {
   return ["FAILED", "CANCELLED", "RECOVERY_REQUIRED", "CLEANUP_PENDING"].includes(
@@ -433,6 +434,12 @@ export function StartupApp() {
           onRetry={() => void retryInbox()}
           onNavigate={(managedPrId, destination) => void navigateFromInbox(managedPrId, destination)}
           onAddPr={focusAddPr}
+        />
+        <ActivityViewer
+          enabled={state !== undefined}
+          onNavigate={(target) => {
+            setTargetLabel(`${target.kind.toLowerCase()}:${target.id ?? ""}`);
+          }}
         />
         <section className="server-settings" aria-labelledby="server-settings-heading">
           <div className="section-heading">

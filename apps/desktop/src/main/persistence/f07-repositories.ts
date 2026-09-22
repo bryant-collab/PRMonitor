@@ -45,7 +45,7 @@ export interface F07AddAttemptRecord extends AddPrAttemptView {
   readonly profileVersion: number;
 }
 
-export interface F07LocalCloneRecord extends ManagedPrLocalCloneView {}
+export type F07LocalCloneRecord = ManagedPrLocalCloneView;
 
 export interface F07CommitManagedPrInput {
   readonly attemptId: string;

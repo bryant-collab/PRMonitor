@@ -111,7 +111,7 @@ function validateValue(value: string): void {
 }
 
 function unavailableStatus(storage: ElectronSafeStorageLike): SecureStoreStatus {
-  let encryptionAvailable = false;
+  let encryptionAvailable: boolean;
   try {
     encryptionAvailable = storage.isEncryptionAvailable();
   } catch {

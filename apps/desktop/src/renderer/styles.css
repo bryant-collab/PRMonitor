@@ -713,3 +713,133 @@ h1 {
     outline-color: Highlight;
   }
 }
+
+.activity-viewer {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.activity-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.activity-filters label {
+  min-width: 0;
+}
+
+.activity-filters button {
+  min-height: 2.4rem;
+}
+
+.activity-status {
+  min-height: 1.4rem;
+  color: #31445c;
+}
+
+.retention-note {
+  margin: 0;
+  padding: 0.75rem;
+  border-left: 4px solid #b66a00;
+  background: #fff7e8;
+  color: #684000;
+}
+
+.activity-timeline {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-entry {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.activity-entry-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.activity-entry h3 {
+  margin: 0.6rem 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.activity-details div {
+  min-width: 0;
+  padding: 0.55rem;
+  border-radius: 0.35rem;
+  background: #f4f7fb;
+}
+
+.activity-details dt {
+  color: #4b5f78;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.activity-details dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-entry details {
+  margin-top: 0.75rem;
+}
+
+.activity-entry pre {
+  max-width: 100%;
+  margin: 0.6rem 0 0;
+  overflow: auto;
+  padding: 0.75rem;
+  background: #172235;
+  color: #f4f7fb;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activity-related-button {
+  margin-top: 0.75rem;
+}
+
+@media (forced-colors: active) {
+  .activity-viewer,
+  .activity-entry,
+  .activity-details div,
+  .retention-note {
+    border-color: ButtonText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+
+  .activity-entry pre {
+    border: 1px solid ButtonText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}

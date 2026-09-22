@@ -84,7 +84,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Multiple PRs remain visible and correctly ordered after restart, and overlays never hide or mutate the primary review state.
   - **Primary application criteria:** APP-AC-03.
 
-- [ ] **F09 - Durable activity log and operation diagnostics**
+- [x] **F09 - Durable activity log and operation diagnostics**
   - **Depends on:** F03-F04, F08.
   - **Deliver:** Add structured deterministic activity events, correlation IDs, timestamps, severity/reason data, retention bounds, and an activity viewer. Support provider-neutral work-item references with Jira-style display when available and GitHub-native fallback. Redact credentials and sensitive environment data.
   - **Exit:** Polling, batching, AI turns, validation, notification, synchronization, and publication can append and display correlated events without using free-form logs as application state.

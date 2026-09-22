@@ -401,7 +401,7 @@ export class ManagedPrService {
         })(),
         managedPr,
       };
-    } catch (error) {
+    } catch {
       const existing = await this.read(managedPrId);
       if (existing !== undefined) {
         const attempt = this.options.repositories.getAddAttempt(attemptId);

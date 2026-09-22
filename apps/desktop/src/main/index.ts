@@ -35,6 +35,7 @@ import {
 } from "./window-manager";
 import { ManagedPrService } from "./managed-pr-service";
 import { createManagedPrInboxService, type ManagedPrInboxService } from "./managed-pr-inbox-service";
+import { ActivityService } from "./activity-service";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -51,6 +52,7 @@ let windowManager: WindowManager | undefined;
 let githubServerService: GithubServerService | undefined;
 let managedPrService: ManagedPrService | undefined;
 let managedPrInboxService: ManagedPrInboxService | undefined;
+let activityService: ActivityService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -227,6 +229,13 @@ async function initializeMainProcessPersistence(): Promise<void> {
     databasePath: path.join(userDataDirectory, "database", "prmonitor.sqlite"),
     backupRoot: path.join(userDataDirectory, "backups"),
   });
+  activityService = new ActivityService(persistenceStore);
+  try {
+    activityService.retain();
+  } catch {
+    // Activity maintenance is diagnostic only; it cannot block authoritative
+    // application startup or be interpreted as workflow state.
+  }
   persistenceRepositories = createPersistenceRepositories(persistenceStore);
   const f07Repositories = createF07PersistenceRepositories(persistenceStore);
   managedPrInboxService = createManagedPrInboxService({
@@ -274,7 +283,10 @@ async function startMainProcess(): Promise<void> {
   if (persistenceRepositories === undefined)
     throw new Error("PRMONITOR_REPOSITORIES_MISSING");
   lifecycle = new LifecycleCoordinator({
-    persistence: createPersistenceLifecyclePersistence(persistenceRepositories),
+    persistence: createPersistenceLifecyclePersistence(
+      persistenceRepositories,
+      activityService?.writer,
+    ),
   });
   const started = await lifecycle.start();
   if (!started.ok)
@@ -424,6 +436,12 @@ async function startMainProcess(): Promise<void> {
         throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
       return managedPrInboxService.target(managedPrId, destination);
     },
+    readActivity: (query) => {
+      if (activityService === undefined)
+        throw new Error("PRMONITOR_ACTIVITY_SERVICE_NOT_READY");
+      return activityService.query(query);
+    },
+    navigateActivity: (eventId) => activityService?.relatedTarget(eventId),
     onRendererReady: (senderId) => {
       windowManager?.markRendererReady(senderId);
     },
@@ -431,6 +449,9 @@ async function startMainProcess(): Promise<void> {
   ipcRouter.install();
   managedPrInboxService?.subscribe((snapshot) => {
     ipcRouter?.publishInbox(snapshot);
+  });
+  activityService?.subscribe((event) => {
+    ipcRouter?.publishActivity(event);
   });
 
   const platform =

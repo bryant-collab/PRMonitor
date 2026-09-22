@@ -24,6 +24,14 @@ import {
   type ManagedPrReadModel,
   type ManagedPrListView,
 } from "./managed-pr";
+import {
+  isActivityQuerySnapshot,
+  isActivityUpdateEvent,
+  normalizeActivityQuery,
+  type ActivityEventView,
+  type ActivityQuery,
+  type ActivityQuerySnapshot,
+} from "./activity";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -59,7 +67,10 @@ export type IpcRequestType =
   | "managed-pr.configuration.save"
   | "inbox.read"
   | "inbox.subscribe"
-  | "inbox.navigate";
+  | "inbox.navigate"
+  | "activity.query"
+  | "activity.subscribe"
+  | "activity.navigate";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -158,6 +169,14 @@ export type IpcRequest =
         readonly managedPrId: string;
         readonly destination: "details" | "settings";
       };
+    })
+  | (IpcRequestBase & {
+      readonly type: "activity.query" | "activity.subscribe";
+      readonly payload: ActivityQuery;
+    })
+  | (IpcRequestBase & {
+      readonly type: "activity.navigate";
+      readonly payload: { readonly eventId: string };
     });
 
 export interface IpcError {
@@ -226,6 +245,8 @@ export type IpcResponseValue =
   | { readonly kind: "managed-pr-candidates"; readonly value: ManagedPrCandidateListView }
   | { readonly kind: "managed-pr-folder"; readonly path?: string }
   | { readonly kind: "managed-pr-inbox"; readonly snapshot: ManagedPrInboxReadModel }
+  | { readonly kind: "activity-query"; readonly snapshot: ActivityQuerySnapshot }
+  | { readonly kind: "activity-navigation"; readonly target: OpenTarget }
   | { readonly kind: "navigation-target"; readonly target: OpenTarget };
 
 export type IpcResponse =
@@ -252,6 +273,12 @@ export interface IpcInboxUpdateEvent {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
   readonly type: "inbox-update";
   readonly snapshot: ManagedPrInboxReadModel;
+}
+
+export interface IpcActivityUpdateEvent {
+  readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
+  readonly type: "activity-update";
+  readonly event: ActivityEventView;
 }
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -480,6 +507,10 @@ function parseResponseValue(value: unknown): boolean {
     return hasExactKeys(value, ["kind"], ["path"]) && (value.path === undefined || safeManagedPath(value.path));
   if (value.kind === "managed-pr-inbox")
     return hasExactKeys(value, ["kind", "snapshot"]) && isManagedPrInboxReadModel(value.snapshot);
+  if (value.kind === "activity-query")
+    return hasExactKeys(value, ["kind", "snapshot"]) && isActivityQuerySnapshot(value.snapshot);
+  if (value.kind === "activity-navigation")
+    return hasExactKeys(value, ["kind", "target"]) && parseOpenTargetRecord(value.target).ok;
   if (value.kind === "navigation-target")
     return hasExactKeys(value, ["kind", "target"]) && parseOpenTargetRecord(value.target).ok;
   return false;
@@ -804,6 +835,29 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "activity.query" || value.type === "activity.subscribe") {
+    try {
+      const query = normalizeActivityQuery(value.payload as ActivityQuery);
+      return {
+        ok: true,
+        value: { ...base, type: value.type, payload: query },
+      };
+    } catch {
+      return invalidRequest("The activity query is invalid or outside its bounded contract.");
+    }
+  }
+  if (value.type === "activity.navigate") {
+    if (!hasExactKeys(value.payload, ["eventId"]) || !safeGithubIdentifier(value.payload.eventId))
+      return invalidRequest("The activity event identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { eventId: value.payload.eventId },
+      },
+    };
+  }
   return invalidRequest("The IPC request type is not allowlisted.");
 }
 
@@ -865,6 +919,12 @@ export function parseIpcInboxUpdateEvent(
     isManagedPrInboxReadModel(value.snapshot);
 }
 
+export function parseIpcActivityUpdateEvent(
+  value: unknown,
+): value is IpcActivityUpdateEvent {
+  return isActivityUpdateEvent(value);
+}
+
 export function boundedIpcResponse(value: IpcResponse): IpcResponse {
   try {
     if (
@@ -915,6 +975,9 @@ export interface PrMonitorPreloadApi {
   readonly saveManagedPrConfiguration: (input: ManagedPrConfigurationInput) => Promise<IpcResponse>;
   readonly readInbox: () => Promise<IpcResponse>;
   readonly subscribeInbox: () => Promise<IpcResponse>;
+  readonly readActivity: (query?: ActivityQuery) => Promise<IpcResponse>;
+  readonly subscribeActivity: (query?: ActivityQuery) => Promise<IpcResponse>;
+  readonly navigateActivity: (eventId: string) => Promise<IpcResponse>;
   readonly navigateManagedPr: (
     managedPrId: string,
     destination: "details" | "settings",
@@ -922,6 +985,9 @@ export interface PrMonitorPreloadApi {
   readonly onOpenTarget: (listener: (target: OpenTarget) => void) => () => void;
   readonly onInboxUpdated: (
     listener: (snapshot: ManagedPrInboxReadModel) => void,
+  ) => () => void;
+  readonly onActivityUpdated: (
+    listener: (event: ActivityEventView) => void,
   ) => () => void;
 }
 

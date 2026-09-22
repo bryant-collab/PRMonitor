@@ -298,7 +298,7 @@ export function isValidGitBranchName(value: string): boolean {
     value.endsWith(".") ||
     value.endsWith(".lock") ||
     value === "@" ||
-    /[ ~^:?*\[\]\\]/u.test(value)
+    /[ ~^:?*[\]\\]/u.test(value)
   )
     return false;
   return value.split("/").every((component) => component.length > 0 && component !== "." && component !== ".." && !component.startsWith(".") && !component.endsWith("."));

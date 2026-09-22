@@ -655,6 +655,66 @@ ALTER TABLE synchronization_conflicts ADD COLUMN details_json TEXT NOT NULL DEFA
 PRAGMA user_version = 5;
 `;
 
+const MIGRATION_6 = `
+ALTER TABLE activity_events ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE activity_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'LEGACY_ACTIVITY';
+ALTER TABLE activity_events ADD COLUMN stage TEXT NOT NULL DEFAULT 'SYSTEM';
+ALTER TABLE activity_events ADD COLUMN operation_id TEXT;
+ALTER TABLE activity_events ADD COLUMN parent_event_id TEXT;
+ALTER TABLE activity_events ADD COLUMN causation_event_id TEXT;
+ALTER TABLE activity_events ADD COLUMN attempt_id TEXT;
+ALTER TABLE activity_events ADD COLUMN attempt_number INTEGER;
+ALTER TABLE activity_events ADD COLUMN attempt_outcome TEXT;
+ALTER TABLE activity_events ADD COLUMN managed_pr_id TEXT;
+ALTER TABLE activity_events ADD COLUMN occurrence_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE activity_events ADD COLUMN recorded_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE activity_events ADD COLUMN summary TEXT NOT NULL DEFAULT 'Legacy activity event';
+ALTER TABLE activity_events ADD COLUMN reason_what TEXT NOT NULL DEFAULT 'A legacy activity event was recorded.';
+ALTER TABLE activity_events ADD COLUMN reason_why TEXT NOT NULL DEFAULT 'The event predates the structured activity contract.';
+ALTER TABLE activity_events ADD COLUMN next_action TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE activity_events ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE activity_events ADD COLUMN work_item_json TEXT;
+ALTER TABLE activity_events ADD COLUMN work_item_key TEXT;
+ALTER TABLE activity_events ADD COLUMN related_target_json TEXT;
+ALTER TABLE activity_events ADD COLUMN payload_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE activity_events ADD COLUMN retention_state TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE activity_events ADD COLUMN owner_version INTEGER;
+ALTER TABLE activity_events ADD COLUMN owner_revision INTEGER;
+
+UPDATE activity_events
+SET occurrence_at = CASE WHEN occurrence_at = '' THEN created_at ELSE occurrence_at END,
+    recorded_at = CASE WHEN recorded_at = '' THEN created_at ELSE recorded_at END,
+    details_json = CASE WHEN details_json = '{}' THEN payload_json ELSE details_json END;
+
+CREATE TABLE IF NOT EXISTS activity_retention_runs (
+  retention_run_id TEXT PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  status TEXT NOT NULL,
+  deleted_count INTEGER NOT NULL DEFAULT 0,
+  protected_count INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_order
+  ON activity_events(recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_owner
+  ON activity_events(owner_type, owner_id, recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_managed_pr
+  ON activity_events(managed_pr_id, recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_operation
+  ON activity_events(operation_id, recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_severity
+  ON activity_events(severity, recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_reason
+  ON activity_events(reason_code, recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_stage
+  ON activity_events(stage, recorded_at, activity_event_id);
+CREATE INDEX IF NOT EXISTS idx_activity_work_item
+  ON activity_events(work_item_key, recorded_at, activity_event_id);
+PRAGMA user_version = 6;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -689,6 +749,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F02-F03-001-staged-review-and-sync-evidence",
     sql: MIGRATION_5,
     checksum: checksum(MIGRATION_5),
+  },
+  {
+    version: 6,
+    id: "F09-001-structured-activity-diagnostics",
+    sql: MIGRATION_6,
+    checksum: checksum(MIGRATION_6),
   },
 ];
 
