@@ -1,4 +1,5 @@
 export * from "./event-version";
+export * from "./eligibility";
 export * from "./primary";
 export * from "./primitives";
 export * from "./publication";

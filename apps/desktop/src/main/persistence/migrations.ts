@@ -788,6 +788,113 @@ CREATE INDEX IF NOT EXISTS idx_remote_events_resource_checkpoint
 PRAGMA user_version = 8;
 `;
 
+const MIGRATION_9 = `
+CREATE TABLE IF NOT EXISTS f11_eligibility_decisions (
+  decision_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  event_version_id TEXT NOT NULL REFERENCES remote_event_versions(event_version_id),
+  decision TEXT NOT NULL CHECK (decision IN ('ELIGIBLE', 'DEFERRED_BY_HOLD', 'INELIGIBLE')),
+  reason_code TEXT NOT NULL,
+  reason_json TEXT NOT NULL,
+  input_snapshot_json TEXT NOT NULL,
+  configuration_snapshot_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, event_version_id)
+);
+
+CREATE TABLE IF NOT EXISTS f11_eligibility_history (
+  evaluation_id TEXT PRIMARY KEY,
+  decision_id TEXT NOT NULL REFERENCES f11_eligibility_decisions(decision_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  event_version_id TEXT NOT NULL REFERENCES remote_event_versions(event_version_id),
+  decision TEXT NOT NULL CHECK (decision IN ('ELIGIBLE', 'DEFERRED_BY_HOLD', 'INELIGIBLE')),
+  reason_code TEXT NOT NULL,
+  reason_json TEXT NOT NULL,
+  input_snapshot_json TEXT NOT NULL,
+  configuration_snapshot_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (decision_id, reason_code, input_snapshot_json, configuration_snapshot_json)
+);
+
+CREATE TABLE IF NOT EXISTS f11_event_associations (
+  event_version_id TEXT PRIMARY KEY REFERENCES remote_event_versions(event_version_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  state TEXT NOT NULL CHECK (state IN ('UNASSIGNED', 'ASSIGNED_TO_ACTIVE_BUNDLE', 'RETAINED_DURING_HOLD', 'HANDLED_BY_BUNDLE')),
+  bundle_id TEXT,
+  operation_id TEXT,
+  version INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, event_version_id)
+);
+
+CREATE TABLE IF NOT EXISTS f11_event_association_history (
+  history_id TEXT PRIMARY KEY,
+  event_version_id TEXT NOT NULL REFERENCES remote_event_versions(event_version_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  prior_state TEXT,
+  next_state TEXT NOT NULL,
+  bundle_id TEXT,
+  operation_id TEXT,
+  reason_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f11_automatic_claims (
+  claim_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  operation_id TEXT NOT NULL,
+  bundle_id TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('ACTIVE', 'RELEASED', 'HANDLED')),
+  event_version_ids_json TEXT NOT NULL,
+  configuration_snapshot_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  outcome TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  released_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE (managed_pr_id, operation_id),
+  UNIQUE (managed_pr_id, bundle_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS f11_one_active_claim
+  ON f11_automatic_claims(managed_pr_id) WHERE state = 'ACTIVE';
+
+CREATE TABLE IF NOT EXISTS f11_holds (
+  hold_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  claim_id TEXT NOT NULL REFERENCES f11_automatic_claims(claim_id),
+  operation_id TEXT NOT NULL,
+  bundle_id TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('ACTIVE', 'RELEASED')),
+  reason_json TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  released_at TEXT,
+  outcome TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS f11_one_active_hold
+  ON f11_holds(managed_pr_id) WHERE state = 'ACTIVE';
+CREATE INDEX IF NOT EXISTS idx_f11_decisions_pr
+  ON f11_eligibility_decisions(managed_pr_id, updated_at, event_version_id);
+CREATE INDEX IF NOT EXISTS idx_f11_associations_pr_state
+  ON f11_event_associations(managed_pr_id, state, updated_at, event_version_id);
+CREATE INDEX IF NOT EXISTS idx_f11_claims_recovery
+  ON f11_automatic_claims(state, updated_at, managed_pr_id);
+CREATE INDEX IF NOT EXISTS idx_f11_history_event
+  ON f11_event_association_history(managed_pr_id, event_version_id, created_at);
+
+PRAGMA user_version = 9;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -840,6 +947,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F10-002-resource-version-references",
     sql: MIGRATION_8,
     checksum: checksum(MIGRATION_8),
+  },
+  {
+    version: 9,
+    id: "F11-001-eligibility-claims-and-holds",
+    sql: MIGRATION_9,
+    checksum: checksum(MIGRATION_9),
   },
 ];
 

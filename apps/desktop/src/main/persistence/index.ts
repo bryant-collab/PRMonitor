@@ -5,4 +5,5 @@ export * from "./repositories";
 export * from "./activity-repository";
 export * from "./f07-repositories";
 export * from "./f10-repositories";
+export * from "./f11-repositories";
 export * from "./types";

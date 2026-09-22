@@ -98,7 +98,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Polling continues with no renderer, a PR-metadata `304` cannot suppress feedback checks, unchanged state uses zero AI tokens, network failure marks nothing processed, and edited semantic content creates exactly one new immutable version.
   - **Primary application criteria:** APP-AC-04, APP-AC-05, APP-AC-06, APP-AC-08, APP-AC-65, APP-AC-69.
 
-- [ ] **F11 - Event eligibility, deduplication, and per-PR review holds**
+- [x] **F11 - Event eligibility, deduplication, and per-PR review holds**
   - **Depends on:** F02-F03, F10.
   - **Deliver:** Deterministically reject same-version duplicates, PRMonitor-authored items, empty items, bodyless approvals, configured ignored accounts, and closed/merged PRs without keyword-based semantic guessing. Associate handled immutable versions with bundles forever. Enforce one automatic bundle/AI operation per PR and preserve new versions observed during `WORKING`, `READY_FOR_REVIEW`, or `NEEDS_ATTENTION` for later eligibility.
   - **Exit:** Duplicate delivery never triggers duplicate analysis; holds survive UI closure/restart; background work cannot mutate a held bundle worktree; and releasing a hold schedules only still-unhandled versions.

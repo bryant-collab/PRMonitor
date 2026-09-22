@@ -15,6 +15,7 @@ import {
   type PersistenceStore,
   createF07PersistenceRepositories,
   F10PersistenceRepositories,
+  F11PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -40,6 +41,7 @@ import {
   type ManagedPrInboxService,
 } from "./managed-pr-inbox-service";
 import { ActivityService } from "./activity-service";
+import { F11EligibilityService } from "./f11-eligibility-service";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -57,6 +59,7 @@ let githubServerService: GithubServerService | undefined;
 let managedPrService: ManagedPrService | undefined;
 let managedPrInboxService: ManagedPrInboxService | undefined;
 let activityService: ActivityService | undefined;
+let f11EligibilityService: F11EligibilityService | undefined;
 let prWatcher:
   { readonly start: () => void; readonly stop: () => void } | undefined;
 const pendingTargets = new OpenTargetQueue();
@@ -244,6 +247,14 @@ async function initializeMainProcessPersistence(): Promise<void> {
   }
   const f03Repositories = createPersistenceRepositories(persistenceStore);
   persistenceRepositories = f03Repositories;
+  f11EligibilityService = new F11EligibilityService(
+    new F11PersistenceRepositories(persistenceStore),
+    { activity: activityService?.writer },
+  );
+  // Claims and holds are durable and must remain authoritative across renderer
+  // recreation and ordinary process restart. F12/F18 consume this same service
+  // when their scheduler and review workflows are introduced.
+  f11EligibilityService.reconcileStartup();
   const f07Repositories = createF07PersistenceRepositories(persistenceStore);
   managedPrInboxService = createManagedPrInboxService({
     managedPrs: f07Repositories,
