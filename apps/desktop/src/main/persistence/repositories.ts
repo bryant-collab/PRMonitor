@@ -45,6 +45,67 @@ export interface RemoteEventInsertResult<T = unknown> {
   };
 }
 
+export interface RemoteEventVersionRecord<
+  T = unknown,
+> extends PersistedRecord<T> {
+  readonly managedPrId: string;
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly sourceRepositoryId?: string;
+  readonly resourceAttemptId?: string;
+  readonly resourceCheckpointId?: string;
+  readonly resourceObservationId?: string;
+  readonly observedAt: string;
+  readonly sourceUpdatedAt?: string;
+  readonly semanticHash: string;
+}
+
+export interface ResourceCheckpointInput {
+  readonly checkpointId?: string;
+  readonly serverId: string;
+  readonly repositoryId?: string;
+  readonly resourceKind: string;
+  readonly resourceKey: string;
+  readonly etag?: string;
+  readonly lastModified?: string;
+  readonly paginationCursor?: string;
+  readonly observedVersion?: number;
+  readonly payload?: unknown;
+}
+
+export interface ResourceCheckpointRecord {
+  readonly checkpointId: number;
+  readonly serverId: string;
+  readonly repositoryId?: string;
+  readonly resourceKind: string;
+  readonly resourceKey: string;
+  readonly etag?: string;
+  readonly lastModified?: string;
+  readonly paginationCursor?: string;
+  readonly observedVersion: number;
+  readonly payload: unknown;
+  readonly updatedAt: string;
+}
+
+export interface ResourceCheckpointLookup {
+  readonly serverId: string;
+  readonly repositoryId?: string;
+  readonly resourceKind: string;
+  readonly resourceKey: string;
+}
+
+export interface ResourceObservationInput {
+  readonly observationId: string;
+  readonly managedPrId?: string;
+  readonly serverId: string;
+  readonly resourceKind: string;
+  readonly resourceKey: string;
+  readonly remoteIdentity: string;
+  readonly observedAt: string;
+  readonly semanticHash: string;
+  readonly payload: unknown;
+}
+
 export interface ReviewBundleRecord<T = unknown> extends PersistedRecord<T> {
   readonly managedPrId: string;
   readonly batchId: string;
@@ -271,6 +332,26 @@ function jsonColumn(row: SqlRow, key: string): unknown {
   }
 }
 
+function resourceCheckpointFromRow(row: SqlRow): ResourceCheckpointRecord {
+  const repositoryId = rowOptionalString(row, "repository_id");
+  const etag = rowOptionalString(row, "etag");
+  const lastModified = rowOptionalString(row, "last_modified");
+  const paginationCursor = rowOptionalString(row, "pagination_cursor");
+  return {
+    checkpointId: rowNumber(row, "checkpoint_id"),
+    serverId: rowString(row, "server_id"),
+    ...(repositoryId === undefined ? {} : { repositoryId }),
+    resourceKind: rowString(row, "resource_kind"),
+    resourceKey: rowString(row, "resource_key"),
+    ...(etag === undefined ? {} : { etag }),
+    ...(lastModified === undefined ? {} : { lastModified }),
+    ...(paginationCursor === undefined ? {} : { paginationCursor }),
+    observedVersion: rowNumber(row, "observed_version"),
+    payload: jsonColumn(row, "payload_json"),
+    updatedAt: rowString(row, "updated_at"),
+  };
+}
+
 function safeReason(value: unknown): GithubSafeReason | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return undefined;
@@ -414,6 +495,33 @@ function recordFromJsonRow<T>(
     updatedAt: rowString(row, "updated_at"),
     payload: payload as T,
     payloadHash: encoded.payloadHash,
+  };
+}
+
+function remoteEventVersionFromRow<T>(
+  row: SqlRow,
+): RemoteEventVersionRecord<T> {
+  const record = recordFromRow<T>(row, "event_version_id");
+  const sourceRepositoryId = rowOptionalString(row, "source_repository_id");
+  const resourceAttemptId = rowOptionalString(row, "resource_attempt_id");
+  const resourceCheckpointId = rowOptionalString(row, "resource_checkpoint_id");
+  const resourceObservationId = rowOptionalString(
+    row,
+    "resource_observation_id",
+  );
+  const sourceUpdatedAt = rowOptionalString(row, "source_updated_at");
+  return {
+    ...record,
+    managedPrId: rowString(row, "managed_pr_id"),
+    sourceKind: rowString(row, "source_kind"),
+    sourceId: rowString(row, "source_id"),
+    ...(sourceRepositoryId === undefined ? {} : { sourceRepositoryId }),
+    ...(resourceAttemptId === undefined ? {} : { resourceAttemptId }),
+    ...(resourceCheckpointId === undefined ? {} : { resourceCheckpointId }),
+    ...(resourceObservationId === undefined ? {} : { resourceObservationId }),
+    observedAt: rowString(row, "observed_at"),
+    ...(sourceUpdatedAt === undefined ? {} : { sourceUpdatedAt }),
+    semanticHash: rowString(row, "semantic_hash"),
   };
 }
 
@@ -1470,18 +1578,97 @@ export class PersistenceRepositories {
     });
   }
 
-  public putResourceCheckpoint(input: {
-    readonly checkpointId?: string;
-    readonly serverId: string;
-    readonly repositoryId?: string;
-    readonly resourceKind: string;
-    readonly resourceKey: string;
-    readonly etag?: string;
-    readonly lastModified?: string;
-    readonly paginationCursor?: string;
-    readonly observedVersion?: number;
-    readonly payload?: Payload;
-  }): void {
+  private validateResourceCheckpointLookup(
+    input: ResourceCheckpointLookup,
+  ): void {
+    id(input.serverId, "server identifier");
+    if (input.repositoryId !== undefined)
+      id(input.repositoryId, "repository identifier");
+    text(input.resourceKind, "resource kind");
+    text(input.resourceKey, "resource key");
+  }
+
+  public getResourceCheckpoint(
+    input: ResourceCheckpointLookup,
+  ): ResourceCheckpointRecord | undefined {
+    this.validateResourceCheckpointLookup(input);
+    const row = this.store.read(
+      "SELECT * FROM resource_checkpoints WHERE server_id = ? AND repository_id IS ? AND resource_kind = ? AND resource_key = ?",
+      input.serverId,
+      input.repositoryId ?? null,
+      input.resourceKind,
+      input.resourceKey,
+    );
+    return row === undefined ? undefined : resourceCheckpointFromRow(row);
+  }
+
+  public getResourceCheckpointInTransaction(
+    transaction: PersistenceTransaction,
+    input: ResourceCheckpointLookup,
+  ): ResourceCheckpointRecord | undefined {
+    this.validateResourceCheckpointLookup(input);
+    const row = transaction.get(
+      "SELECT * FROM resource_checkpoints WHERE server_id = ? AND repository_id IS ? AND resource_kind = ? AND resource_key = ?",
+      input.serverId,
+      input.repositoryId ?? null,
+      input.resourceKind,
+      input.resourceKey,
+    );
+    return row === undefined ? undefined : resourceCheckpointFromRow(row);
+  }
+
+  public getResourceCheckpointForManagedPr(
+    managedPrId: string,
+    resourceKind: string,
+    resourceKey: string,
+  ): ResourceCheckpointRecord | undefined {
+    id(managedPrId, "managed PR identifier");
+    text(resourceKind, "resource kind");
+    text(resourceKey, "resource key");
+    return this.store.transaction((transaction) =>
+      this.getResourceCheckpointForManagedPrInTransaction(
+        transaction,
+        managedPrId,
+        resourceKind,
+        resourceKey,
+      ),
+    );
+  }
+
+  public getResourceCheckpointForManagedPrInTransaction(
+    transaction: PersistenceTransaction,
+    managedPrId: string,
+    resourceKind: string,
+    resourceKey: string,
+  ): ResourceCheckpointRecord | undefined {
+    id(managedPrId, "managed PR identifier");
+    text(resourceKind, "resource kind");
+    text(resourceKey, "resource key");
+    const managedPr = transaction.get(
+      "SELECT server_id, base_repository_id FROM managed_prs WHERE managed_pr_id = ?",
+      managedPrId,
+    );
+    if (managedPr === undefined) return undefined;
+    return this.getResourceCheckpointInTransaction(transaction, {
+      serverId: rowString(managedPr, "server_id"),
+      repositoryId: rowString(managedPr, "base_repository_id"),
+      resourceKind,
+      resourceKey,
+    });
+  }
+
+  public putResourceCheckpoint(input: ResourceCheckpointInput): number {
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) =>
+      this.putResourceCheckpointInTransaction(transaction, input, timestamp),
+    );
+  }
+
+  public putResourceCheckpointInTransaction(
+    transaction: PersistenceTransaction,
+    input: ResourceCheckpointInput,
+    timestamp = now(this.clock),
+  ): number {
     id(input.serverId, "server identifier");
     if (input.repositoryId !== undefined)
       id(input.repositoryId, "repository identifier");
@@ -1491,54 +1678,59 @@ export class PersistenceRepositories {
     ] as const)
       text(value, label);
     const encoded = encode(input.payload ?? {});
-    const timestamp = now(this.clock);
-    this.store.transaction((transaction) => {
-      const current = transaction.get(
-        "SELECT checkpoint_id FROM resource_checkpoints WHERE server_id = ? AND repository_id IS ? AND resource_kind = ? AND resource_key = ?",
+    const current = transaction.get(
+      "SELECT checkpoint_id FROM resource_checkpoints WHERE server_id = ? AND repository_id IS ? AND resource_kind = ? AND resource_key = ?",
+      input.serverId,
+      input.repositoryId ?? null,
+      input.resourceKind,
+      input.resourceKey,
+    );
+    if (current === undefined)
+      transaction.run(
+        "INSERT INTO resource_checkpoints (server_id, repository_id, resource_kind, resource_key, etag, last_modified, pagination_cursor, observed_version, payload_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         input.serverId,
         input.repositoryId ?? null,
         input.resourceKind,
         input.resourceKey,
+        input.etag ?? null,
+        input.lastModified ?? null,
+        input.paginationCursor ?? null,
+        input.observedVersion ?? 0,
+        encoded.payload,
+        timestamp,
       );
-      if (current === undefined)
-        transaction.run(
-          "INSERT INTO resource_checkpoints (server_id, repository_id, resource_kind, resource_key, etag, last_modified, pagination_cursor, observed_version, payload_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          input.serverId,
-          input.repositoryId ?? null,
-          input.resourceKind,
-          input.resourceKey,
-          input.etag ?? null,
-          input.lastModified ?? null,
-          input.paginationCursor ?? null,
-          input.observedVersion ?? 0,
-          encoded.payload,
-          timestamp,
-        );
-      else
-        transaction.run(
-          "UPDATE resource_checkpoints SET etag = ?, last_modified = ?, pagination_cursor = ?, observed_version = ?, payload_json = ?, updated_at = ? WHERE checkpoint_id = ?",
-          input.etag ?? null,
-          input.lastModified ?? null,
-          input.paginationCursor ?? null,
-          input.observedVersion ?? 0,
-          encoded.payload,
-          timestamp,
-          rowNumber(current, "checkpoint_id"),
-        );
-    });
+    else
+      transaction.run(
+        "UPDATE resource_checkpoints SET etag = ?, last_modified = ?, pagination_cursor = ?, observed_version = ?, payload_json = ?, updated_at = ? WHERE checkpoint_id = ?",
+        input.etag ?? null,
+        input.lastModified ?? null,
+        input.paginationCursor ?? null,
+        input.observedVersion ?? 0,
+        encoded.payload,
+        timestamp,
+        rowNumber(current, "checkpoint_id"),
+      );
+    const persisted = transaction.get(
+      "SELECT checkpoint_id FROM resource_checkpoints WHERE server_id = ? AND repository_id IS ? AND resource_kind = ? AND resource_key = ?",
+      input.serverId,
+      input.repositoryId ?? null,
+      input.resourceKind,
+      input.resourceKey,
+    );
+    if (persisted === undefined) throw new Error("F03_CHECKPOINT_NOT_READABLE");
+    return rowNumber(persisted, "checkpoint_id");
   }
 
-  public putResourceObservation(input: {
-    readonly observationId: string;
-    readonly managedPrId?: string;
-    readonly serverId: string;
-    readonly resourceKind: string;
-    readonly resourceKey: string;
-    readonly remoteIdentity: string;
-    readonly observedAt: string;
-    readonly semanticHash: string;
-    readonly payload: Payload;
-  }): void {
+  public putResourceObservation(input: ResourceObservationInput): void {
+    this.store.transaction((transaction) =>
+      this.putResourceObservationInTransaction(transaction, input),
+    );
+  }
+
+  public putResourceObservationInTransaction(
+    transaction: PersistenceTransaction,
+    input: ResourceObservationInput,
+  ): void {
     id(input.observationId, "resource observation identifier");
     id(input.serverId, "server identifier");
     if (input.managedPrId !== undefined)
@@ -1551,20 +1743,18 @@ export class PersistenceRepositories {
     ] as const)
       text(value, label);
     const encoded = encode(input.payload);
-    this.store.transaction((transaction) => {
-      transaction.run(
-        "INSERT OR IGNORE INTO resource_observations (observation_id, managed_pr_id, server_id, resource_kind, resource_key, remote_identity, observed_at, semantic_hash, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        input.observationId,
-        input.managedPrId ?? null,
-        input.serverId,
-        input.resourceKind,
-        input.resourceKey,
-        input.remoteIdentity,
-        input.observedAt,
-        input.semanticHash,
-        encoded.payload,
-      );
-    });
+    transaction.run(
+      "INSERT OR IGNORE INTO resource_observations (observation_id, managed_pr_id, server_id, resource_kind, resource_key, remote_identity, observed_at, semantic_hash, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      input.observationId,
+      input.managedPrId ?? null,
+      input.serverId,
+      input.resourceKind,
+      input.resourceKey,
+      input.remoteIdentity,
+      input.observedAt,
+      input.semanticHash,
+      encoded.payload,
+    );
   }
 
   public putValidationApproval(input: {
@@ -1624,68 +1814,94 @@ export class PersistenceRepositories {
       : recordFromJsonRow<T>(row, "id", "payload_json");
   }
 
+  public listRemoteEventVersions<T = unknown>(
+    managedPrId: string,
+  ): readonly RemoteEventVersionRecord<T>[] {
+    id(managedPrId, "managed PR identifier");
+    return this.store
+      .readAll(
+        "SELECT *, 1 AS version, created_at AS updated_at FROM remote_event_versions WHERE managed_pr_id = ? ORDER BY created_at ASC, event_version_id ASC",
+        managedPrId,
+      )
+      .map((row) => remoteEventVersionFromRow<T>(row));
+  }
+
   public insertRemoteEventVersion<T = unknown>(
     input: RemoteEventVersionInput<T>,
+  ): RemoteEventInsertResult<T> {
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) =>
+      this.insertRemoteEventVersionInTransaction(transaction, input, timestamp),
+    );
+  }
+
+  public insertRemoteEventVersionInTransaction<T = unknown>(
+    transaction: PersistenceTransaction,
+    input: RemoteEventVersionInput<T>,
+    timestamp = now(this.clock),
   ): RemoteEventInsertResult<T> {
     id(input.id, "remote event version identifier");
     id(input.managedPrId, "managed PR identifier");
     text(input.sourceKind, "remote event source kind");
     text(input.sourceId, "remote event source identifier");
+    if (input.sourceRepositoryId !== undefined)
+      id(input.sourceRepositoryId, "source repository identifier");
+    if (input.resourceAttemptId !== undefined)
+      id(input.resourceAttemptId, "resource attempt identifier");
+    if (input.resourceCheckpointId !== undefined)
+      text(input.resourceCheckpointId, "resource checkpoint identifier");
+    if (input.resourceObservationId !== undefined)
+      id(input.resourceObservationId, "resource observation identifier");
     text(input.semanticHash, "remote event semantic hash");
     const encoded = encode(input.payload);
-    const timestamp = now(this.clock);
-    return this.store.transaction((transaction) => {
-      const byId = transaction.get(
-        "SELECT * FROM remote_event_versions WHERE event_version_id = ?",
+    const byId = transaction.get(
+      "SELECT * FROM remote_event_versions WHERE event_version_id = ?",
+      input.id,
+    );
+    if (
+      byId !== undefined &&
+      (rowString(byId, "semantic_hash") !== input.semanticHash ||
+        rowString(byId, "payload_json") !== encoded.payload)
+    )
+      throw repositoryError(
+        this.store,
+        "CONFLICT",
+        "An immutable remote event identifier cannot be rewritten.",
+      );
+    const inserted = insertOrExisting(
+      transaction,
+      "INSERT OR IGNORE INTO remote_event_versions (event_version_id, managed_pr_id, source_kind, source_id, source_repository_id, resource_attempt_id, resource_checkpoint_id, resource_observation_id, observed_at, source_updated_at, semantic_hash, schema_version, payload_json, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
         input.id,
-      );
-      if (
-        byId !== undefined &&
-        (rowString(byId, "semantic_hash") !== input.semanticHash ||
-          rowString(byId, "payload_json") !== encoded.payload)
-      )
-        throw repositoryError(
-          this.store,
-          "CONFLICT",
-          "An immutable remote event identifier cannot be rewritten.",
-        );
-      const inserted = insertOrExisting(
-        transaction,
-        "INSERT OR IGNORE INTO remote_event_versions (event_version_id, managed_pr_id, source_kind, source_id, source_repository_id, observed_at, source_updated_at, semantic_hash, schema_version, payload_json, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-          input.id,
-          input.managedPrId,
-          input.sourceKind,
-          input.sourceId,
-          input.sourceRepositoryId ?? null,
-          input.observedAt,
-          input.sourceUpdatedAt ?? null,
-          input.semanticHash,
-          encoded.schemaVersion,
-          encoded.payload,
-          encoded.payloadHash,
-          timestamp,
-        ],
-        "SELECT *, 1 AS version, created_at AS updated_at FROM remote_event_versions WHERE managed_pr_id = ? AND source_kind = ? AND source_id = ? AND semantic_hash = ?",
-        [
-          input.managedPrId,
-          input.sourceKind,
-          input.sourceId,
-          input.semanticHash,
-        ],
-      );
-      const row = inserted.row;
-      return {
-        inserted: inserted.inserted,
-        record: {
-          ...recordFromRow<T>(row, "event_version_id"),
-          managedPrId: rowString(row, "managed_pr_id"),
-          sourceKind: rowString(row, "source_kind"),
-          sourceId: rowString(row, "source_id"),
-          semanticHash: rowString(row, "semantic_hash"),
-        },
-      };
-    });
+        input.managedPrId,
+        input.sourceKind,
+        input.sourceId,
+        input.sourceRepositoryId ?? null,
+        input.resourceAttemptId ?? null,
+        input.resourceCheckpointId ?? null,
+        input.resourceObservationId ?? null,
+        input.observedAt,
+        input.sourceUpdatedAt ?? null,
+        input.semanticHash,
+        encoded.schemaVersion,
+        encoded.payload,
+        encoded.payloadHash,
+        timestamp,
+      ],
+      "SELECT *, 1 AS version, created_at AS updated_at FROM remote_event_versions WHERE managed_pr_id = ? AND source_kind = ? AND source_id = ? AND semantic_hash = ?",
+      [input.managedPrId, input.sourceKind, input.sourceId, input.semanticHash],
+    );
+    const row = inserted.row;
+    return {
+      inserted: inserted.inserted,
+      record: {
+        ...recordFromRow<T>(row, "event_version_id"),
+        managedPrId: rowString(row, "managed_pr_id"),
+        sourceKind: rowString(row, "source_kind"),
+        sourceId: rowString(row, "source_id"),
+        semanticHash: rowString(row, "semantic_hash"),
+      },
+    };
   }
 
   public persistReviewBundleAtomic(
@@ -2971,7 +3187,9 @@ export class PersistenceRepositories {
           rowString(row, "synchronization_operation_id"),
         ),
       )
-      .filter((result): result is SynchronizationResultRecord => result !== undefined);
+      .filter(
+        (result): result is SynchronizationResultRecord => result !== undefined,
+      );
   }
 
   public createPublicationIntent(

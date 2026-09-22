@@ -715,6 +715,79 @@ CREATE INDEX IF NOT EXISTS idx_activity_work_item
 PRAGMA user_version = 6;
 `;
 
+const MIGRATION_7 = `
+CREATE TABLE IF NOT EXISTS f10_poll_runs (
+  poll_run_id TEXT PRIMARY KEY,
+  correlation_id TEXT NOT NULL,
+  configuration_json TEXT NOT NULL,
+  configuration_hash TEXT NOT NULL,
+  managed_pr_count INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED', 'INTERRUPTED')),
+  new_version_count INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  updated_at TEXT NOT NULL,
+  reason_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS f10_poll_resource_attempts (
+  resource_attempt_id TEXT PRIMARY KEY,
+  poll_run_id TEXT NOT NULL REFERENCES f10_poll_runs(poll_run_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  server_id TEXT NOT NULL REFERENCES github_servers(server_id),
+  repository_key TEXT NOT NULL,
+  resource_kind TEXT NOT NULL CHECK (resource_kind IN ('pull_request', 'review_comments', 'reviews', 'issue_comments')),
+  resource_key TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  request_json TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  prior_checkpoint_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'COMPLETED', 'NOT_MODIFIED', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'SKIPPED')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('PENDING', 'COMPLETED', 'NOT_MODIFIED', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'SKIPPED')),
+  reason_json TEXT,
+  new_version_count INTEGER NOT NULL DEFAULT 0,
+  observed_version_ids_json TEXT NOT NULL DEFAULT '[]',
+  new_version_ids_json TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 1,
+  started_at TEXT NOT NULL,
+  committed_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE (poll_run_id, resource_key)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS f10_one_active_resource_attempt
+  ON f10_poll_resource_attempts(managed_pr_id, resource_key)
+  WHERE status IN ('PENDING', 'RUNNING');
+CREATE INDEX IF NOT EXISTS idx_f10_poll_attempts_run
+  ON f10_poll_resource_attempts(poll_run_id, resource_key);
+CREATE INDEX IF NOT EXISTS idx_f10_poll_attempts_recovery
+  ON f10_poll_resource_attempts(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS f10_pr_metadata_snapshots (
+  managed_pr_id TEXT PRIMARY KEY REFERENCES managed_prs(managed_pr_id),
+  observed_at TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  metadata_hash TEXT NOT NULL,
+  last_attempt_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+PRAGMA user_version = 7;
+`;
+
+const MIGRATION_8 = `
+ALTER TABLE remote_event_versions ADD COLUMN resource_attempt_id TEXT;
+ALTER TABLE remote_event_versions ADD COLUMN resource_checkpoint_id TEXT;
+ALTER TABLE remote_event_versions ADD COLUMN resource_observation_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_remote_events_resource_attempt
+  ON remote_event_versions(resource_attempt_id, event_version_id);
+CREATE INDEX IF NOT EXISTS idx_remote_events_resource_checkpoint
+  ON remote_event_versions(resource_checkpoint_id, event_version_id);
+PRAGMA user_version = 8;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -755,6 +828,18 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F09-001-structured-activity-diagnostics",
     sql: MIGRATION_6,
     checksum: checksum(MIGRATION_6),
+  },
+  {
+    version: 7,
+    id: "F10-001-independent-feedback-polling",
+    sql: MIGRATION_7,
+    checksum: checksum(MIGRATION_7),
+  },
+  {
+    version: 8,
+    id: "F10-002-resource-version-references",
+    sql: MIGRATION_8,
+    checksum: checksum(MIGRATION_8),
   },
 ];
 

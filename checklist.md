@@ -92,7 +92,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 2 - Deterministic monitoring pipeline
 
-- [ ] **F10 - Independent, efficient PR feedback polling**
+- [x] **F10 - Independent, efficient PR feedback polling**
   - **Depends on:** F03, F06-F09.
   - **Deliver:** Implement main-process polling for PR metadata, inline review comments, reviews/bodies, and issue comments. Maintain independent ETag/Last-Modified and pagination checkpoints for every resource; default to 10 minutes; normalize all objects; and persist scoped remote identities plus immutable, content-hashed semantic versions, including edits with unreliable timestamps.
   - **Exit:** Polling continues with no renderer, a PR-metadata `304` cannot suppress feedback checks, unchanged state uses zero AI tokens, network failure marks nothing processed, and edited semantic content creates exactly one new immutable version.

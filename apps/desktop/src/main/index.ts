@@ -14,6 +14,7 @@ import {
   type PersistenceRepositories,
   type PersistenceStore,
   createF07PersistenceRepositories,
+  F10PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -34,7 +35,10 @@ import {
   type WindowOpenResult,
 } from "./window-manager";
 import { ManagedPrService } from "./managed-pr-service";
-import { createManagedPrInboxService, type ManagedPrInboxService } from "./managed-pr-inbox-service";
+import {
+  createManagedPrInboxService,
+  type ManagedPrInboxService,
+} from "./managed-pr-inbox-service";
 import { ActivityService } from "./activity-service";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -53,6 +57,8 @@ let githubServerService: GithubServerService | undefined;
 let managedPrService: ManagedPrService | undefined;
 let managedPrInboxService: ManagedPrInboxService | undefined;
 let activityService: ActivityService | undefined;
+let prWatcher:
+  { readonly start: () => void; readonly stop: () => void } | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -236,7 +242,8 @@ async function initializeMainProcessPersistence(): Promise<void> {
     // Activity maintenance is diagnostic only; it cannot block authoritative
     // application startup or be interpreted as workflow state.
   }
-  persistenceRepositories = createPersistenceRepositories(persistenceStore);
+  const f03Repositories = createPersistenceRepositories(persistenceStore);
+  persistenceRepositories = f03Repositories;
   const f07Repositories = createF07PersistenceRepositories(persistenceStore);
   managedPrInboxService = createManagedPrInboxService({
     managedPrs: f07Repositories,
@@ -253,7 +260,8 @@ async function initializeMainProcessPersistence(): Promise<void> {
   githubServerService.reconcileStartup();
   managedPrService = new ManagedPrService({
     repositories: f07Repositories,
-    profileForServerId: (serverId) => githubServerService?.getVerifiedProfile(serverId),
+    profileForServerId: (serverId) =>
+      githubServerService?.getVerifiedProfile(serverId),
     getPullRequest: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
@@ -261,6 +269,21 @@ async function initializeMainProcessPersistence(): Promise<void> {
     },
   });
   managedPrService.reconcileStartup();
+  const { PrWatcher } = await import("./pr-watcher");
+  prWatcher = new PrWatcher({
+    managedPrs: {
+      listManagedPrs: () => f07Repositories.listManagedPrs(),
+    },
+    persistence: new F10PersistenceRepositories(persistenceStore, {
+      f03Repositories,
+      activity: activityService?.writer,
+    }),
+    githubClientForServer: (serverId) =>
+      githubServerService?.getReadClient(serverId),
+    profileForServerId: (serverId) =>
+      githubServerService?.getVerifiedProfile(serverId),
+    activity: activityService?.writer,
+  });
 }
 
 function createCurrentState(): CurrentState {
@@ -293,6 +316,7 @@ async function startMainProcess(): Promise<void> {
     throw new Error(
       started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
     );
+  prWatcher?.start();
 
   const refreshManagedPrInbox = (): void => {
     try {
@@ -367,12 +391,16 @@ async function startMainProcess(): Promise<void> {
     },
     readManagedPr: (managedPrId) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.read(managedPrId);
     },
     addManagedPr: (input) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.add(input).then((result) => {
         refreshManagedPrInbox();
         return result;
@@ -380,7 +408,9 @@ async function startMainProcess(): Promise<void> {
     },
     retryManagedPrAdd: (attemptId) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.retryAdd(attemptId).then((result) => {
         refreshManagedPrInbox();
         return result;
@@ -388,23 +418,31 @@ async function startMainProcess(): Promise<void> {
     },
     readManagedPrCandidates: (managedPrId) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.candidates(managedPrId);
     },
     pickManagedPrFolder: async () => {
-      const owner = windowManager?.visibleWindow as unknown as BrowserWindow | undefined;
+      const owner = windowManager?.visibleWindow as unknown as
+        BrowserWindow | undefined;
       const options = {
-        properties: ["openDirectory", "dontAddToRecent"] as ("openDirectory" | "dontAddToRecent")[],
+        properties: ["openDirectory", "dontAddToRecent"] as (
+          "openDirectory" | "dontAddToRecent"
+        )[],
         title: "Choose an existing local Git clone",
       };
-      const selection = owner === undefined
-        ? await dialog.showOpenDialog(options)
-        : await dialog.showOpenDialog(owner, options);
+      const selection =
+        owner === undefined
+          ? await dialog.showOpenDialog(options)
+          : await dialog.showOpenDialog(owner, options);
       return selection.canceled ? undefined : selection.filePaths[0];
     },
     attachManagedPrClone: (input) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.attachClone(input).then((result) => {
         refreshManagedPrInbox();
         return result;
@@ -412,7 +450,9 @@ async function startMainProcess(): Promise<void> {
     },
     clearManagedPrClone: (input) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.clearClone(input).then((result) => {
         refreshManagedPrInbox();
         return result;
@@ -420,7 +460,9 @@ async function startMainProcess(): Promise<void> {
     },
     saveManagedPrConfiguration: (input) => {
       if (managedPrService === undefined)
-        return Promise.reject(new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_MANAGED_PR_SERVICE_NOT_READY"),
+        );
       return managedPrService.saveConfiguration(input).then((result) => {
         refreshManagedPrInbox();
         return result;
@@ -540,6 +582,8 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  prWatcher?.stop();
+  prWatcher = undefined;
   githubServerService = undefined;
   managedPrService = undefined;
   persistenceStore?.close();

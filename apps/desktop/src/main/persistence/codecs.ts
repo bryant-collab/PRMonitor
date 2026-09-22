@@ -56,7 +56,14 @@ function assertSafeText(value: string, label: string): void {
   }
   for (const character of value) {
     const codePoint = character.codePointAt(0);
-    if (codePoint !== undefined && (codePoint <= 31 || codePoint === 127)) {
+    if (
+      codePoint !== undefined &&
+      ((codePoint <= 31 &&
+        codePoint !== 9 &&
+        codePoint !== 10 &&
+        codePoint !== 13) ||
+        codePoint === 127)
+    ) {
       fail("INVALID_RECORD", `${label} contains a control character.`);
     }
   }

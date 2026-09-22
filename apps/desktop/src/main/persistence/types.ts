@@ -1,4 +1,4 @@
-export const PERSISTENCE_SCHEMA_VERSION = 6 as const;
+export const PERSISTENCE_SCHEMA_VERSION = 8 as const;
 export const PERSISTENCE_RECORD_SCHEMA_VERSION = 1 as const;
 export const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 export const DEFAULT_MAX_TRANSACTION_ATTEMPTS = 3;
@@ -167,6 +167,9 @@ export interface RemoteEventVersionInput<T = unknown> {
   readonly sourceKind: string;
   readonly sourceId: string;
   readonly sourceRepositoryId?: string;
+  readonly resourceAttemptId?: string;
+  readonly resourceCheckpointId?: string;
+  readonly resourceObservationId?: string;
   readonly observedAt: string;
   readonly sourceUpdatedAt?: string;
   readonly semanticHash: string;

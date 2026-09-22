@@ -17,7 +17,7 @@ import {
   SecureGithubCredentialBroker,
   type GithubCredentialBroker,
 } from "./github-credential-broker";
-import { GithubRestClient } from "./github-rest-client";
+import { GithubRestClient, type GithubReadClient } from "./github-rest-client";
 import type {
   GithubPullRequestIdentity,
   GithubPullRequestMetadata,
@@ -85,10 +85,7 @@ function genericReason(
   return safeReason({ code, category, message, nextAction }, correlationId);
 }
 
-function authReason(
-  error: unknown,
-  correlationId: string,
-): GithubSafeReason {
+function authReason(error: unknown, correlationId: string): GithubSafeReason {
   if (error instanceof SecureCredentialStoreError)
     return safeReason(
       {
@@ -165,7 +162,12 @@ export class GithubServerService {
       "github-startup-reconcile",
     );
     for (const operation of this.options.repositories.listGithubCredentialOperations()) {
-      if (operation.phase === "COMPLETED" || operation.phase === "FAILED" || operation.phase === "CANCELLED" || operation.phase === "RECOVERY_REQUIRED")
+      if (
+        operation.phase === "COMPLETED" ||
+        operation.phase === "FAILED" ||
+        operation.phase === "CANCELLED" ||
+        operation.phase === "RECOVERY_REQUIRED"
+      )
         continue;
       try {
         this.options.repositories.updateGithubCredentialOperation({
@@ -173,15 +175,24 @@ export class GithubServerService {
           expectedVersion: operation.version,
           phase: "RECOVERY_REQUIRED",
           cleanupState:
-            operation.previousActiveRef === undefined ? "NOT_REQUIRED" : "RECOVERY_REQUIRED",
+            operation.previousActiveRef === undefined
+              ? "NOT_REQUIRED"
+              : "RECOVERY_REQUIRED",
           reason: interrupted,
         });
-        const profile = this.options.repositories.getGithubServerProfile(operation.serverId);
+        const profile = this.options.repositories.getGithubServerProfile(
+          operation.serverId,
+        );
         const auth = profile?.auth;
-        if (profile !== undefined && auth !== undefined && auth.status === "TESTING") {
+        if (
+          profile !== undefined &&
+          auth !== undefined &&
+          auth.status === "TESTING"
+        ) {
           this.options.repositories.putGithubServerAuth({
             serverId: profile.serverId,
-            status: auth.activeRef === undefined ? "RECOVERY_REQUIRED" : "VERIFIED",
+            status:
+              auth.activeRef === undefined ? "RECOVERY_REQUIRED" : "VERIFIED",
             storeState: this.options.credentialStore.getStatus().state,
             activeRef: auth.activeRef,
             activeRevision: auth.activeRevision,
@@ -224,9 +235,7 @@ export class GithubServerService {
                 status.reason.code,
                 status.reason.category,
                 status.reason.message,
-                status.state === "AVAILABLE"
-                  ? "NONE"
-                  : "ENABLE_SECURE_STORAGE",
+                status.state === "AVAILABLE" ? "NONE" : "ENABLE_SECURE_STORAGE",
                 "github-settings",
               ),
             }),
@@ -240,11 +249,32 @@ export class GithubServerService {
    * F07 receives only a verified profile record. The request-scoped credential
    * capability stays inside the F06 client and never crosses this boundary.
    */
-  public getVerifiedProfile(serverId: string): GithubServerProfileRecord | undefined {
+  public getVerifiedProfile(
+    serverId: string,
+  ): GithubServerProfileRecord | undefined {
     const profile = this.options.repositories.getGithubServerProfile(serverId);
-    return profile?.auth?.status === "VERIFIED" && profile.auth.activeRevision !== undefined
+    return profile?.auth?.status === "VERIFIED" &&
+      profile.auth.activeRevision !== undefined
       ? profile
       : undefined;
+  }
+
+  /**
+   * F10 receives a provider-neutral read client. The credential broker and
+   * transport remain owned by this service and never cross into the watcher.
+   */
+  public getReadClient(serverId: string): GithubReadClient | undefined {
+    const profile = this.getVerifiedProfile(serverId);
+    if (profile === undefined) return undefined;
+    return new GithubRestClient({
+      broker: this.broker,
+      transport: this.options.transport,
+      profile,
+      profileForServerId: (requestedServerId) =>
+        requestedServerId === serverId
+          ? this.getVerifiedProfile(requestedServerId)
+          : undefined,
+    });
   }
 
   public getPullRequestMetadata(input: {
@@ -268,7 +298,9 @@ export class GithubServerService {
     });
   }
 
-  public upsertProfile(input: GithubServerProfileInput): GithubServerProfileView {
+  public upsertProfile(
+    input: GithubServerProfileInput,
+  ): GithubServerProfileView {
     const parsed = validateGithubServerProfileInput(input);
     if (!parsed.ok) {
       throw new GithubServerServiceError(
@@ -325,10 +357,8 @@ export class GithubServerService {
     if (existing !== undefined)
       return this.finishExistingOperation(existing, profile);
     const auth = this.authOrDefault(profile);
-    const candidateRevision = Math.max(
-      auth.activeRevision ?? 0,
-      auth.candidateRevision ?? 0,
-    ) + 1;
+    const candidateRevision =
+      Math.max(auth.activeRevision ?? 0, auth.candidateRevision ?? 0) + 1;
     const candidateRef = createOpaqueCredentialReference();
     const created = this.options.repositories.createGithubCredentialOperation({
       operationId: input.operationId,
@@ -380,7 +410,11 @@ export class GithubServerService {
       expectedVersion: created.version,
       phase: "CANDIDATE_STORED",
     });
-    return this.runCandidateTest(stored, this.requireProfile(profile.serverId), input.signal);
+    return this.runCandidateTest(
+      stored,
+      this.requireProfile(profile.serverId),
+      input.signal,
+    );
   }
 
   public async testConnection(input: {
@@ -401,7 +435,9 @@ export class GithubServerService {
       profileVersion: profile.version,
       operationKind: "TEST_CONNECTION",
       phase: "INTENT",
-      ...(auth.activeRef === undefined ? {} : { previousActiveRef: auth.activeRef }),
+      ...(auth.activeRef === undefined
+        ? {}
+        : { previousActiveRef: auth.activeRef }),
       ...(auth.activeRevision === undefined
         ? {}
         : { previousActiveRevision: auth.activeRevision }),
@@ -454,7 +490,11 @@ export class GithubServerService {
       expectedVersion: created.version,
       phase: "TESTING",
     });
-    return this.runActiveTest(testing, this.requireProfile(profile.serverId), input.signal);
+    return this.runActiveTest(
+      testing,
+      this.requireProfile(profile.serverId),
+      input.signal,
+    );
   }
 
   public async retryOperation(
@@ -485,21 +525,25 @@ export class GithubServerService {
           profile: this.toView(profile),
         };
       }
-      const testing = this.options.repositories.updateGithubCredentialOperation({
-        operationId: operation.operationId,
-        expectedVersion: operation.version,
-        phase: "TESTING",
-        reason: null,
-      });
+      const testing = this.options.repositories.updateGithubCredentialOperation(
+        {
+          operationId: operation.operationId,
+          expectedVersion: operation.version,
+          phase: "TESTING",
+          reason: null,
+        },
+      );
       return this.runCandidateTest(testing, profile);
     }
     if (operation.operationKind === "TEST_CONNECTION") {
-      const testing = this.options.repositories.updateGithubCredentialOperation({
-        operationId: operation.operationId,
-        expectedVersion: operation.version,
-        phase: "TESTING",
-        reason: null,
-      });
+      const testing = this.options.repositories.updateGithubCredentialOperation(
+        {
+          operationId: operation.operationId,
+          expectedVersion: operation.version,
+          phase: "TESTING",
+          reason: null,
+        },
+      );
       return this.runActiveTest(testing, profile);
     }
     return this.retryRemoval(operation, profile);
@@ -525,7 +569,10 @@ export class GithubServerService {
         ? operation.previousActiveRef
         : operation.candidateRef;
     if (targetReference === undefined)
-      return { operationId: operation.operationId, profile: this.toView(profile) };
+      return {
+        operationId: operation.operationId,
+        profile: this.toView(profile),
+      };
     const pending = this.options.repositories.updateGithubCredentialOperation({
       operationId: operation.operationId,
       expectedVersion: operation.version,
@@ -533,13 +580,16 @@ export class GithubServerService {
       cleanupState: "PENDING",
     });
     try {
-      await this.options.credentialStore.cleanup({ reference: targetReference });
+      await this.options.credentialStore.cleanup({
+        reference: targetReference,
+      });
       const currentProfile = this.requireProfile(profile.serverId);
       const currentAuth = this.authOrDefault(currentProfile);
       if (targetReference === operation.candidateRef) {
         this.options.repositories.putGithubServerAuth({
           serverId: profile.serverId,
-          status: currentAuth.activeRef === undefined ? "UNVERIFIED" : "VERIFIED",
+          status:
+            currentAuth.activeRef === undefined ? "UNVERIFIED" : "VERIFIED",
           storeState: this.options.credentialStore.getStatus().state,
           activeRef: currentAuth.activeRef,
           activeRevision: currentAuth.activeRevision,
@@ -555,7 +605,8 @@ export class GithubServerService {
       } else {
         this.options.repositories.putGithubServerAuth({
           serverId: profile.serverId,
-          status: currentAuth.activeRef === undefined ? "UNVERIFIED" : "VERIFIED",
+          status:
+            currentAuth.activeRef === undefined ? "UNVERIFIED" : "VERIFIED",
           storeState: this.options.credentialStore.getStatus().state,
           activeRef: currentAuth.activeRef,
           activeRevision: currentAuth.activeRevision,
@@ -607,7 +658,9 @@ export class GithubServerService {
       reason: null,
     });
     try {
-      await this.options.credentialStore.retire({ reference: operation.previousActiveRef });
+      await this.options.credentialStore.retire({
+        reference: operation.previousActiveRef,
+      });
       const current = this.requireProfile(profile.serverId);
       const auth = this.authOrDefault(current);
       this.options.repositories.putGithubServerAuth({
@@ -661,7 +714,9 @@ export class GithubServerService {
       profileVersion: profile.version,
       operationKind: "REMOVE",
       phase: "INTENT",
-      ...(auth.activeRef === undefined ? {} : { previousActiveRef: auth.activeRef }),
+      ...(auth.activeRef === undefined
+        ? {}
+        : { previousActiveRef: auth.activeRef }),
       ...(auth.activeRevision === undefined
         ? {}
         : { previousActiveRevision: auth.activeRevision }),
@@ -809,8 +864,12 @@ export class GithubServerService {
       phase: "COMPLETED",
       reason: null,
       testResult: {
-        ...(result.account.login === undefined ? {} : { login: result.account.login }),
-        ...(result.account.name === undefined ? {} : { name: result.account.name }),
+        ...(result.account.login === undefined
+          ? {}
+          : { login: result.account.login }),
+        ...(result.account.name === undefined
+          ? {}
+          : { name: result.account.name }),
         verifiedAt: result.verifiedAt,
       },
       cleanupState: "NOT_REQUIRED",
@@ -826,22 +885,21 @@ export class GithubServerService {
     profile: GithubServerProfileRecord,
     result: Extract<GithubConnectionTestResult, { readonly ok: true }>,
   ): Promise<GithubCredentialOperationResult> {
-    if (operation.candidateRef === undefined || operation.candidateRevision === undefined)
-      return this.recordTestFailure(
-        operation,
-        profile,
-        {
-          ok: false,
-          endpoint: profile.apiBaseUrl,
-          reason: genericReason(
-            "RECOVERY_REQUIRED",
-            "RECOVERY",
-            "The verified candidate reference was lost before activation.",
-            "RETRY",
-            operation.operationId,
-          ),
-        },
-      );
+    if (
+      operation.candidateRef === undefined ||
+      operation.candidateRevision === undefined
+    )
+      return this.recordTestFailure(operation, profile, {
+        ok: false,
+        endpoint: profile.apiBaseUrl,
+        reason: genericReason(
+          "RECOVERY_REQUIRED",
+          "RECOVERY",
+          "The verified candidate reference was lost before activation.",
+          "RETRY",
+          operation.operationId,
+        ),
+      });
     const auth = this.authOrDefault(profile);
     const verified = this.options.repositories.updateGithubCredentialOperation({
       operationId: operation.operationId,
@@ -849,8 +907,12 @@ export class GithubServerService {
       phase: "VERIFIED",
       reason: null,
       testResult: {
-        ...(result.account.login === undefined ? {} : { login: result.account.login }),
-        ...(result.account.name === undefined ? {} : { name: result.account.name }),
+        ...(result.account.login === undefined
+          ? {}
+          : { login: result.account.login }),
+        ...(result.account.name === undefined
+          ? {}
+          : { name: result.account.name }),
         verifiedAt: result.verifiedAt,
       },
     });
@@ -869,21 +931,30 @@ export class GithubServerService {
       reason: null,
       expectedVersion: auth.version,
     });
-    const activated = this.options.repositories.updateGithubCredentialOperation({
-      operationId: verified.operationId,
-      expectedVersion: verified.version,
-      phase: "ACTIVATED",
-      cleanupState: operation.previousActiveRef === undefined ? "NOT_REQUIRED" : "PENDING",
-    });
+    const activated = this.options.repositories.updateGithubCredentialOperation(
+      {
+        operationId: verified.operationId,
+        expectedVersion: verified.version,
+        phase: "ACTIVATED",
+        cleanupState:
+          operation.previousActiveRef === undefined
+            ? "NOT_REQUIRED"
+            : "PENDING",
+      },
+    );
     if (operation.previousActiveRef !== undefined) {
-      const pending = this.options.repositories.updateGithubCredentialOperation({
-        operationId: activated.operationId,
-        expectedVersion: activated.version,
-        phase: "CLEANUP_PENDING",
-        cleanupState: "PENDING",
-      });
+      const pending = this.options.repositories.updateGithubCredentialOperation(
+        {
+          operationId: activated.operationId,
+          expectedVersion: activated.version,
+          phase: "CLEANUP_PENDING",
+          cleanupState: "PENDING",
+        },
+      );
       try {
-        await this.options.credentialStore.retire({ reference: operation.previousActiveRef });
+        await this.options.credentialStore.retire({
+          reference: operation.previousActiveRef,
+        });
         this.options.repositories.updateGithubCredentialOperation({
           operationId: pending.operationId,
           expectedVersion: pending.version,
@@ -904,7 +975,9 @@ export class GithubServerService {
           verifiedAt: result.verifiedAt,
           lastTestAt: result.verifiedAt,
           reason: cleanupReason,
-          expectedVersion: this.authOrDefault(this.requireProfile(profile.serverId)).version,
+          expectedVersion: this.authOrDefault(
+            this.requireProfile(profile.serverId),
+          ).version,
         });
         this.options.repositories.updateGithubCredentialOperation({
           operationId: pending.operationId,
@@ -936,7 +1009,8 @@ export class GithubServerService {
   ): GithubCredentialOperationResult {
     const current = this.authOrDefault(profile);
     const phase =
-      result.reason.code === "REQUEST_CANCELLED" || result.reason.code === "REQUEST_TIMEOUT"
+      result.reason.code === "REQUEST_CANCELLED" ||
+      result.reason.code === "REQUEST_TIMEOUT"
         ? "CANCELLED"
         : "FAILED";
     this.options.repositories.updateGithubCredentialOperation({
@@ -951,10 +1025,10 @@ export class GithubServerService {
         operation.operationKind === "TEST_CONNECTION"
           ? "NEEDS_ATTENTION"
           : current.activeRef === undefined
-          ? result.reason.category === "SECURE_STORAGE"
-            ? "SECURE_STORAGE_UNAVAILABLE"
-            : "NEEDS_ATTENTION"
-          : "VERIFIED",
+            ? result.reason.category === "SECURE_STORAGE"
+              ? "SECURE_STORAGE_UNAVAILABLE"
+              : "NEEDS_ATTENTION"
+            : "VERIFIED",
       storeState: this.options.credentialStore.getStatus().state,
       activeRef: current.activeRef,
       activeRevision: current.activeRevision,
@@ -992,8 +1066,8 @@ export class GithubServerService {
       status:
         auth.activeRef === undefined
           ? failure.code === "STORE_UNAVAILABLE" ||
-              failure.code === "STORE_WEAK" ||
-              failure.code === "STORE_NOT_READY"
+            failure.code === "STORE_WEAK" ||
+            failure.code === "STORE_NOT_READY"
             ? "SECURE_STORAGE_UNAVAILABLE"
             : "NEEDS_ATTENTION"
           : "VERIFIED",
@@ -1035,7 +1109,9 @@ export class GithubServerService {
     } as const;
   }
 
-  private authOrDefault(profile: GithubServerProfileRecord): GithubServerAuthRecord {
+  private authOrDefault(
+    profile: GithubServerProfileRecord,
+  ): GithubServerAuthRecord {
     return (
       profile.auth ?? {
         serverId: profile.serverId,
@@ -1079,12 +1155,18 @@ export class GithubServerService {
       host: profile.host,
       status,
       version: profile.version,
-      ...(auth.activeRevision === undefined ? {} : { activeRevision: auth.activeRevision }),
+      ...(auth.activeRevision === undefined
+        ? {}
+        : { activeRevision: auth.activeRevision }),
       ...(auth.candidateRevision === undefined
         ? {}
         : { candidateRevision: auth.candidateRevision }),
-      ...(auth.accountLogin === undefined ? {} : { accountLogin: auth.accountLogin }),
-      ...(auth.accountName === undefined ? {} : { accountName: auth.accountName }),
+      ...(auth.accountLogin === undefined
+        ? {}
+        : { accountLogin: auth.accountLogin }),
+      ...(auth.accountName === undefined
+        ? {}
+        : { accountName: auth.accountName }),
       ...(auth.verifiedAt === undefined ? {} : { verifiedAt: auth.verifiedAt }),
       ...(auth.lastTestAt === undefined ? {} : { lastTestAt: auth.lastTestAt }),
       ...(auth.reason === undefined ? {} : { reason: auth.reason }),
