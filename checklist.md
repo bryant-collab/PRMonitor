@@ -118,7 +118,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Concurrent operation types cannot reuse/overwrite a worktree; proposed and context diffs are reproducible; manual edits are preserved; and unsafe overlap blocks **Clear Only AI Changes** instead of guessing.
   - **Primary application criteria:** APP-AC-10, APP-AC-37, APP-AC-39; supplies the snapshot/diff foundation for APP-AC-67.
 
-- [ ] **F14 - Deterministic validation runner and result model**
+- [x] **F14 - Deterministic validation runner and result model**
   - **Depends on:** F00, F03, F09, F13.
   - **Deliver:** Execute only validation allowed by F00's contract in the operation worktree; capture phase (`baseline`, `post_change`, or `both`), exact command, directory, times, exit code, bounded/redacted stdout/stderr, cancellation/timeout, and manual-test status. Persist and display `passed`, `failed`, `not_run`, and `interrupted`; never infer success from model prose.
   - **Exit:** Real baseline and post-change exit statuses survive restart and are consumable by Review Bundles, AI progress evaluation, and synchronization results, including explicit no-safe-command behavior.

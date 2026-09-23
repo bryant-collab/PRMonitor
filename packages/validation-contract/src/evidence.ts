@@ -35,8 +35,10 @@ export const validationReasonSchema = z.enum([
   "MANUAL_CHECK_FAILED",
   "MANUAL_CHECK_NOT_RUN",
   "NO_AUTOMATED_COMMANDS",
+  "PHASE_NOT_SELECTED",
   "SNAPSHOT_MISMATCH",
   "INVALID_TRANSITION",
+  "PROCESS_OUTCOME_UNCERTAIN",
 ]);
 
 export const manualOutcomeSchema = z.enum(["verified", "failed", "not_run"]);
@@ -199,6 +201,7 @@ export const commandStepEvidenceSchema = z
     kind: z.literal("command"),
     stepId: stableIdSchema,
     phase: validationPhaseSchema.optional(),
+    executedPhase: z.enum(["baseline", "post_change"]).optional(),
     status: z.enum([
       "pending",
       "running",
@@ -214,6 +217,8 @@ export const commandStepEvidenceSchema = z
     arguments: z.array(z.string()),
     canonicalWorkingDirectory: z.string().min(1).optional(),
     resolvedExecutable: z.string().min(1).optional(),
+    timeoutSeconds: z.number().int().positive().optional(),
+    outputLimitBytes: z.number().int().positive().optional(),
     exitCode: z.number().int().nullable().optional(),
     signal: z.string().min(1).nullable().optional(),
     stdout: outputEvidenceSchema.optional(),
@@ -286,6 +291,7 @@ export const commandStepEvidenceSchema = z
         "USER_CANCELLED",
         "APPLICATION_SHUTDOWN",
         "APPLICATION_RESTARTED",
+        "PROCESS_OUTCOME_UNCERTAIN",
       ].includes(step.reason ?? "")
     ) {
       context.addIssue({
@@ -309,6 +315,7 @@ export const manualStepEvidenceSchema = z
     kind: z.literal("manual"),
     stepId: stableIdSchema,
     phase: validationPhaseSchema.optional(),
+    executedPhase: z.enum(["baseline", "post_change"]).optional(),
     status: z.enum(["pending", "passed", "failed", "not_run"]),
     reason: validationReasonSchema.optional(),
     attestation: manualAttestationSchema.optional(),
@@ -503,7 +510,7 @@ export const validationRunEvidenceSchema = z
         if (
           step.status === "failed" ||
           step.status === "interrupted" ||
-          step.status === "not_run"
+          (step.status === "not_run" && step.reason !== "PHASE_NOT_SELECTED")
         ) {
           stopped = true;
         }
@@ -607,6 +614,19 @@ export function createInitialValidationRun(input: {
   };
 }
 
+/**
+ * A profile step tagged `both` is eligible in either phase.  F14 uses this
+ * helper when it creates separate baseline and post-change evidence sets so
+ * that the phase policy is shared rather than reimplemented by a consumer.
+ */
+export function isValidationStepEligible(
+  step: ValidationProfile["steps"][number],
+  requestedPhase: "baseline" | "post_change",
+): boolean {
+  const configuredPhase = step.phase ?? "post_change";
+  return configuredPhase === "both" || configuredPhase === requestedPhase;
+}
+
 export function createCommandStepEvidence(input: {
   prepared: PreparedCommand;
   startedAt: string;
@@ -635,6 +655,8 @@ export function createCommandStepEvidence(input: {
     arguments: [...input.prepared.arguments],
     canonicalWorkingDirectory: input.prepared.canonicalWorkingDirectory,
     resolvedExecutable: input.prepared.resolvedExecutable,
+    timeoutSeconds: input.prepared.timeoutSeconds,
+    outputLimitBytes: input.prepared.outputLimitBytes,
     ...(input.observation.exitCode === undefined
       ? {}
       : { exitCode: input.observation.exitCode }),
@@ -752,7 +774,8 @@ export function aggregateValidationEvidence(
       interruptedReason === "USER_CANCELLED" ||
       interruptedReason === "APPLICATION_SHUTDOWN" ||
       interruptedReason === "APPLICATION_RESTARTED" ||
-      interruptedReason === "TIMED_OUT"
+      interruptedReason === "TIMED_OUT" ||
+      interruptedReason === "PROCESS_OUTCOME_UNCERTAIN"
         ? interruptedReason
         : "TIMED_OUT";
     return { status: "interrupted", reason, automated, manual, warnings };

@@ -1117,6 +1117,85 @@ CREATE INDEX IF NOT EXISTS idx_f13_path_actions_operation
 PRAGMA user_version = 11;
 `;
 
+const MIGRATION_12 = `
+CREATE TABLE IF NOT EXISTS f14_validation_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL,
+  snapshot_projection_json TEXT NOT NULL,
+  snapshot_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (operation_id, snapshot_hash)
+);
+
+CREATE TABLE IF NOT EXISTS f14_validation_run_metadata (
+  run_id TEXT PRIMARY KEY REFERENCES validation_runs(run_id),
+  operation_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  correlation_id TEXT NOT NULL,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  consumer TEXT NOT NULL CHECK (consumer IN ('review', 'synchronization')),
+  requested_phase TEXT NOT NULL CHECK (requested_phase IN ('baseline', 'post_change', 'both')),
+  snapshot_id TEXT,
+  snapshot_hash TEXT,
+  resolution_status TEXT NOT NULL CHECK (resolution_status IN ('ready', 'unavailable', 'confirmation_required', 'invalid')),
+  status TEXT NOT NULL CHECK (status IN ('running', 'passed', 'failed', 'interrupted', 'not_run')),
+  reason_code TEXT,
+  warning_json TEXT NOT NULL DEFAULT '{}',
+  warning_hash TEXT NOT NULL DEFAULT '',
+  next_action TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f14_validation_runs_operation
+  ON f14_validation_run_metadata(operation_id, created_at, run_id);
+CREATE INDEX IF NOT EXISTS idx_f14_validation_runs_recovery
+  ON f14_validation_run_metadata(status, updated_at, run_id);
+
+CREATE TABLE IF NOT EXISTS f14_validation_steps (
+  run_id TEXT NOT NULL REFERENCES validation_runs(run_id),
+  ordinal INTEGER NOT NULL,
+  step_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('command', 'manual')),
+  configured_phase TEXT NOT NULL CHECK (configured_phase IN ('baseline', 'post_change', 'both')),
+  executed_phase TEXT CHECK (executed_phase IN ('baseline', 'post_change')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'interrupted', 'not_run')),
+  evidence_json TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, ordinal),
+  UNIQUE (run_id, step_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_f14_validation_steps_run
+  ON f14_validation_steps(run_id, ordinal);
+
+CREATE TABLE IF NOT EXISTS f14_validation_manual_attestations (
+  run_id TEXT NOT NULL REFERENCES validation_runs(run_id),
+  check_id TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('verified', 'failed', 'not_run')),
+  evidence_json TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, check_id)
+);
+
+CREATE TABLE IF NOT EXISTS f14_validation_warnings (
+  warning_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES validation_runs(run_id),
+  code TEXT NOT NULL,
+  warning_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (run_id, code)
+);
+
+PRAGMA user_version = 12;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1187,6 +1266,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F13-001-operation-owned-worktrees-and-evidence",
     sql: MIGRATION_11,
     checksum: checksum(MIGRATION_11),
+  },
+  {
+    version: 12,
+    id: "F14-001-deterministic-validation-evidence",
+    sql: MIGRATION_12,
+    checksum: checksum(MIGRATION_12),
   },
 ];
 

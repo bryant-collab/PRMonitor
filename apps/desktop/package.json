@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@openai/codex-sdk": "0.155.1",
+    "@prmonitor/validation-contract": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tabbable": "6.5.0"

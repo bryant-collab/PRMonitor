@@ -20,6 +20,7 @@ import {
   F11PersistenceRepositories,
   F12PersistenceRepositories,
   F13PersistenceRepositories,
+  F14ValidationRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -54,6 +55,7 @@ import type {
 } from "../shared/control-plane";
 import { F13WorktreeService } from "./f13-service";
 import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
+import { ValidationRunService } from "./f14-validation-runner";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -108,6 +110,7 @@ let f11EligibilityService: F11EligibilityService | undefined;
 let prWatcher: MainPrWatcher | undefined;
 let reviewScheduler: MainReviewScheduler | undefined;
 let f13WorktreeService: F13WorktreeService | undefined;
+let f14ValidationService: ValidationRunService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -325,6 +328,15 @@ async function initializeMainProcessPersistence(): Promise<void> {
     },
   });
   await f13WorktreeService.reconcileStartup();
+  const initializedF13WorktreeService = f13WorktreeService;
+  if (initializedF13WorktreeService === undefined)
+    throw new Error("PRMONITOR_F13_WORKTREE_SERVICE_NOT_READY");
+  f14ValidationService = new ValidationRunService({
+    repositories: new F14ValidationRepositories(persistenceStore),
+    worktrees: initializedF13WorktreeService,
+    activity: activityService?.writer,
+  });
+  await f14ValidationService.reconcileStartup();
   f11EligibilityService = new F11EligibilityService(
     new F11PersistenceRepositories(persistenceStore),
     { activity: activityService?.writer },
@@ -423,6 +435,11 @@ async function startMainProcess(): Promise<void> {
         start: () => reviewScheduler?.start(),
         stopAdmission: () => reviewScheduler?.stop(),
         boundedStop: () => reviewScheduler?.stop(),
+      },
+      {
+        name: "validation-runner",
+        stopAdmission: () => f14ValidationService?.shutdown(),
+        boundedStop: () => f14ValidationService?.shutdown(),
       },
     ],
   });
@@ -727,6 +744,8 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  void f14ValidationService?.shutdown();
+  f14ValidationService = undefined;
   prWatcher?.stop();
   prWatcher = undefined;
   reviewScheduler?.stop();

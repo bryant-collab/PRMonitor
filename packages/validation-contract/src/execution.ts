@@ -32,8 +32,10 @@ export type ValidationReason =
   | "MANUAL_CHECK_FAILED"
   | "MANUAL_CHECK_NOT_RUN"
   | "NO_AUTOMATED_COMMANDS"
+  | "PHASE_NOT_SELECTED"
   | "SNAPSHOT_MISMATCH"
-  | "INVALID_TRANSITION";
+  | "INVALID_TRANSITION"
+  | "PROCESS_OUTCOME_UNCERTAIN";
 
 export type StepState =
   "pending" | "running" | "passed" | "failed" | "interrupted" | "not_run";
@@ -627,6 +629,8 @@ export interface ExitObservation {
   exitCode?: number | null;
   signal?: string | null;
   startError?: boolean;
+  /** The process was started but its terminal outcome could not be observed safely. */
+  outcomeUncertain?: boolean;
   timedOut?: boolean;
   cancellationReason?: "USER_CANCELLED" | "APPLICATION_SHUTDOWN";
 }
@@ -639,6 +643,9 @@ export interface ExitStatus {
 export function statusFromExit(observation: ExitObservation): ExitStatus {
   if (observation.startError) {
     return { status: "failed", reason: "START_FAILED" };
+  }
+  if (observation.outcomeUncertain) {
+    return { status: "interrupted", reason: "PROCESS_OUTCOME_UNCERTAIN" };
   }
   if (observation.timedOut) {
     return { status: "interrupted", reason: "TIMED_OUT" };
