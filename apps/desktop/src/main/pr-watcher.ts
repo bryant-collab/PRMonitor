@@ -362,7 +362,7 @@ export class PrWatcher {
   private readonly clock: { now(): string };
   private timer: NodeJS.Timeout | undefined;
   private running = false;
-  private inFlight: Promise<F10PollRunResult> | undefined;
+  private readonly inFlight = new Map<string, Promise<F10PollRunResult>>();
 
   public constructor(private readonly options: PrWatcherOptions) {
     this.configuration = resolvePollingConfiguration(options.polling);
@@ -372,6 +372,13 @@ export class PrWatcher {
   public start(input: { readonly runImmediately?: boolean } = {}): void {
     if (this.running) return;
     this.running = true;
+    this.reconcileStartup();
+    this.schedule();
+    if (input.runImmediately === true) void this.run();
+  }
+
+  /** F12 owns the cadence, but F10 still performs its startup recovery. */
+  public reconcileStartup(): void {
     try {
       this.options.persistence.reconcileStartup(
         interruptedReason("f10-startup-reconcile"),
@@ -399,8 +406,6 @@ export class PrWatcher {
         { degraded: false },
       );
     }
-    this.schedule();
-    if (input.runImmediately === true) void this.run();
   }
 
   public stop(): void {
@@ -410,11 +415,24 @@ export class PrWatcher {
   }
 
   public run(signal?: AbortSignal): Promise<F10PollRunResult> {
-    if (this.inFlight !== undefined) return this.inFlight;
-    const execution = this.execute(signal).finally(() => {
-      this.inFlight = undefined;
+    return this.runForManagedPrs(undefined, signal);
+  }
+
+  /** F12 supplies a durable per-scope cadence; this method keeps F10 scoped. */
+  public runForManagedPrs(
+    managedPrIds: readonly string[] | undefined,
+    signal?: AbortSignal,
+  ): Promise<F10PollRunResult> {
+    const scope =
+      managedPrIds === undefined
+        ? "ALL"
+        : [...new Set(managedPrIds)].sort().join(",");
+    const existing = this.inFlight.get(scope);
+    if (existing !== undefined) return existing;
+    const execution = this.execute(signal, managedPrIds).finally(() => {
+      this.inFlight.delete(scope);
     });
-    this.inFlight = execution;
+    this.inFlight.set(scope, execution);
     return execution;
   }
 
@@ -428,12 +446,23 @@ export class PrWatcher {
     }, this.configuration.intervalMs);
   }
 
-  private async execute(signal?: AbortSignal): Promise<F10PollRunResult> {
+  private async execute(
+    signal: AbortSignal | undefined,
+    managedPrIds?: readonly string[],
+  ): Promise<F10PollRunResult> {
     if (signal?.aborted) throw new Error("F10_POLL_CANCELLED_BEFORE_INTENT");
     const startedAt = timestamp(this.clock);
     const correlationId = identifier("f10-poll");
     const runId = identifier("f10-run");
-    const managedPrs = readSource(this.options.managedPrs);
+    const allManagedPrs = readSource(this.options.managedPrs);
+    const managedPrScope =
+      managedPrIds === undefined ? undefined : new Set(managedPrIds);
+    const managedPrs =
+      managedPrScope === undefined
+        ? allManagedPrs
+        : allManagedPrs.filter((managedPr: ManagedPrReadModel) =>
+            managedPrScope.has(managedPr.id),
+          );
     const scopes = managedPrs.flatMap((managedPr) =>
       pollingScopesForManagedPr(managedPr),
     );

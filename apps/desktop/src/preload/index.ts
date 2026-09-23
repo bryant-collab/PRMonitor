@@ -9,6 +9,7 @@ import {
   type PrMonitorPreloadApi,
 } from "../shared/ipc";
 import type { ActivityEventView, ActivityQuery } from "../shared/activity";
+import type { F12SchedulerConfigurationInput } from "../shared/control-plane";
 import type { GithubServerProfileInput } from "../shared/github-server";
 import type {
   ManagedPrAddInput,
@@ -30,6 +31,9 @@ function invoke(
     | Record<string, never>
     | { readonly sessionId: string }
     | { readonly command: "Shutdown PRMonitor" }
+    | { readonly managedPrId?: string }
+    | { readonly expectedRevision?: number }
+    | (F12SchedulerConfigurationInput & { readonly expectedRevision?: number })
     | GithubServerProfileInput
     | { readonly serverId: string; readonly token: string }
     | { readonly serverId: string }
@@ -58,6 +62,15 @@ const api: PrMonitorPreloadApi = {
   getLifecycleStatus: () => invoke("lifecycle.status", {}),
   requestShutdown: () =>
     invoke("lifecycle.shutdown", { command: "Shutdown PRMonitor" }),
+  readScheduler: () => invoke("scheduler.read", {}),
+  saveSchedulerConfiguration: (input) =>
+    invoke("scheduler.configuration.save", input),
+  checkSchedulerNow: (managedPrId) =>
+    invoke("scheduler.check-now", managedPrId === undefined ? {} : { managedPrId }),
+  pauseWatching: (expectedRevision) =>
+    invoke("scheduler.pause", expectedRevision === undefined ? {} : { expectedRevision }),
+  resumeWatching: (expectedRevision) =>
+    invoke("scheduler.resume", expectedRevision === undefined ? {} : { expectedRevision }),
   readGithubSettings: () => invoke("github.settings.read", {}),
   upsertGithubProfile: (input) => invoke("github.profile.upsert", input),
   submitGithubCredential: (serverId, token) =>

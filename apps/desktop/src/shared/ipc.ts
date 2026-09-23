@@ -32,6 +32,17 @@ import {
   type ActivityQuery,
   type ActivityQuerySnapshot,
 } from "./activity";
+import {
+  isF12SchedulerControlResult,
+  isF12SchedulerSnapshot,
+  MAX_F12_INTERVAL_MS,
+  MAX_F12_MAX_CONCURRENT_PRS,
+  MAX_F12_QUIET_PERIOD_MS,
+  MIN_F12_INTERVAL_MS,
+  type F12SchedulerControlResult,
+  type F12SchedulerConfigurationInput,
+  type F12SchedulerSnapshot,
+} from "./control-plane";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -49,6 +60,11 @@ export type IpcRequestType =
   | "app.read-current-state"
   | "lifecycle.status"
   | "lifecycle.shutdown"
+  | "scheduler.read"
+  | "scheduler.configuration.save"
+  | "scheduler.check-now"
+  | "scheduler.pause"
+  | "scheduler.resume"
   | "github.settings.read"
   | "github.profile.upsert"
   | "github.credential.submit"
@@ -94,6 +110,24 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "lifecycle.shutdown";
       readonly payload: { readonly command: "Shutdown PRMonitor" };
+    })
+  | (IpcRequestBase & {
+      readonly type: "scheduler.read";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "scheduler.configuration.save";
+      readonly payload: F12SchedulerConfigurationInput & {
+        readonly expectedRevision?: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "scheduler.check-now";
+      readonly payload: { readonly managedPrId?: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "scheduler.pause" | "scheduler.resume";
+      readonly payload: { readonly expectedRevision?: number };
     })
   | (IpcRequestBase & {
       readonly type: "github.settings.read";
@@ -232,6 +266,8 @@ export type IpcResponseValue =
   | { readonly kind: "current-state"; readonly state: CurrentState }
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
+  | { readonly kind: "scheduler-snapshot"; readonly snapshot: F12SchedulerSnapshot }
+  | { readonly kind: "scheduler-operation"; readonly operation: F12SchedulerControlResult }
   | { readonly kind: "github-settings"; readonly settings: GithubServerSettingsView }
   | { readonly kind: "github-profile"; readonly profile: GithubServerProfileView }
   | {
@@ -479,6 +515,16 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "status"]) &&
       parseLifecycleStatus(value.status)
     );
+  if (value.kind === "scheduler-snapshot")
+    return (
+      hasExactKeys(value, ["kind", "snapshot"]) &&
+      isF12SchedulerSnapshot(value.snapshot)
+    );
+  if (value.kind === "scheduler-operation")
+    return (
+      hasExactKeys(value, ["kind", "operation"]) &&
+      isF12SchedulerControlResult(value.operation)
+    );
   if (value.kind === "github-settings")
     return (
       hasExactKeys(value, ["kind", "settings"]) &&
@@ -607,6 +653,110 @@ export function parseIpcRequest(
         ...base,
         type: value.type,
         payload: { command: "Shutdown PRMonitor" },
+      },
+    };
+  }
+  if (value.type === "scheduler.read") {
+    if (Object.keys(value.payload).length !== 0)
+      return invalidRequest("The scheduler read does not accept a payload.");
+    return { ok: true, value: { ...base, type: value.type, payload: {} } };
+  }
+  if (value.type === "scheduler.configuration.save") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        [],
+        [
+          "intervalMs",
+          "quietPeriodMs",
+          "maxConcurrentPrs",
+          "readOnlyPollWhilePaused",
+          "expectedRevision",
+        ],
+      ) ||
+      (value.payload.intervalMs !== undefined &&
+        (typeof value.payload.intervalMs !== "number" ||
+          !Number.isSafeInteger(value.payload.intervalMs) ||
+          value.payload.intervalMs < MIN_F12_INTERVAL_MS ||
+          value.payload.intervalMs > MAX_F12_INTERVAL_MS)) ||
+      (value.payload.quietPeriodMs !== undefined &&
+        (typeof value.payload.quietPeriodMs !== "number" ||
+          !Number.isSafeInteger(value.payload.quietPeriodMs) ||
+          value.payload.quietPeriodMs < MIN_F12_INTERVAL_MS ||
+          value.payload.quietPeriodMs > MAX_F12_QUIET_PERIOD_MS)) ||
+      (value.payload.maxConcurrentPrs !== undefined &&
+        (typeof value.payload.maxConcurrentPrs !== "number" ||
+          !Number.isSafeInteger(value.payload.maxConcurrentPrs) ||
+          value.payload.maxConcurrentPrs < 1 ||
+          value.payload.maxConcurrentPrs > MAX_F12_MAX_CONCURRENT_PRS)) ||
+      (value.payload.readOnlyPollWhilePaused !== undefined &&
+        typeof value.payload.readOnlyPollWhilePaused !== "boolean") ||
+      (value.payload.expectedRevision !== undefined &&
+        !safeVersion(value.payload.expectedRevision))
+    )
+      return invalidRequest("The scheduler configuration is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          ...(value.payload.intervalMs === undefined
+            ? {}
+            : { intervalMs: value.payload.intervalMs }),
+          ...(value.payload.quietPeriodMs === undefined
+            ? {}
+            : { quietPeriodMs: value.payload.quietPeriodMs }),
+          ...(value.payload.maxConcurrentPrs === undefined
+            ? {}
+            : { maxConcurrentPrs: value.payload.maxConcurrentPrs }),
+          ...(value.payload.readOnlyPollWhilePaused === undefined
+            ? {}
+            : { readOnlyPollWhilePaused: value.payload.readOnlyPollWhilePaused }),
+          ...(value.payload.expectedRevision === undefined
+            ? {}
+            : { expectedRevision: value.payload.expectedRevision }),
+        },
+      },
+    };
+  }
+  if (value.type === "scheduler.check-now") {
+    if (
+      !hasExactKeys(value.payload, [], ["managedPrId"]) ||
+      (value.payload.managedPrId !== undefined &&
+        !safeGithubIdentifier(value.payload.managedPrId))
+    )
+      return invalidRequest("The Check Now scope is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          ...(value.payload.managedPrId === undefined
+            ? {}
+            : { managedPrId: value.payload.managedPrId }),
+        },
+      },
+    };
+  }
+  if (value.type === "scheduler.pause" || value.type === "scheduler.resume") {
+    if (
+      !hasExactKeys(value.payload, [], ["expectedRevision"]) ||
+      (value.payload.expectedRevision !== undefined &&
+        !safeVersion(value.payload.expectedRevision))
+    )
+      return invalidRequest("The scheduler revision is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          ...(value.payload.expectedRevision === undefined
+            ? {}
+            : { expectedRevision: value.payload.expectedRevision }),
+        },
       },
     };
   }
@@ -952,6 +1102,13 @@ export interface PrMonitorPreloadApi {
   readonly readCurrentState: () => Promise<IpcResponse>;
   readonly getLifecycleStatus: () => Promise<IpcResponse>;
   readonly requestShutdown: () => Promise<IpcResponse>;
+  readonly readScheduler: () => Promise<IpcResponse>;
+  readonly saveSchedulerConfiguration: (
+    input: F12SchedulerConfigurationInput & { readonly expectedRevision?: number },
+  ) => Promise<IpcResponse>;
+  readonly checkSchedulerNow: (managedPrId?: string) => Promise<IpcResponse>;
+  readonly pauseWatching: (expectedRevision?: number) => Promise<IpcResponse>;
+  readonly resumeWatching: (expectedRevision?: number) => Promise<IpcResponse>;
   readonly readGithubSettings: () => Promise<IpcResponse>;
   readonly upsertGithubProfile: (
     input: GithubServerProfileInput,

@@ -16,6 +16,7 @@ import {
   createF07PersistenceRepositories,
   F10PersistenceRepositories,
   F11PersistenceRepositories,
+  F12PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -42,6 +43,45 @@ import {
 } from "./managed-pr-inbox-service";
 import { ActivityService } from "./activity-service";
 import { F11EligibilityService } from "./f11-eligibility-service";
+import type { F10PollRunResult } from "./pr-polling-contracts";
+import type {
+  F12SchedulerConfigurationInput,
+  F12SchedulerControlResult,
+  F12SchedulerSnapshot,
+} from "../shared/control-plane";
+
+interface MainPrWatcher {
+  readonly reconcileStartup: () => void;
+  readonly runForManagedPrs: (
+    managedPrIds: readonly string[] | undefined,
+    signal?: AbortSignal,
+  ) => Promise<F10PollRunResult>;
+  readonly stop: () => void;
+}
+
+interface MainReviewScheduler {
+  readonly start: () => void;
+  readonly stop: () => void;
+  readonly read: () => F12SchedulerSnapshot;
+  readonly checkNow: (input: {
+    readonly requestId: string;
+    readonly managedPrId?: string;
+  }) => Promise<F12SchedulerControlResult>;
+  readonly pauseWatching: (input: {
+    readonly requestId: string;
+    readonly expectedRevision?: number;
+  }) => F12SchedulerControlResult;
+  readonly resumeWatching: (input: {
+    readonly requestId: string;
+    readonly expectedRevision?: number;
+  }) => F12SchedulerControlResult;
+  readonly updateConfiguration: (input: {
+    readonly actor: string;
+    readonly requestId: string;
+    readonly configuration: F12SchedulerConfigurationInput;
+    readonly expectedRevision?: number;
+  }) => F12SchedulerSnapshot;
+}
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
@@ -60,8 +100,8 @@ let managedPrService: ManagedPrService | undefined;
 let managedPrInboxService: ManagedPrInboxService | undefined;
 let activityService: ActivityService | undefined;
 let f11EligibilityService: F11EligibilityService | undefined;
-let prWatcher:
-  { readonly start: () => void; readonly stop: () => void } | undefined;
+let prWatcher: MainPrWatcher | undefined;
+let reviewScheduler: MainReviewScheduler | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -280,19 +320,37 @@ async function initializeMainProcessPersistence(): Promise<void> {
     },
   });
   managedPrService.reconcileStartup();
+  const f10Persistence = new F10PersistenceRepositories(persistenceStore, {
+    f03Repositories,
+    activity: activityService?.writer,
+  });
   const { PrWatcher } = await import("./pr-watcher");
+  const { ReviewScheduler } = await import("./review-scheduler");
   prWatcher = new PrWatcher({
     managedPrs: {
       listManagedPrs: () => f07Repositories.listManagedPrs(),
     },
-    persistence: new F10PersistenceRepositories(persistenceStore, {
-      f03Repositories,
-      activity: activityService?.writer,
-    }),
+    persistence: f10Persistence,
     githubClientForServer: (serverId) =>
       githubServerService?.getReadClient(serverId),
     profileForServerId: (serverId) =>
       githubServerService?.getVerifiedProfile(serverId),
+    activity: activityService?.writer,
+  });
+  prWatcher.reconcileStartup();
+  reviewScheduler = new ReviewScheduler({
+    managedPrs: {
+      listManagedPrs: () => f07Repositories.listManagedPrs(),
+    },
+    persistence: new F12PersistenceRepositories(persistenceStore),
+    poller: {
+      poll: ({ managedPrIds, signal }) => {
+        if (prWatcher === undefined)
+          return Promise.reject(new Error("PRMONITOR_PR_WATCHER_NOT_READY"));
+        return prWatcher.runForManagedPrs(managedPrIds, signal);
+      },
+    },
+    eligibility: f11EligibilityService,
     activity: activityService?.writer,
   });
 }
@@ -321,14 +379,20 @@ async function startMainProcess(): Promise<void> {
       persistenceRepositories,
       activityService?.writer,
     ),
+    services: [
+      {
+        name: "review-scheduler",
+        start: () => reviewScheduler?.start(),
+        stopAdmission: () => reviewScheduler?.stop(),
+        boundedStop: () => reviewScheduler?.stop(),
+      },
+    ],
   });
   const started = await lifecycle.start();
   if (!started.ok)
     throw new Error(
       started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
     );
-  prWatcher?.start();
-
   const refreshManagedPrInbox = (): void => {
     try {
       managedPrInboxService?.refresh();
@@ -341,6 +405,38 @@ async function startMainProcess(): Promise<void> {
   ipcRouter = new IpcRouter(ipcMain, {
     readCurrentState: () => createCurrentState(),
     getLifecycleStatus: () => lifecycle?.getStatus() ?? started.status,
+    readScheduler: () => {
+      if (reviewScheduler === undefined)
+        throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+      return reviewScheduler.read();
+    },
+    updateSchedulerConfiguration: (input) => {
+      if (reviewScheduler === undefined)
+        throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+      return reviewScheduler.updateConfiguration({
+        actor: "USER",
+        requestId: input.requestId,
+        configuration: input.configuration,
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
+      });
+    },
+    checkSchedulerNow: (input) => {
+      if (reviewScheduler === undefined)
+        return Promise.reject(new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY"));
+      return reviewScheduler.checkNow(input);
+    },
+    pauseWatching: (input) => {
+      if (reviewScheduler === undefined)
+        throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+      return reviewScheduler.pauseWatching(input);
+    },
+    resumeWatching: (input) => {
+      if (reviewScheduler === undefined)
+        throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+      return reviewScheduler.resumeWatching(input);
+    },
     requestShutdown: async () => {
       const result = await lifecycle?.requestShutdown();
       if (result?.ok) windowManager?.closeForShutdown();
@@ -595,6 +691,8 @@ if (primaryInstance.acquire(process.argv)) {
 app.on("will-quit", () => {
   prWatcher?.stop();
   prWatcher = undefined;
+  reviewScheduler?.stop();
+  reviewScheduler = undefined;
   githubServerService = undefined;
   managedPrService = undefined;
   persistenceStore?.close();

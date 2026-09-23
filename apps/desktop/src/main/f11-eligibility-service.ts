@@ -300,6 +300,18 @@ export class F11EligibilityService {
     return this.persistence.listRetainedVersionIds(managedPrId);
   }
 
+  /** Scheduler read port: F12 never reimplements F11 hold/claim ownership. */
+  public getActiveHold(managedPrId: string): F11HoldRecord | undefined {
+    return this.persistence.getActiveHold(managedPrId);
+  }
+
+  /** Scheduler read port: F12 uses this only to gate a second automatic claim. */
+  public getActiveClaim(
+    managedPrId: string,
+  ): F11AutomaticClaimRecord | undefined {
+    return this.persistence.getActiveClaim(managedPrId);
+  }
+
   /** Claims before downstream work. A caller can retry with the same operation/bundle IDs safely. */
   public claimAutomatic(input: F11ClaimRequest): F11ClaimView {
     const activeClaim = this.persistence.getActiveClaim(input.managedPrId);

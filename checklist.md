@@ -104,7 +104,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Duplicate delivery never triggers duplicate analysis; holds survive UI closure/restart; background work cannot mutate a held bundle worktree; and releasing a hold schedules only still-unhandled versions.
   - **Primary application criteria:** APP-AC-07, APP-AC-16, APP-AC-24, APP-AC-25.
 
-- [ ] **F12 - Review batching, scheduler, Check Now, and global pause**
+- [x] **F12 - Review batching, scheduler, Check Now, and global pause**
   - **Depends on:** F10-F11.
   - **Deliver:** Add a persisted, configurable quiet-period batcher (10-minute default), job scheduling/recovery, manual **Check Now**, and global **Pause Watching**. Restart the debounce on new eligible feedback, avoid empty/duplicate batches, prevent paused automatic dispatch, and allow explicitly initiated work and permitted lightweight polling to follow the overview's pause rules.
   - **Exit:** Bursty comments produce one batch, timers recover after restart/sleep, pause prevents new automatic AI work without hiding state or cancelling user-started synchronization, and no batching code invokes AI.

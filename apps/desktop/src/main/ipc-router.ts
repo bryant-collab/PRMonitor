@@ -32,6 +32,11 @@ import {
   type ManagedPrInboxReadModel,
 } from "../shared/inbox";
 import type { ManagedPrNavigationDestination } from "../shared/routing";
+import type {
+  F12SchedulerConfigurationInput,
+  F12SchedulerControlResult,
+  F12SchedulerSnapshot,
+} from "../shared/control-plane";
 import {
   isActivityEvent,
   matchesActivityQuery,
@@ -64,6 +69,24 @@ export interface IpcServices {
     readonly ok: boolean;
     readonly error?: IpcError;
   }>;
+  readonly readScheduler?: () => F12SchedulerSnapshot;
+  readonly updateSchedulerConfiguration?: (input: {
+    readonly requestId: string;
+    readonly configuration: F12SchedulerConfigurationInput;
+    readonly expectedRevision?: number;
+  }) => F12SchedulerSnapshot;
+  readonly checkSchedulerNow?: (input: {
+    readonly requestId: string;
+    readonly managedPrId?: string;
+  }) => Promise<F12SchedulerControlResult>;
+  readonly pauseWatching?: (input: {
+    readonly requestId: string;
+    readonly expectedRevision?: number;
+  }) => F12SchedulerControlResult;
+  readonly resumeWatching?: (input: {
+    readonly requestId: string;
+    readonly expectedRevision?: number;
+  }) => F12SchedulerControlResult;
   readonly readGithubSettings?: () => GithubServerSettingsView;
   readonly upsertGithubProfile?: (
     input: GithubServerProfileInput,
@@ -256,6 +279,82 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "shutdown",
             status: result.status,
+          }),
+        );
+      }
+      if (request.type === "scheduler.read") {
+        if (this.services.readScheduler === undefined)
+          throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "scheduler-snapshot",
+            snapshot: this.services.readScheduler(),
+          }),
+        );
+      }
+      if (request.type === "scheduler.configuration.save") {
+        if (this.services.updateSchedulerConfiguration === undefined)
+          throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+        const snapshot = this.services.updateSchedulerConfiguration({
+          requestId: request.requestId,
+          configuration: {
+            ...(request.payload.intervalMs === undefined
+              ? {}
+              : { intervalMs: request.payload.intervalMs }),
+            ...(request.payload.quietPeriodMs === undefined
+              ? {}
+              : { quietPeriodMs: request.payload.quietPeriodMs }),
+            ...(request.payload.maxConcurrentPrs === undefined
+              ? {}
+              : { maxConcurrentPrs: request.payload.maxConcurrentPrs }),
+            ...(request.payload.readOnlyPollWhilePaused === undefined
+              ? {}
+              : { readOnlyPollWhilePaused: request.payload.readOnlyPollWhilePaused }),
+          },
+          ...(request.payload.expectedRevision === undefined
+            ? {}
+            : { expectedRevision: request.payload.expectedRevision }),
+        });
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "scheduler-snapshot",
+            snapshot,
+          }),
+        );
+      }
+      if (request.type === "scheduler.check-now") {
+        if (this.services.checkSchedulerNow === undefined)
+          throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+        const operation = await this.services.checkSchedulerNow({
+          requestId: request.requestId,
+          ...(request.payload.managedPrId === undefined
+            ? {}
+            : { managedPrId: request.payload.managedPrId }),
+        });
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "scheduler-operation",
+            operation,
+          }),
+        );
+      }
+      if (request.type === "scheduler.pause" || request.type === "scheduler.resume") {
+        const handler =
+          request.type === "scheduler.pause"
+            ? this.services.pauseWatching
+            : this.services.resumeWatching;
+        if (handler === undefined)
+          throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+        const operation = handler({
+          requestId: request.requestId,
+          ...(request.payload.expectedRevision === undefined
+            ? {}
+            : { expectedRevision: request.payload.expectedRevision }),
+        });
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "scheduler-operation",
+            operation,
           }),
         );
       }

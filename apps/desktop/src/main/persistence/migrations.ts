@@ -895,6 +895,117 @@ CREATE INDEX IF NOT EXISTS idx_f11_history_event
 PRAGMA user_version = 9;
 `;
 
+const MIGRATION_10 = `
+CREATE TABLE IF NOT EXISTS f12_scheduler_state (
+  state_id INTEGER PRIMARY KEY CHECK (state_id = 1),
+  poll_interval_ms INTEGER NOT NULL,
+  quiet_period_ms INTEGER NOT NULL,
+  max_concurrent_prs INTEGER NOT NULL,
+  read_only_poll_while_paused INTEGER NOT NULL CHECK (read_only_poll_while_paused IN (0, 1)),
+  paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+  revision INTEGER NOT NULL,
+  changed_at TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f12_schedule_slots (
+  managed_pr_id TEXT PRIMARY KEY REFERENCES managed_prs(managed_pr_id),
+  state TEXT NOT NULL CHECK (state IN ('IDLE', 'RUNNING')),
+  next_due_at TEXT NOT NULL,
+  retry_at TEXT,
+  retry_attempt INTEGER NOT NULL DEFAULT 0,
+  last_request_id TEXT,
+  last_outcome TEXT,
+  reason_json TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f12_schedule_due
+  ON f12_schedule_slots(state, next_due_at, retry_at, managed_pr_id);
+
+CREATE TABLE IF NOT EXISTS f12_poll_requests (
+  request_id TEXT PRIMARY KEY,
+  scope_key TEXT NOT NULL,
+  managed_pr_ids_json TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('SCHEDULED', 'CHECK_NOW', 'RECOVERY')),
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNCERTAIN')),
+  scheduler_revision INTEGER NOT NULL,
+  reason_json TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE (request_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_f12_poll_requests_active
+  ON f12_poll_requests(status, scope_key, updated_at);
+
+CREATE TABLE IF NOT EXISTS f12_review_batches (
+  batch_id TEXT PRIMARY KEY REFERENCES review_batches(batch_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  state TEXT NOT NULL CHECK (state IN ('PENDING', 'READY', 'DISPATCHING', 'DISPATCHED', 'DEFERRED', 'FAILED', 'CANCELLED')),
+  quiet_period_ms INTEGER NOT NULL,
+  first_eligible_at TEXT NOT NULL,
+  last_eligible_at TEXT NOT NULL,
+  deadline_at TEXT NOT NULL,
+  scheduler_revision INTEGER NOT NULL,
+  dispatch_intent_id TEXT,
+  claim_id TEXT,
+  operation_id TEXT,
+  bundle_id TEXT,
+  reason_json TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS f12_one_open_batch_per_pr
+  ON f12_review_batches(managed_pr_id)
+  WHERE state IN ('PENDING', 'READY', 'DISPATCHING', 'DEFERRED');
+CREATE INDEX IF NOT EXISTS idx_f12_batches_deadline
+  ON f12_review_batches(state, deadline_at, managed_pr_id);
+
+CREATE TABLE IF NOT EXISTS f12_review_batch_members (
+  batch_id TEXT NOT NULL REFERENCES f12_review_batches(batch_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  event_version_id TEXT NOT NULL REFERENCES remote_event_versions(event_version_id),
+  first_eligible_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (batch_id, event_version_id),
+  UNIQUE (managed_pr_id, event_version_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_f12_batch_members_pr
+  ON f12_review_batch_members(managed_pr_id, created_at, event_version_id);
+
+CREATE TABLE IF NOT EXISTS f12_dispatch_intents (
+  intent_id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL UNIQUE REFERENCES f12_review_batches(batch_id),
+  managed_pr_id TEXT NOT NULL REFERENCES managed_prs(managed_pr_id),
+  event_version_ids_json TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  bundle_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'CLAIMED', 'HANDED_OFF', 'DEFERRED', 'FAILED', 'UNCERTAIN')),
+  scheduler_revision INTEGER NOT NULL,
+  claim_id TEXT,
+  hold_id TEXT,
+  reason_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f12_dispatch_recovery
+  ON f12_dispatch_intents(status, updated_at, managed_pr_id);
+
+PRAGMA user_version = 10;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -953,6 +1064,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F11-001-eligibility-claims-and-holds",
     sql: MIGRATION_9,
     checksum: checksum(MIGRATION_9),
+  },
+  {
+    version: 10,
+    id: "F12-001-review-scheduler-control-plane",
+    sql: MIGRATION_10,
+    checksum: checksum(MIGRATION_10),
   },
 ];
 
