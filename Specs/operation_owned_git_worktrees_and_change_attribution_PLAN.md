@@ -5,11 +5,11 @@ There might be slices that are needed to describe work that doesn't extend throu
 
 # Plan: F13 Operation-owned Git Worktrees and Change Attribution
 
-> **Document status:** Architecture-stage draft | Active implementation PLAN
+> **Document status:** Implemented worktree foundation and F15 adapter-handoff conformance
 >
 > **Owning PRD:** `Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md`
 >
-> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-21 and F13 PRD revision 2026-09-23
+> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-23, F13 PRD, and F15 approved ownership split revision 2026-09-23
 >
 > **Entry/readiness gates:** F03 exposes transactional worktree/diff/operation repositories, uniqueness, expected-version conflicts, bounded JSON codecs, and restart-safe records. F04 exposes the main-process/OS adapter boundary. F07 exposes a validated base clone or a typed `LOCAL_CLONE_REQUIRED` setup block plus explicit server/repository/base/head identities. F11/F12 expose held operation ownership, batch/operation identities, and automatic-versus-explicit dispatch semantics. The test harness can create temporary Git repositories, concurrent operation requests, dirty/manual edits, binary/rename/delete cases, cancellation, process interruption, persistence faults, renderer absence, and OS-action fakes.
 >
@@ -103,7 +103,7 @@ database or treat a free-form payload/activity event as authoritative state.
    - **Durable records / external effects:** Uses temporary repositories, application-owned temporary roots, test databases, bounded activity/evidence reports, and OS/Git fakes. It does not edit `checklist.md`, use real GitHub credentials, invoke an AI provider, publish code, or contact a real remote.
    - **Failure / cancellation / restart:** Any developer-clone mutation, duplicate path, guessed ref, false clean/clear result, unsafe overlap mutation, secret leak, forbidden capability, missing evidence, or definite coverage-linter miss blocks the gate. A cancelled run leaves no success marker and can be rerun from fresh fixtures.
    - **Exact evidence:** `npm run check`; F13 contract tests and temporary-repository reports; developer-clone before/after hashes; import/secret/arbitrary-command scan; `git diff --check`; `npm run lint:prd-plan -- Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md Specs/operation_owned_git_worktrees_and_change_attribution_PLAN.md`; `npm run lint:application-coverage -- Specs/application_overview.md Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md`.
-   - **Exit criterion:** All F13 requirements have direct acceptance or contract-test evidence, both specification linters report no definite missing/invalid result, and F13 remains unchecked pending implementation approval and completion.
+   - **Exit criterion:** All F13 requirements have direct acceptance or contract-test evidence, both specification linters report no definite missing/invalid result, and the validated provider handoff plus negative path/provider-claim tests pass.
 
 ## Cross-Slice Verification and Handoff
 
@@ -112,13 +112,14 @@ database or treat a free-form payload/activity event as authoritative state.
 - F04 remains authoritative for renderer lifecycle and OS open/reveal actions. F13 validates canonical targets and supplies a typed request; it does not construct shell strings in the renderer.
 - F06/F07 remain authoritative for server/repository identity, PR base/head metadata, and the developer-clone setup. F13 never picks a default branch or same-named branch as a substitute and returns `LOCAL_CLONE_REQUIRED` when there is no approved source.
 - F11/F12 remain authoritative for review holds, automatic-batch ownership, and automatic-versus-explicit admission. F13 revalidates owner/operation inputs before local effects but does not release holds or start work.
+- Approved F15 handoff: F13 supplies the canonical operation-owned worktree reference and actual-state evidence; F15 may use it for provider execution but cannot create/select another path, change ownership, or make provider-reported file/command claims authoritative. The immutable handoff and adapter-facing negative tests are proven; the production adapter remains F15-owned.
 - F14 owns validation authorization and execution. F13 only reports actual worktree state and must never treat a model claim or Git command suggestion as validation authority.
 - F15-F18/F21/F17 own provider invocation, policy, turn budgeting, review proposals, and semantic change requests. F13 stores deterministic snapshots and enforces the local path boundary without importing provider SDKs.
 - F19/F20/F22 own notifications, diff UI, settings presentation, destructive confirmations, discard, and re-evaluate orchestration. F13 supplies exact records and refuses unsafe clear operations.
 - F24-F27 own synchronization selection, merge, conflict resolution, validation, and publication. F13 provides only an independent worktree and evidence boundary.
 - F23/F27 own commits, pushes, GitHub responses, and publication. F13's proposed diff is evidence, not publication authorization.
 - F28-F30 own full startup/sleep/network recovery, threat-model hardening, packaging, and clean-machine acceptance. F13 supplies concrete operation/path/reconciliation evidence.
-- The F13 checklist item remains unchecked. This specification phase creates only the PRD/PLAN pair and does not claim that worktree isolation, change attribution, validation, AI work, or publication is implemented.
+- The F13 checklist item is checked for the implemented worktree isolation, change attribution, and provider handoff. F15 still owns provider invocation and publication remains downstream.
 
 ## Requirement-to-Slice Trace
 

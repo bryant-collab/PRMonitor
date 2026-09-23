@@ -268,10 +268,68 @@ export interface F13InspectionResult {
   readonly reason?: F13SafeReason;
 }
 
+export type F13ProviderAccess = "READ_ONLY" | "WORKTREE_WRITE";
+
+export interface F13ProviderActualStateEvidence {
+  readonly snapshotId: string;
+  readonly stateFingerprint: string;
+  readonly baselineRevision: string;
+  readonly expectedHeadRevision: string;
+  readonly currentHeadRevision?: string;
+  readonly files: readonly {
+    readonly path: string;
+    readonly kind: F13FileEvidence["kind"];
+    readonly staged: boolean;
+    readonly worktreeChanged: boolean;
+    readonly oldPath?: string;
+    readonly contentHash?: string;
+    readonly sizeBytes?: number;
+    readonly binary?: boolean;
+  }[];
+  readonly ignoredFiles: readonly string[];
+  readonly complete: boolean;
+}
+
+/**
+ * F13's immutable input to a provider adapter.  The adapter receives the
+ * canonical operation-owned path and actual-state evidence, but it cannot
+ * submit a path, Git claim, or publication action back through this record.
+ */
+export interface F13ProviderWorktreeHandoff {
+  readonly schemaVersion: 1;
+  readonly operationId: string;
+  readonly worktreeId: string;
+  readonly ownerType: string;
+  readonly ownerId: string;
+  readonly operationKind: F13OperationKind;
+  readonly canonicalPath: string;
+  readonly access: F13ProviderAccess;
+  readonly ownership: {
+    readonly kind: "OPERATION_OWNED";
+    readonly ownerType: string;
+    readonly ownerId: string;
+  };
+  readonly actualState: F13ProviderActualStateEvidence;
+  readonly permittedCapabilities: {
+    readonly readFiles: true;
+    readonly writeFiles: boolean;
+    readonly executeCommands: false;
+    readonly network: false;
+    readonly publication: false;
+  };
+}
+
+export interface F13ProviderWorktreeHandoffResult {
+  readonly ok: boolean;
+  readonly handoff?: F13ProviderWorktreeHandoff;
+  readonly reason?: F13SafeReason;
+}
+
 export interface F13AiTurnBeforeResult {
   readonly ok: boolean;
   readonly snapshot?: F13SnapshotRecord;
   readonly mutationRoot?: string;
+  readonly worktree?: F13ProviderWorktreeHandoff;
   readonly reason?: F13SafeReason;
 }
 
@@ -280,6 +338,7 @@ export interface F13AiTurnAfterResult {
   readonly beforeSnapshotId: string;
   readonly snapshot?: F13SnapshotRecord;
   readonly changeSummary?: F13ChangeSummary;
+  readonly worktree?: F13ProviderWorktreeHandoff;
   readonly reason?: F13SafeReason;
 }
 

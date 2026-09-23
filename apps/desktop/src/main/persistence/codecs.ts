@@ -9,6 +9,14 @@ import {
 
 const UNSAFE_KEY =
   /(?:token|secret|password|credential|authorization|cookie|prompt|api[_.-]?key|access[_.-]?key|sdk|exception|environment|env)/iu;
+const SAFE_USAGE_KEYS = new Set([
+  "inputTokens",
+  "cachedInputTokens",
+  "cacheWriteInputTokens",
+  "outputTokens",
+  "reasoningOutputTokens",
+  "totalTokens",
+]);
 
 type SafeJsonPrimitive = string | number | boolean | null;
 export type SafeJsonValue =
@@ -106,7 +114,7 @@ function toSafeJson(
   const result: Record<string, SafeJsonValue> = {};
   for (const [key, item] of Object.entries(value)) {
     assertSafeText(key, `${path} key`);
-    if (UNSAFE_KEY.test(key)) {
+    if (UNSAFE_KEY.test(key) && !SAFE_USAGE_KEYS.has(key)) {
       fail(
         "SECURITY_VIOLATION",
         `The persistence field ${key} is not allowed.`,

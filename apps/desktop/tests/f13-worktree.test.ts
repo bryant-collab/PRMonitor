@@ -224,6 +224,72 @@ describe("F13 operation-owned worktrees and change attribution", () => {
     );
   });
 
+  it("hands providers only the canonical operation path and actual Git evidence", async () => {
+    const fixture = await createFixture();
+    const request = reviewRequest(fixture);
+    const prepared = await fixture.service.prepare(request);
+    const canonicalPath = prepared.worktree!.canonicalPath;
+
+    const readOnly = await fixture.service.getProviderWorktreeHandoff({
+      operationId: request.operationId,
+      ownerId: request.ownerId,
+    });
+    expect(readOnly.ok).toBe(true);
+    expect(readOnly.handoff).toMatchObject({
+      operationId: request.operationId,
+      canonicalPath,
+      access: "READ_ONLY",
+      ownership: {
+        kind: "OPERATION_OWNED",
+        ownerId: request.ownerId,
+      },
+      permittedCapabilities: {
+        readFiles: true,
+        writeFiles: false,
+        executeCommands: false,
+        network: false,
+        publication: false,
+      },
+    });
+    expect(readOnly.handoff?.canonicalPath).not.toBe(fixture.developerClone);
+    expect(readOnly.handoff?.actualState.currentHeadRevision).toBe(
+      fixture.headSha,
+    );
+
+    const before = await fixture.service.beginAiTurn({
+      operationId: request.operationId,
+      ownerId: request.ownerId,
+      turnId: "handoff-turn",
+    });
+    expect(before.worktree).toMatchObject({
+      canonicalPath,
+      access: "WORKTREE_WRITE",
+      permittedCapabilities: { writeFiles: true },
+    });
+    await writeFile(path.join(canonicalPath, "actual.txt"), "actual\n", "utf8");
+    const after = await fixture.service.completeAiTurn({
+      operationId: request.operationId,
+      ownerId: request.ownerId,
+      turnId: "handoff-turn",
+      beforeSnapshotId: before.snapshot!.snapshotId,
+    });
+    expect(after.changeSummary?.changed).toContain("actual.txt");
+    expect(after.worktree?.actualState.files.map((file) => file.path)).toContain(
+      "actual.txt",
+    );
+
+    const providerClaim = {
+      changedPaths: ["provider-only.txt"],
+      currentHeadRevision: "provider-claim-is-not-Git-state",
+    };
+    expect(after.changeSummary?.changed).not.toContain(
+      providerClaim.changedPaths[0],
+    );
+    expect(after.worktree?.actualState.currentHeadRevision).not.toBe(
+      providerClaim.currentHeadRevision,
+    );
+  });
+
   it("requires confirmation for Clear All and preserves ignored files", async () => {
     const fixture = await createFixture();
     const request = reviewRequest(fixture);

@@ -207,6 +207,7 @@ publishes.
 - FR-09.2: F13 SHALL use an allowlisted Git subprocess contract with bounded arguments, output, timeouts, cancellation, and a controlled non-secret environment.
 - FR-09.3: F13 SHALL emit bounded F09 activity for intent, preparation, fetch, ownership conflicts, inspection, snapshot, diff, open/reveal, clear-choice, cleanup, and recovery outcomes without making activity authoritative.
 - FR-09.4: F13 SHALL not import or invoke an AI provider and SHALL not expose GitHub credentials, provider SDK objects, prompts, arbitrary commands, validation authority, GitHub mutation, response posting, commit, push, merge, or publication capabilities.
+- FR-09.5: F13 SHALL provide F15 only a validated provider-neutral worktree handoff containing the operation/worktree identity, canonical operation-owned path, ownership state, baseline/current revision evidence, and permitted capability scope. F15 may consume that handoff but SHALL not choose, rewrite, or treat provider-reported paths or changes as authoritative Git evidence.
 
 ## Non-Functional Requirements
 
@@ -254,6 +255,7 @@ publishes.
 - **PD-06: Clear Only AI Changes is fail-closed** - deterministic three-way removal may preserve independent manual work, but any ambiguous overlap leaves the complete worktree untouched.
 - **PD-07: Open/reveal is a capability, not mutation authority** - opening a worktree or file can be requested from the UI, tray, or notification, but it cannot bypass ownership, state inspection, or publication approval.
 - **PD-08: No automatic cleanup on lifecycle events** - closing the window, pausing watching, a failed AI turn, or a restart does not delete or reset a worktree; an explicit owner/recovery decision is required.
+- **PD-09: F15 receives a reference, not Git authority** - F13 owns the canonical path, worktree identity, actual Git state, and before/after snapshots. The F15 adapter receives the validated reference and may operate only within it; it cannot create paths, select a different worktree, or substitute provider claims for F13 evidence.
 
 ## Implementation Decisions
 
@@ -265,6 +267,7 @@ publishes.
 - **IMP-06: Use deterministic three-way removal** - AI-only clearing compares the pre-turn, post-turn, and current trees/patches, applies reverse AI hunks only when independent, and rejects unresolved line/file/binary/rename/untracked overlap.
 - **IMP-07: Delegate OS actions through F04** - F13 passes validated canonical targets to an OS adapter for open/reveal; platform-specific shell invocation never enters the renderer or a Git command string.
 - **IMP-08: Keep synchronization records independent** - The synchronization worktree references its own operation/result identity and never becomes a Review Bundle worktree through path reuse or record mutation.
+- **IMP-09: Provider-facing handoff is reference-only** - Expose a bounded F13 handoff for F15 that is revalidated immediately before an AI mutation and after the turn. The handoff contains no SDK object, credential, arbitrary path, or provider authority, and the adapter's reported file changes remain non-authoritative until F13 inspects actual Git state.
 
 ## Testing Decisions
 

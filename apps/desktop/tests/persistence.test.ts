@@ -704,6 +704,151 @@ describe("F03 SQLite persistence", () => {
     ).toBe("remote-1");
   });
 
+  it("round-trips the versioned provider-neutral AI handoff exactly once", async () => {
+    const fixture = await createFixture();
+    const repositories = seedManagedPr(fixture);
+    repositories.putAiProviderOperation({
+      handoff: {
+        schemaVersion: 1,
+        operationId: "provider-op-1",
+        managedPrId: "pr-1",
+        operationKind: "AUTOMATIC_REVIEW",
+        status: "WORKING",
+        taskProfileSnapshot: { profileId: "review", revision: 1 },
+        executionPolicySnapshot: { policyId: "read-only", revision: 1 },
+        inputSnapshot: { headSha: "bbbbbbbb", eventVersionIds: ["event-1"] },
+        configuredTurnBudget: 2,
+        idempotencyKey: "provider-op-key-1",
+      },
+    });
+    repositories.createAiWorkSegment({
+      segmentId: "provider-segment-1",
+      operationId: "provider-op-1",
+      segmentIndex: 0,
+      status: "WORKING",
+      configuredTurnBudget: 2,
+      consumedTurnBaseline: 0,
+      snapshot: { headSha: "bbbbbbbb" },
+    });
+    const result = {
+      schemaVersion: 1 as const,
+      requestId: "provider-request-1",
+      operationId: "provider-op-1",
+      turnId: "provider-turn-1",
+      providerId: "codex",
+      modelId: "gpt-5-codex",
+      taskType: "AUTOMATIC_REVIEW",
+      profileRevision: 1,
+      executionPolicySnapshot: { schemaVersion: 1, snapshotHash: "policy-hash-1" },
+      startedAt: FIXED_TIME,
+      completedAt: FIXED_TIME,
+      status: "completed" as const,
+      structuredResult: { summary: "safe result", disposition: "no_change" },
+      events: [
+        {
+          schemaVersion: 1 as const,
+          sequence: 0,
+          occurredAt: FIXED_TIME,
+          providerId: "codex",
+          turnId: "provider-turn-1",
+          kind: "completed",
+          details: { bounded: true },
+        },
+      ],
+      usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
+      conversationReference: {
+        schemaVersion: 1 as const,
+        providerId: "codex",
+        opaqueReference: "opaque-thread-1",
+        resumable: true,
+      },
+    };
+    const first = repositories.recordAiProviderTurn({
+      result,
+      segmentId: "provider-segment-1",
+      turnIndex: 0,
+      startedAt: FIXED_TIME,
+      completedAt: FIXED_TIME,
+      stateFingerprint: "state-1",
+    });
+    expect(first.inserted).toBe(true);
+    expect(first.record.result).toEqual(result);
+    const replay = repositories.recordAiProviderTurn({
+      result,
+      segmentId: "provider-segment-1",
+      turnIndex: 0,
+      startedAt: FIXED_TIME,
+      completedAt: FIXED_TIME,
+    });
+    expect(replay.inserted).toBe(false);
+    expect(repositories.getAiWorkOperation("provider-op-1")?.consumedTurnCount).toBe(1);
+    expect(() =>
+      repositories.recordAiProviderTurn({
+        result: { ...result, structuredResult: { summary: "rewritten" } },
+        segmentId: "provider-segment-1",
+        turnIndex: 0,
+        startedAt: FIXED_TIME,
+        completedAt: FIXED_TIME,
+      }),
+    ).toThrow(PersistenceError);
+    expect(() =>
+      repositories.recordAiProviderTurn({
+        result: { ...result, structuredResult: { prompt: "must not persist" } },
+        segmentId: "provider-segment-1",
+        turnIndex: 1,
+        startedAt: FIXED_TIME,
+        completedAt: FIXED_TIME,
+      }),
+    ).toThrow("F15_JSON_UNSAFE_KEY");
+
+    const conversation = repositories.putAiProviderConversation({
+      schemaVersion: 1,
+      conversationId: "provider-conversation-1",
+      operationId: "provider-op-1",
+      scope: "AUTOMATIC_REVIEW",
+      reference: {
+        schemaVersion: 1,
+        providerId: "codex",
+        opaqueReference: "opaque-thread-1",
+        resumable: true,
+      },
+    });
+    expect(conversation.reference.opaqueReference).toBe("opaque-thread-1");
+    expect(() =>
+      repositories.putAiProviderConversation({
+        schemaVersion: 1,
+        conversationId: "provider-conversation-unsafe",
+        scope: "AUTOMATIC_REVIEW",
+        reference: {
+          schemaVersion: 1,
+          providerId: "codex",
+          opaqueReference: "safe-ref",
+          resumable: false,
+        },
+      }),
+    ).not.toThrow();
+
+    fixture.store.close();
+    fixtures.splice(fixtures.indexOf(fixture), 1);
+    const reopened = await initializePersistence(
+      { databasePath: fixture.databasePath, backupRoot: fixture.backupRoot },
+      { clock: { now: () => FIXED_TIME } },
+    );
+    fixtures.push({
+      ...fixture,
+      store: reopened,
+      cleanup: async () => {
+        reopened.close();
+        await removeFixtureRoot(fixture.root);
+      },
+    });
+    const afterRestart = createPersistenceRepositories(reopened);
+    expect(afterRestart.getAiProviderTurn("provider-turn-1")?.result).toEqual(result);
+    expect(
+      afterRestart.getAiProviderConversation("provider-conversation-1")?.reference,
+    ).toEqual(conversation.reference);
+  });
+
   it("fails closed on edited migration history without replacing the source database", async () => {
     const fixture = await createFixture();
     fixture.store.close();

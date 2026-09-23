@@ -27,6 +27,17 @@ import type {
   GithubServerStatus,
 } from "../../shared/github-server";
 import { isGithubSafeReason } from "../../shared/github-server";
+import {
+  assertAIProviderConversationHandoff,
+  assertAIProviderOperationHandoff,
+  assertAIProviderTurnResult,
+} from "../../shared/ai/provider-contracts";
+import type {
+  AIProviderConversationHandoff,
+  AIProviderConversationReference,
+  AIProviderOperationHandoff,
+  AIProviderTurnResult,
+} from "../../shared/ai/provider-contracts";
 
 type Payload = unknown;
 type JsonObject = { readonly [key: string]: SafeJsonValue };
@@ -152,6 +163,26 @@ export interface AiWorkOperationRecord<T = unknown> extends PersistedRecord<T> {
     readonly snapshot: unknown;
     readonly turns: readonly unknown[];
   }[];
+}
+
+export interface AiProviderTurnRecord {
+  readonly turnId: string;
+  readonly segmentId: string;
+  readonly turnIndex: number;
+  readonly status: string;
+  readonly operationId: string;
+  readonly result: AIProviderTurnResult;
+  readonly startedAt: string;
+  readonly completedAt?: string;
+}
+
+export interface AiProviderConversationRecord {
+  readonly conversationId: string;
+  readonly operationId?: string;
+  readonly scope: string;
+  readonly reference: AIProviderConversationReference;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface SynchronizationResultRecord<
@@ -330,6 +361,16 @@ function jsonColumn(row: SqlRow, key: string): unknown {
   } catch {
     throw new Error(`F05_INVALID_JSON_${key}`);
   }
+}
+
+function recordObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (Object.getPrototypeOf(value) === Object.prototype ||
+      Object.getPrototypeOf(value) === null)
+  );
 }
 
 function resourceCheckpointFromRow(row: SqlRow): ResourceCheckpointRecord {
@@ -2567,6 +2608,34 @@ export class PersistenceRepositories {
     return this.getAiWorkOperation(input.operationId) as AiWorkOperationRecord;
   }
 
+  /**
+   * F15-facing operation write.  The legacy-shaped method above remains for
+   * existing pre-F15 records; new provider work enters through this typed,
+   * schema-versioned handoff.
+   */
+  public putAiProviderOperation(input: {
+    readonly handoff: AIProviderOperationHandoff;
+    readonly payload?: Payload;
+  }): AiWorkOperationRecord {
+    assertAIProviderOperationHandoff(input.handoff);
+    return this.putAiWorkOperation({
+      operationId: input.handoff.operationId,
+      ...(input.handoff.managedPrId === undefined
+        ? {}
+        : { managedPrId: input.handoff.managedPrId }),
+      operationKind: input.handoff.operationKind,
+      status: input.handoff.status,
+      taskProfileSnapshot: input.handoff.taskProfileSnapshot,
+      executionPolicySnapshot: input.handoff.executionPolicySnapshot,
+      inputSnapshot: input.handoff.inputSnapshot,
+      configuredTurnBudget: input.handoff.configuredTurnBudget,
+      ...(input.handoff.idempotencyKey === undefined
+        ? {}
+        : { idempotencyKey: input.handoff.idempotencyKey }),
+      ...(input.payload === undefined ? {} : { payload: input.payload }),
+    });
+  }
+
   public createAiWorkSegment(input: {
     readonly segmentId: string;
     readonly operationId: string;
@@ -2698,6 +2767,64 @@ export class PersistenceRepositories {
     });
   }
 
+  /**
+   * Commit one normalized provider result through the existing F03 turn
+   * transaction.  The provider result is stored as bounded JSON in the turn
+   * report column; no provider object or thread crosses this method.
+   */
+  public recordAiProviderTurn(input: {
+    readonly result: AIProviderTurnResult;
+    readonly segmentId: string;
+    readonly turnIndex: number;
+    readonly status?: string;
+    readonly deterministicActivity?: Payload;
+    readonly validationRefs?: Payload;
+    readonly progressClassification?: string;
+    readonly stateFingerprint?: string;
+    readonly stopReason?: Payload;
+    readonly startedAt: string;
+    readonly completedAt?: string;
+    readonly usage?: Payload;
+  }): { readonly inserted: boolean; readonly record: AiProviderTurnRecord } {
+    assertAIProviderTurnResult(input.result);
+    const encoded = encode(input.result);
+    const inserted = this.recordAiWorkTurn({
+      turnId: input.result.turnId,
+      segmentId: input.segmentId,
+      turnIndex: input.turnIndex,
+      status: input.status ?? input.result.status,
+      deterministicActivity: input.deterministicActivity,
+      report: input.result,
+      validationRefs: input.validationRefs,
+      progressClassification: input.progressClassification,
+      stateFingerprint: input.stateFingerprint,
+      stopReason: input.stopReason,
+      usage: input.usage ?? input.result.usage,
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+    });
+    const record = this.getAiProviderTurn(input.result.turnId);
+    if (record === undefined)
+      throw repositoryError(
+        this.store,
+        "CONFLICT",
+        "The turn identity already exists without a compatible provider-neutral handoff.",
+      );
+    if (record.operationId !== input.result.operationId)
+      throw repositoryError(
+        this.store,
+        "CONFLICT",
+        "The provider result does not belong to the operation owning the AI segment.",
+      );
+    if (encode(record.result).payloadHash !== encoded.payloadHash)
+      throw repositoryError(
+        this.store,
+        "CONFLICT",
+        "A completed AI turn cannot be rewritten with a different provider result.",
+      );
+    return { inserted, record };
+  }
+
   public getAiWorkOperation(
     operationId: string,
   ): AiWorkOperationRecord | undefined {
@@ -2760,6 +2887,37 @@ export class PersistenceRepositories {
     );
   }
 
+  public getAiProviderTurn(turnId: string): AiProviderTurnRecord | undefined {
+    id(turnId, "AI turn identifier");
+    return this.store.transaction(
+      (transaction) => {
+        const row = transaction.get(
+          "SELECT t.*, s.operation_id FROM ai_work_turns AS t JOIN ai_work_segments AS s ON s.segment_id = t.segment_id WHERE t.turn_id = ?",
+          turnId,
+        );
+        if (row === undefined) return undefined;
+        const candidate = jsonColumn(row, "report_json");
+        try {
+          assertAIProviderTurnResult(candidate);
+        } catch {
+          return undefined;
+        }
+        const completedAt = rowOptionalString(row, "completed_at");
+        return {
+          turnId: rowString(row, "turn_id"),
+          segmentId: rowString(row, "segment_id"),
+          turnIndex: rowNumber(row, "turn_index"),
+          status: rowString(row, "status"),
+          operationId: rowString(row, "operation_id"),
+          result: candidate,
+          startedAt: rowString(row, "started_at"),
+          ...(completedAt === undefined ? {} : { completedAt }),
+        };
+      },
+      { maxAttempts: 1 },
+    );
+  }
+
   public putConversation(input: {
     readonly conversationId: string;
     readonly operationId?: string;
@@ -2784,6 +2942,87 @@ export class PersistenceRepositories {
         timestamp,
         timestamp,
       ),
+    );
+  }
+
+  public putAiProviderConversation(
+    input: AIProviderConversationHandoff,
+  ): AiProviderConversationRecord {
+    assertAIProviderConversationHandoff(input);
+    id(input.conversationId, "AI conversation identifier");
+    text(input.scope, "AI conversation scope");
+    text(input.reference.providerId, "AI conversation provider identifier");
+    text(input.reference.opaqueReference, "AI conversation opaque reference");
+    const payload = encode({
+      schemaVersion: input.schemaVersion,
+      providerId: input.reference.providerId,
+      resumable: input.reference.resumable,
+    });
+    const timestamp = now(this.clock);
+    this.store.transaction((transaction) =>
+      transaction.run(
+        "INSERT INTO conversations (conversation_id, operation_id, scope, opaque_reference, payload_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET operation_id=excluded.operation_id, scope=excluded.scope, opaque_reference=excluded.opaque_reference, payload_json=excluded.payload_json, updated_at=excluded.updated_at",
+        input.conversationId,
+        input.operationId ?? null,
+        input.scope,
+        input.reference.opaqueReference,
+        payload.payload,
+        timestamp,
+        timestamp,
+      ),
+    );
+    const record = this.getAiProviderConversation(input.conversationId);
+    if (record === undefined) throw new Error("F03_AI_CONVERSATION_NOT_READABLE");
+    return record;
+  }
+
+  public getAiProviderConversation(
+    conversationId: string,
+  ): AiProviderConversationRecord | undefined {
+    id(conversationId, "AI conversation identifier");
+    return this.store.transaction(
+      (transaction) => {
+        const row = transaction.get(
+          "SELECT * FROM conversations WHERE conversation_id = ?",
+          conversationId,
+        );
+        if (row === undefined) return undefined;
+        const operationId = rowOptionalString(row, "operation_id");
+        const opaqueReference = rowOptionalString(row, "opaque_reference");
+        if (opaqueReference === undefined) return undefined;
+        const payload = jsonColumn(row, "payload_json");
+        if (!recordObject(payload)) return undefined;
+        const candidate: AIProviderConversationHandoff = {
+          schemaVersion: payload.schemaVersion as 1,
+          conversationId: rowString(row, "conversation_id"),
+          ...(operationId === undefined ? {} : { operationId }),
+          scope: rowString(row, "scope"),
+          reference: {
+            schemaVersion: payload.schemaVersion as 1,
+            providerId: payload.providerId as string,
+            opaqueReference,
+            resumable: payload.resumable as boolean,
+          },
+        };
+        try {
+          assertAIProviderConversationHandoff(candidate);
+        } catch {
+          return undefined;
+        }
+        const createdAt = rowString(row, "created_at");
+        const updatedAt = rowString(row, "updated_at");
+        return {
+          conversationId: candidate.conversationId,
+          ...(candidate.operationId === undefined
+            ? {}
+            : { operationId: candidate.operationId }),
+          scope: candidate.scope,
+          reference: candidate.reference,
+          createdAt,
+          updatedAt,
+        };
+      },
+      { maxAttempts: 1 },
     );
   }
 

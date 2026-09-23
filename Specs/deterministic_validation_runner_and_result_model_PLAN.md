@@ -5,11 +5,11 @@ There might be slices that are needed to describe work that doesn't extend throu
 
 # Plan: F14 Deterministic Validation Runner and Result Model
 
-> **Document status:** Architecture-stage draft | Active implementation PLAN
+> **Document status:** Implemented validation foundation and F15 evidence-handoff conformance
 >
 > **Owning PRD:** `Specs/deterministic_validation_runner_and_result_model_PRD.md`
 >
-> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-21, F00 PRD/PLAN revision 2026-09-21, F09 PRD/PLAN revision 2026-09-21, and F13 PRD/PLAN revision 2026-09-23
+> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-23, F00/F09/F13 specs, F14 PRD, and F15 approved ownership split revision 2026-09-23
 >
 > **Entry/readiness gates:** F00's `@prmonitor/validation-contract` package and generated schema pass their checks and expose the immutable snapshot, prepared-command, output, lifecycle, manual-attestation, and review/synchronization consumer contracts. F03 exposes validation-run/snapshot/step/manual repositories, transactions, optimistic versions, and startup recovery. F09 exposes the main-process activity writer. F13 exposes owned-worktree inspection, baseline/current revision identities, and developer-workspace protection. The desktop runtime can create temporary Windows worktrees and child-process fixtures without product-service credentials.
 >
@@ -102,12 +102,12 @@ those decisions.
 6. **Durable read model, F09 integration, and cross-workflow conformance**
    - **Blocked by:** Slices 1-5, final F03 repositories/migrations, F09 event catalog, F13 typed handoff, and review/synchronization fake consumers.
    - **Stories / requirements / acceptance criteria:** US-01-US-10; FR-01.1-FR-07.5; NFR-01-NFR-08; INV-01-INV-10; AC-01-AC-18; CT-F14-01-CT-F14-08; APP-AC-13, APP-AC-39, APP-AC-48, APP-AC-49, APP-AC-56, APP-AC-57, APP-AC-73-APP-AC-75.
-   - **Implementation:** Add/finish F03 validation migrations and typed repositories for snapshots, runs, step evidence, manual attestations, warnings, current/terminal projections, and owner/version links. Compose F09 start/progress/terminal/cancellation/failure/recovery events with F03 transaction boundaries where the owning workflow requires atomic evidence. Expose a renderer-safe read model with exact phase, command, directory, time, exit/signal, output metadata, manual labels, warning, reason, and next-action fields. Run two thin consumers (`review` and `synchronization`) through the same F00/F14 contract; consumer labels are audit metadata only. Do not build the full Review Bundle or synchronization screen.
+   - **Implementation:** Add/finish F03 validation migrations and typed repositories for snapshots, runs, step evidence, manual attestations, warnings, current/terminal projections, and owner/version links. Compose F09 start/progress/terminal/cancellation/failure/recovery events with F03 transaction boundaries where the owning workflow requires atomic evidence. Expose a renderer-safe and provider-neutral read model with exact phase, command, directory, time, exit/signal, output metadata, manual labels, warning, reason, and next-action fields; F15 may consume a bounded snapshot of this model as semantic context but cannot write it or change its status. Run two thin consumers (`review` and `synchronization`) through the same F00/F14 contract; consumer labels are audit metadata only. Do not build the full Review Bundle or synchronization screen.
    - **Visible result:** A fresh-process conformance report can reconstruct baseline/post-change results, manual/no-run warnings, activity correlation, exact command evidence, and consumer-equivalent projections after UI closure/restart.
    - **Durable records / external effects:** Uses F03 migrations/repositories, F09 activity rows, temporary worktree/process fixtures, and linter reports. It does not edit `checklist.md`, use real credentials, invoke an AI provider, publish code, post a response, merge, or push.
    - **Failure / cancellation / restart:** Any missing evidence, invalid mapping, duplicate run, stale snapshot, secret leak, false pass, lost phase distinction, activity-state inference, forbidden capability, or definite linter miss blocks the gate. A cancelled conformance run leaves no success marker and can be rerun from fresh fixtures.
    - **Exact evidence:** `npm run build`, `npm test`, `npm run check`; migration/repository/restart/fault reports; CT-F14-01 through CT-F14-08; consumer equivalence report; F09 correlation/query report; Windows process/output/security scan; `git diff --check`; `npm run lint:prd-plan -- Specs/deterministic_validation_runner_and_result_model_PRD.md Specs/deterministic_validation_runner_and_result_model_PLAN.md`; `npm run lint:application-coverage -- Specs/application_overview.md Specs/deterministic_validation_runner_and_result_model_PRD.md`.
-   - **Exit criterion:** All F14 requirements have direct acceptance or contract-test evidence, primary/shared application mappings have no definite missing/invalid result, and the F14 checklist item remains unchecked pending implementation approval and completion.
+   - **Exit criterion:** All F14 requirements have direct acceptance or contract-test evidence, primary/shared application mappings have no definite missing/invalid result, and the F15 context handoff, redaction, and no-provider-claim validation tests pass.
 
 ## Cross-Slice Verification and Handoff
 
@@ -117,10 +117,11 @@ those decisions.
 - F13 owns operation-worktree creation, path ownership, Git state, baseline/current revisions, diff evidence, manual-edit preservation, and dirty-worktree choices. F14 requests inspection before launch and validation handoff but never resets/cleans/replaces the worktree.
 - F16 owns the settings/confirmation surface for repository Build & Validation Instructions and structured profiles. F14 consumes an authorized snapshot and never treats human-readable instructions as executable authority.
 - F15-F17 own provider contracts, AI task/policy snapshots, bounded AI turns, progress, and `NEEDS_ATTENTION`. F14 supplies deterministic command activity/results; it never invokes AI or accepts model claims as evidence.
+- Approved F15 handoff: F14 exposes bounded validation evidence as immutable context only. F15 may include it in a semantic request, but F14 remains authoritative for command execution, exit status, manual evidence, aggregate status, and validation warnings. The bounded read-only context, redaction, and provider-claim refusal tests are proven; the production adapter remains F15-owned.
 - F18-F23 own Review Bundle preparation, proposal/final timing, decisions, UI, revisions, stale handling, and publication. F18/F20/F23 decide when to request baseline/post/final validation and how to gate publication; F14 supplies the result.
 - F24-F27 own synchronization selection, merge/conflict resolution, per-PR result state, review, and publication. F14 supplies the same validation contract in a separate operation-owned synchronization worktree.
 - F28-F30 own full startup/sleep/network recovery, threat-model hardening, packaging, and release acceptance. F14 supplies concrete process, evidence, redaction, and restart cases.
-- The F14 checklist item remains unchecked. This specification phase creates only the PRD/PLAN pair and does not claim that validation execution, AI work, Review Bundles, synchronization, or publication is implemented.
+- The F14 checklist item is checked for the implemented validation runner, result model, and provider context handoff. F15 still owns provider invocation, while Review Bundles, synchronization, and publication remain downstream.
 
 ## Requirement-to-Slice Trace
 

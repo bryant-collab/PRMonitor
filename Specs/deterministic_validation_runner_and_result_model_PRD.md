@@ -180,6 +180,7 @@ publication action outside the validation process itself.
 - FR-07.3: F14 SHALL emit bounded F09 lifecycle and terminal activity with the owning operation/run identity, phase, status/reason, and permitted next action, while keeping the authoritative validation result in its own record.
 - FR-07.4: F14 SHALL expose one provider-neutral, renderer-safe read model for review and synchronization consumers containing exact evidence fields, phase distinction, manual labels, warnings, and machine-readable reasons.
 - FR-07.5: F14 SHALL keep the main process and durable repositories authoritative; renderer state, activity text, child-process prose, and provider claims SHALL never be the source of validation truth.
+- FR-07.6: F14 SHALL expose bounded validation evidence to F15 only through the provider-neutral read model/context contract. F15 may carry that evidence into a semantic request, but F14 SHALL not accept provider output as validation input, alter its status, or allow a provider claim to create a pass.
 
 ## Non-Functional Requirements
 
@@ -228,6 +229,7 @@ publication action outside the validation process itself.
 - **PD-07: Sequential stop-on-first-nonpass execution** - Commands run in profile order. The first failure or interruption stops later commands, which are recorded as not run rather than guessed.
 - **PD-08: Exact bounded evidence is more valuable than optimistic summaries** - The result retains exact arguments, canonical directory, timestamps, exit/signal, bounded/redacted streams, truncation metadata, and machine-readable reasons.
 - **PD-09: Renderer closure does not change validation lifetime** - The main process owns an active run, and startup reconciliation finalizes incomplete work rather than silently resuming it.
+- **PD-10: Validation evidence crosses into F15 as context only** - F14 remains the authority for command execution, exit status, manual evidence, and aggregate validation state. F15 may receive a bounded snapshot to inform semantic reasoning, but it cannot write validation state or override a result.
 
 ## Implementation Decisions
 
@@ -240,6 +242,7 @@ publication action outside the validation process itself.
 - **IMP-07: Represent phase context explicitly** - Run records carry the requested/effective phase and each step retains its configured phase, so a command tagged `both` can be evaluated in both workflow phases without conflating their evidence.
 - **IMP-08: Keep manual attestations revision-bound** - The runner accepts manual outcomes only through the F00 attestation contract and rechecks the F13 worktree identity before accepting them.
 - **IMP-09: Provide a shared consumer projection** - Review and synchronization use the same result codec, aggregation, warning, and read contract. Consumer labels are descriptive metadata only.
+- **IMP-10: F15 context adapter is read-only** - The F15 integration consumes the bounded F14 read model after redaction and snapshot validation; it receives no process handle, shell command authority, credential, or write path back into validation.
 
 ## Testing Decisions
 

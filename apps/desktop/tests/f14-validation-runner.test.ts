@@ -296,6 +296,46 @@ describe("F14 deterministic validation runner", () => {
     expect(replay.record.version).toBe(result.record.version);
   });
 
+  it("exposes bounded redacted validation context without process or write authority", async () => {
+    const { root, store } = await fixture();
+    const validation = service(
+      store,
+      root,
+      new FakeRunner([{ exitCode: 1 }], "token=super-secret\n"),
+    );
+    const result = await validation.run(
+      request(readyResolution(), {
+        runId: "run-provider-context",
+        idempotencyKey: "key-provider-context",
+      }),
+    );
+
+    const context = validation.providerContext("run-provider-context");
+    expect(context).toMatchObject({
+      schemaVersion: 1,
+      runId: "run-provider-context",
+      operationId,
+      status: "failed",
+    });
+    expect(JSON.stringify(context)).not.toContain("super-secret");
+    expect(JSON.stringify(context)).not.toMatch(
+      /executable|arguments|canonicalWorkingDirectory|resolvedExecutable|worktreePath|shell|environment/iu,
+    );
+    expect(context?.steps[1]).toMatchObject({
+      status: "failed",
+      stdout: { safe: true },
+    });
+    expect(context?.steps[1]?.stdout?.text).not.toContain("super-secret");
+
+    const providerClaim = { status: "passed", exitCode: 0 };
+    expect(providerClaim.status).toBe("passed");
+    expect(validation.providerContext("run-provider-context")?.status).toBe(
+      result.record.status,
+    );
+    expect(context?.steps[1]).not.toHaveProperty("write");
+    expect(context?.steps[1]).not.toHaveProperty("command");
+  });
+
   it("finalizes a running durable record as interrupted after restart", async () => {
     const { root, store } = await fixture();
     const resolution = readyResolution();

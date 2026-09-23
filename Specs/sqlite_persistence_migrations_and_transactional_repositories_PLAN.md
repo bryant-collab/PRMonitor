@@ -5,11 +5,11 @@ Note that while we're mentioning Stories here, we're not actually using tickets,
 
 # Plan: F03 SQLite Persistence, Migrations, and Transactional Repositories
 
-> **Document status:** Architecture-stage draft | Active implementation PLAN
+> **Document status:** Implemented persistence foundation and F15 typed-handoff conformance
 >
 > **Owning PRD:** `Specs/sqlite_persistence_migrations_and_transactional_repositories_PRD.md`
 >
-> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-21 and F03 PRD revision 2026-09-21
+> **Last revalidated against:** `Specs/application_overview.md` revision 2026-09-23 and F03 PRD/F15 approved ownership split revision 2026-09-23
 >
 > **Entry/readiness gates:** F01's supported Electron/Node workspace, main-process boundary, test harness, and stable application-data-path input are complete. F02 domain records, state machines, holds, immutable references, staged review decisions, safe reasons, and publication idempotency contracts are available. F00 validation schemas and phase meanings are available. The implementation may add SQLite and main-process persistence code, but it must not require GitHub, Git, an AI provider, a renderer window, or product-service credentials.
 >
@@ -115,7 +115,7 @@ activity/audit events, migration/health/backup metadata
    - **Durable records / external effects:** Keeps only declared temporary databases/backups and bounded reports under test-owned paths. It does not change checklist state, publish specs, or call external services.
    - **Failure / cancellation / restart:** A cancelled test run leaves no success marker; rerun starts from a fresh owned fixture. Any mismatch, secret leak, partial commit, missing recovery marker, or cross-result mutation fails the gate. F03 never auto-authorizes continuation, AI work, publication, or a replacement database.
    - **Exact evidence:** `npm run build`, `npm test`, `npm run check`; migration/backup/integrity report; transaction fault report; repository coverage matrix; restart/fault-injection report; concurrency/idempotency report; secret and forbidden-import scan; `git diff --check`; both required specification-linter reports against the final PRD/PLAN.
-   - **Exit criterion:** All F03 requirements and mapped criteria have direct evidence, no definite missing or invalid linter mappings remain, and the F03 checklist item remains unchecked pending implementation approval and downstream integration.
+   - **Exit criterion:** All F03 requirements and mapped criteria have direct evidence, no definite missing or invalid linter mappings remain, and the F15 normalized AI handoff is accepted by typed repositories with no SDK/prompt/credential leakage.
 
 ## Cross-Slice Verification and Handoff
 
@@ -126,9 +126,9 @@ activity/audit events, migration/health/backup metadata
 - F05 owns secure credential-store access. F03 may store server metadata and an opaque credential reference, but never a token, secret, provider prompt, or uncontrolled environment value.
 - F10/F11 own remote observation, normalization, semantic hashing, and eligibility. F03 owns immutable storage, uniqueness, association, and history; it must not infer event meaning from free-form text.
 - F13/F14 own Git/worktree and validation effects. F03 records their operation-owned identities, snapshots, outputs, status, and reasons using bounded/versioned codecs.
-- F15-F17 own provider adapters, task profiles, execution policies, turn budgets, and progress decisions. F03 persists their provider-neutral metadata and deterministic observations without importing the SDK or granting publication authority.
+- F15 owns provider adapters, normalized contracts, and the serializable `AIProviderTurnResult`; F17 owns operation/segment lifecycle, budgets, and continuation decisions; F03 persists the provider-neutral handoff and deterministic observations without importing the SDK or granting publication authority.
 - F18-F28 own workflow orchestration and external side effects. F03 supplies commit-before-effect, recovery, idempotency, and per-result isolation; it never calls GitHub, Git, a provider, or a child process as part of a repository write.
-- F03 is complete only when the migration/backup, transaction, repository, restart, security, and cross-consumer evidence is recorded. Adding tables or a database file alone does not close the checklist item.
+- F03's persistence baseline and F15 typed-handoff follow-up are implemented. The typed operation/turn/conversation repositories record the normalized handoff exactly once, reject incompatible replays and unsafe fields, and round-trip it after restart; the production provider adapter remains F15-owned.
 
 ## Requirement-to-Slice Trace
 

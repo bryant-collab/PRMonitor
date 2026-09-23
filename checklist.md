@@ -124,23 +124,26 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Real baseline and post-change exit statuses survive restart and are consumable by Review Bundles, AI progress evaluation, and synchronization results, including explicit no-safe-command behavior.
   - **Primary application criteria:** APP-AC-13, APP-AC-73, APP-AC-74.
 
-- [ ] **F15 - Provider-neutral AI contracts and Codex adapter**
+- [x] **F15 - Provider-neutral AI contracts and Codex adapter**
   - **Depends on:** F01-F03, F13-F14.
   - **Deliver:** Define Zod-first normalized request, capability, streaming-event, usage, conversation-reference, error, read-only Review Proposal, worktree-mutating Review Implementation, AI review result, and turn-report schemas, generating JSON Schema for structured output. Add an `AIProviderRegistry` and the sole MVP `@openai/codex-sdk` adapter, with explicit working directory and controlled child environment. Reject unsupported capabilities or invalid structured output before it can drive state.
   - **Exit:** A fake provider and Codex adapter satisfy the same contract; only the adapter imports the Codex SDK; every input event version must be accounted for; SDK objects and provider threads never become authoritative application state.
   - **Primary application criteria:** APP-AC-11, APP-AC-12, APP-AC-63, APP-AC-64.
+  - **Approved ownership handoff:** F15 owns the provider-neutral contract, capability admission, provider translation, normalized events/results, and fail-closed adapter boundary only. F16 supplies immutable profile/policy snapshots; F17 owns operation/segment lifecycle, budgets, and continuation; F03 owns durable persistence; F13 owns worktree/Git truth; F14 owns validation truth; and downstream workflow features own task preparation, human decisions, presentation, and publication.
 
 - [ ] **F16 - AI preferences, task-profile snapshots, execution policies, and Common Instructions**
   - **Depends on:** F03-F04, F15.
   - **Deliver:** Build Preferences for the four task types, provider/model/reasoning compatibility validation, revisions, maximum-turn setting, named execution-policy presets, configurable worktree root, polling/quiet periods, reusable Common Instruction profiles, and per-repository Build & Validation Instructions. Resolve and snapshot effective profiles/policies/instructions; enforce a read-only floor for proposal analysis and read-only conversation; default accepted implementation work to Autonomous Worktree; withhold GitHub credentials; and reject interactive policies unsupported by the direct SDK.
   - **Exit:** Preference edits affect only future segments/turns, every invocation is routed by declared task type, policy cannot be silently broadened, and persisted/user-visible snapshots make completed work reproducible.
   - **Primary application criteria:** APP-AC-32 through APP-AC-36, APP-AC-59 through APP-AC-62, APP-AC-70, APP-AC-74; completes snapshot behavior for APP-AC-41 and APP-AC-42.
+  - **F15 handoff:** F16 resolves and snapshots the task profile, Common Instructions, Build & Validation Instructions, and execution policy. It does not import or invoke a provider SDK; F15 translates the snapshot and rejects unsupported or broader behavior.
 
 - [ ] **F17 - Bounded AI Work Controller and deterministic progress evaluation**
   - **Depends on:** F03, F13-F16.
   - **Deliver:** Persist parent operations, bounded segments, 1-10 turn budgets (default 3, hard maximum 10), consumed counts, turn timeouts, snapshots, usage, actual file/command activity, completion predicates, state fingerprints, progress classifications, and machine-readable stop reasons. Detect repeated state and two consecutive no-material-progress turns. Require explicit continuation/new-budget authorization and preserve cumulative history.
   - **Exit:** Closure/restart cannot reset a budget; timeout/failure/repeated/no-progress/exhaustion becomes reviewable `NEEDS_ATTENTION`; deterministic evidence overrides claims; and a valid no-code semantic result can complete without false no-progress failure.
   - **Primary application criteria:** APP-AC-54 through APP-AC-58.
+  - **F15 handoff:** F17 owns operation/segment lifecycle, budget, timeout, cancellation, continuation, and progress decisions. It asks F03 to persist intent before calling F15, consumes normalized F15 results, and never delegates retry or completion authority to the provider adapter.
 
 ### Phase 4 - Review preparation and human review
 
@@ -149,6 +152,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Deliver:** Dispatch an eligible batch; prepare its isolated worktree; run approved baseline validation when configured; assemble PR metadata, immutable feedback versions, repository instructions, snapshotted PR Intent / Context, Common Instructions, and Build & Validation Instructions; invoke the Automatic Review profile through a read-only proposal phase; atomically persist a proposal-stage Review Bundle and item associations; require an explicit per-item accept/override decision before any implementation turn; require a textbox answer for each `question` disposition; implement only accepted/overridden fix decisions; inspect actual diff; run post-change validation; and atomically persist the final Review Bundle. Support `fixed`, `pushback`, `question`, and `no_change`, including all-no-code completion.
   - **Exit:** A simulated remote comment reaches a reviewable proposal, cannot mutate the worktree before required human decisions, then reaches final `READY_FOR_REVIEW` or actionable `NEEDS_ATTENTION` with a restart-safe bundle, complete turn evidence, correct hold, and zero direct AI/GitHub coupling outside the declared boundaries.
   - **Primary application criteria:** APP-AC-14, APP-AC-41, APP-AC-42, APP-AC-66, APP-AC-71, APP-AC-72, APP-AC-73, APP-AC-74; integrates APP-AC-10 through APP-AC-17.
+  - **F15 handoff:** F18 prepares immutable review context and consumes the read-only structured Review Proposal. F15 validates and normalizes provider output; F18/F17/F03/F13/F14 retain workflow, lifecycle, persistence, Git, and validation authority.
 
 - [ ] **F19 - System tray, native notifications, deep links, and shutdown**
   - **Depends on:** F04, F08-F09, F12, F13, F18.
@@ -167,6 +171,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Deliver:** Add proposal-stage per-entry instructions, question-answer textboxes, and chat. Route clarification/brainstorming through the Read-only Conversation profile with enforced read-only policy; route accepted implementation or requested code/test/assessment/reply changes through Review Revision and `AIWorkController`. Persist conversations/turn snapshots, stream safe progress, consume budgets only for mutating turns, then refresh the bundle strictly from actual Git/validation state.
   - **Exit:** The user can converse and revise before publication; read-only turns cannot mutate files; revisions retain manual edits, produce turn reports, and return to `READY_FOR_REVIEW` or `NEEDS_ATTENTION` deterministically.
   - **Primary application criteria:** APP-AC-22; integrates APP-AC-33, APP-AC-55 through APP-AC-62.
+  - **F15 handoff:** F21 uses F15's read-only conversation and mutating revision contracts. F15 enforces the capability/policy floor; F21 owns user intent and workflow state, F17/F03 own bounded turns and persistence, and F13/F14 determine actual changes and validation.
 
 - [ ] **F22 - Discard, stale detection, and re-evaluation with dirty-worktree choices**
   - **Depends on:** F10-F13, F16-F21.
@@ -199,6 +204,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Deliver:** On actual conflicts only, invoke Merge Conflict Resolution inside the synchronization worktree with exact source/destination branch and repository identities, source/head/merge-base SHAs, both branch change sets, conflicted paths/hunks, available intent/context, and instructions. Require the AI to preserve compatible intent from both sides rather than blindly choosing `ours` or `theirs`; use bounded segments and turn reports; deterministically require no unmerged paths, no unintended conflict markers, and recorded validation. When intent is ambiguous, persist competing-intent analysis and a user question, alert the developer, preserve the worktree, and block publication until an explicit user-directed resolution is inspected and validated. Preserve stopped work for manual edits and expose explicitly confirmed **Retry Resolution** with prior history/usage.
   - **Exit:** Fixtures covering a clean merge, a semantically resolvable conflict, and an ambiguous conflict reach respectively zero-AI success, reviewable success, and actionable `NEEDS_ATTENTION`; provider claims alone cannot complete it; retry never resets or hides prior budget/evidence.
   - **Primary application criteria:** APP-AC-48, APP-AC-54 through APP-AC-64, APP-AC-70, APP-AC-76, and APP-AC-77.
+  - **F15 handoff:** F26 supplies exact conflict context and consumes the structured conflict result. F15 provides the adapter boundary only; F13 remains authoritative for actual unmerged paths/diffs, F14 for validation, F17 for bounded progress, and F26/F27 for ambiguity and publication decisions.
 
 - [ ] **F27 - Synchronization result review, staleness, and publication**
   - **Depends on:** F19-F20, F23-F26.

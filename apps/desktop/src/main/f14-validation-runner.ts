@@ -170,6 +170,68 @@ export interface F14ValidationReadModel {
   readonly updatedAt: string;
 }
 
+export interface F14ProviderOutputContext {
+  readonly text: string;
+  readonly originalByteCount: number;
+  readonly processedByteCount: number;
+  readonly retainedByteCount: number;
+  readonly omittedByteCount: number;
+  readonly truncated: boolean;
+  readonly truncationMarker?: string;
+  readonly redacted: boolean;
+  readonly safe: boolean;
+  readonly reason?: "REDACTION_FAILURE";
+}
+
+/**
+ * Bounded semantic validation context for an AI request.  It intentionally
+ * omits executables, arguments, working directories, process handles, and
+ * write methods; F14 remains the only authority for validation truth.
+ */
+export interface F14ProviderValidationContext {
+  readonly schemaVersion: 1;
+  readonly runId: string;
+  readonly operationId: string;
+  readonly requestedPhase: ValidationPhase;
+  readonly status: ValidationRunEvidence["status"];
+  readonly reason?: ValidationRunEvidence["reason"];
+  readonly startedAt: string;
+  readonly completedAt?: string;
+  readonly snapshot?: {
+    readonly snapshotId: string;
+    readonly source: ValidationSnapshot["source"];
+    readonly repositoryId: string;
+    readonly contentHash: string;
+    readonly baselineRevision: string;
+    readonly currentRevision?: string;
+  };
+  readonly steps: readonly {
+    readonly stepId: string;
+    readonly kind: ValidationStepEvidence["kind"];
+    readonly configuredPhase?: ValidationPhase;
+    readonly executedPhase?: "baseline" | "post_change";
+    readonly status: ValidationStepEvidence["status"];
+    readonly reason?: ValidationStepEvidence["reason"];
+    readonly exitCode?: number | null;
+    readonly signal?: string | null;
+    readonly stdout?: F14ProviderOutputContext;
+    readonly stderr?: F14ProviderOutputContext;
+    readonly manualLabel?: string;
+  }[];
+  readonly manualAttestations: readonly {
+    readonly checkId: string;
+    readonly outcome: ManualAttestation["outcome"];
+    readonly timestamp: string;
+    readonly worktreeBaselineRevision: string;
+    readonly worktreeCurrentRevision: string;
+  }[];
+  readonly warnings: readonly ValidationWarning[];
+  readonly nextAction: string;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 function defaultClock(): F14Clock {
   return {
     now: () => new Date().toISOString(),
@@ -517,6 +579,13 @@ export class ValidationRunService {
   public readModel(runId: string): F14ValidationReadModel | undefined {
     const record = this.read(runId);
     return record === undefined ? undefined : toF14ValidationReadModel(record);
+  }
+
+  public providerContext(
+    runId: string,
+  ): F14ProviderValidationContext | undefined {
+    const model = this.readModel(runId);
+    return model === undefined ? undefined : toF14ProviderValidationContext(model);
   }
 
   public list(operationId?: string): readonly F14ValidationReadModel[] {
@@ -1577,5 +1646,96 @@ export function toF14ValidationReadModel(
     version: record.version,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+  };
+}
+
+function providerOutputContext(
+  output: CommandStepEvidence["stdout"] | undefined,
+): F14ProviderOutputContext | undefined {
+  if (output === undefined) return undefined;
+  return {
+    text: output.safe ? output.text : "",
+    originalByteCount: output.originalByteCount,
+    processedByteCount: output.processedByteCount,
+    retainedByteCount: output.retainedByteCount,
+    omittedByteCount: output.omittedByteCount,
+    truncated: output.truncated,
+    ...(output.safe && output.truncationMarker !== undefined
+      ? { truncationMarker: output.truncationMarker }
+      : {}),
+    redacted: output.redacted,
+    safe: output.safe,
+    ...(output.reason === undefined ? {} : { reason: output.reason }),
+  };
+}
+
+export function toF14ProviderValidationContext(
+  model: F14ValidationReadModel,
+): F14ProviderValidationContext {
+  return {
+    schemaVersion: 1,
+    runId: model.runId,
+    operationId: model.operationId,
+    requestedPhase: model.requestedPhase,
+    status: model.status,
+    ...(model.reason === undefined ? {} : { reason: model.reason }),
+    startedAt: model.startedAt,
+    ...(model.completedAt === undefined
+      ? {}
+      : { completedAt: model.completedAt }),
+    ...(model.snapshot === undefined
+      ? {}
+      : {
+          snapshot: {
+            snapshotId: model.snapshot.snapshotId,
+            source: model.snapshot.source,
+            repositoryId: model.snapshot.repositoryId,
+            contentHash: model.snapshot.contentHash,
+            baselineRevision: model.snapshot.baselineRevision,
+            ...(model.snapshot.currentRevision === undefined
+              ? {}
+              : { currentRevision: model.snapshot.currentRevision }),
+          },
+        }),
+    steps: model.steps.map((step) => ({
+      stepId: step.stepId,
+      kind: step.kind,
+      ...(step.configuredPhase === undefined
+        ? {}
+        : { configuredPhase: step.configuredPhase }),
+      ...(step.executedPhase === undefined
+        ? {}
+        : { executedPhase: step.executedPhase }),
+      status: step.status,
+      ...(step.reason === undefined ? {} : { reason: step.reason }),
+      ...(step.exitCode === undefined ? {} : { exitCode: step.exitCode }),
+      ...(step.signal === undefined ? {} : { signal: step.signal }),
+      ...(step.kind === "command"
+        ? {
+            ...(providerOutputContext(step.stdout) === undefined
+              ? {}
+              : { stdout: providerOutputContext(step.stdout) }),
+            ...(providerOutputContext(step.stderr) === undefined
+              ? {}
+              : { stderr: providerOutputContext(step.stderr) }),
+          }
+        : {
+            ...(step.manualLabel === undefined
+              ? {}
+              : { manualLabel: step.manualLabel }),
+          }),
+    })),
+    manualAttestations: model.manualAttestations.map((attestation) => ({
+      checkId: attestation.checkId,
+      outcome: attestation.outcome,
+      timestamp: attestation.timestamp,
+      worktreeBaselineRevision: attestation.worktreeBaselineRevision,
+      worktreeCurrentRevision: attestation.worktreeCurrentRevision,
+    })),
+    warnings: model.warnings,
+    nextAction: model.nextAction,
+    version: model.version,
+    createdAt: model.createdAt,
+    updatedAt: model.updatedAt,
   };
 }

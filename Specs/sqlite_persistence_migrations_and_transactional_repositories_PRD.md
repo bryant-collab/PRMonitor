@@ -166,6 +166,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 - FR-06.4: Validation records SHALL retain the F00 effective-profile snapshot, authorization/content hash, worktree/revision identity, command/manual outcomes, bounded redacted output metadata, and explicit `passed`, `failed`, `not_run`, or `interrupted` status.
 - FR-06.5: A synchronization result SHALL be stored independently for each PR and SHALL retain branch/repository identities, exact source/head/merge-base SHAs, source-side and PR-head-side merge/conflict evidence, worktree, diff metadata, validation, AI association and user-consultation records when present, current status, and structured reason data.
 - FR-06.6: A persisted AI or validation record SHALL never be considered successful solely because a model or provider claims success; repository data SHALL preserve deterministic observations separately from model-reported text.
+- FR-06.7: AI operation/turn/conversation writes SHALL enter F03 only through the versioned provider-neutral handoff defined by F15. F03 SHALL never accept Codex SDK objects, provider thread instances, raw prompts, credentials, or uncontrolled environment values, and F17 SHALL use F03's transaction boundary before authorizing the provider effect.
 
 ### FR-07: Publication and uncertain-outcome persistence
 
@@ -230,6 +231,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 - **PD-04: One result, one durable explanation** - A Review Bundle, synchronization result, AI operation, validation run, and publication attempt must be independently understandable without reconstructing state from free-form activity text.
 - **PD-05: Persistence is not authorization** - Storing an approved publication intent or provider conversation reference never grants a provider or background worker authority to publish; later deterministic services enforce the approval boundary.
 - **PD-06: Cancellation never invents rollback** - Cancellation before commit leaves no partial transaction; cancellation after commit reports the committed result for reconciliation rather than pretending a durable fact was undone.
+- **PD-07: F03 is the durable authority for F15 handoffs** - F15 returns a serializable normalized turn result; F17 owns lifecycle and continuation decisions; F03 owns the transaction, repository, idempotency, and restart-safe durable record. No provider thread or adapter memory is authoritative.
 
 ## Implementation Decisions
 
@@ -242,6 +244,7 @@ The feature is an application foundation rather than a new user workflow. Later 
 - **IMP-07: Optimistic concurrency plus serialized write coordination** - Use a persisted version/owner guard for aggregate updates and a bounded main-process write coordinator for SQLite busy contention. A stale update returns a conflict result and never performs a compensating mutation.
 - **IMP-08: No implicit data deletion** - F03 migrations may add columns/tables, backfill deterministic values, or transform records under an explicit versioned contract, but they do not delete history or create a replacement database as an error fallback.
 - **IMP-09: Safe diagnostics** - Repository errors use stable reason codes and bounded details. SQL statements, credentials, prompts, raw SDK errors, and uncontrolled environment values are excluded from durable diagnostics; correlation IDs link a persistence error to the owning operation.
+- **IMP-10: Typed provider-neutral AI handoff** - The AI operation/turn repositories accept only the schema-versioned F15 handoff and persist normalized events, structured results, usage, opaque conversation references, and safe errors through bounded codecs. F03 does not import the Codex SDK or invoke a provider.
 
 ## Testing Decisions
 

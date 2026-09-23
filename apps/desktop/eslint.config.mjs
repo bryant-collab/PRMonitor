@@ -30,11 +30,23 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/main/ai/codex-adapter.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           paths: ["@openai/codex-sdk", "@prmonitor/spec-linter"],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/main/ai/codex-adapter.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["@prmonitor/spec-linter"],
         },
       ],
     },

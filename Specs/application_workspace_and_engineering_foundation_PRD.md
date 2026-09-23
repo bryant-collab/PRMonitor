@@ -22,7 +22,7 @@ when using this template -->
 | 3 | F04 - Persistent Electron shell, IPC boundary, and Windows virtual-desktop spike | Extends the F01 desktop shell and typed preload placeholder with authoritative lifecycle, validated IPC, tray, and platform behavior. |
 | 4 | F05-F07 - GitHub setup and managed PRs | Use the provider-neutral application workspace and deterministic integration-test harness. |
 | 5 | F13-F14 - Worktrees and validation runner | Use the temporary Git fixture harness and deterministic test entry points; F01 does not operate user repositories. |
-| 6 | F15 - Provider-neutral AI contracts and Codex adapter | Consumes the pinned runtime/dependency boundary; F01 does not invoke or adapt an AI provider. |
+| 6 | F15 - Provider-neutral AI contracts and Codex adapter | Consumes the pinned runtime/dependency boundary; F01 does not invoke or adapt an AI provider. F15 is the only allowed production importer/invoker of the pinned SDK. |
 | 7 | F29 - Security hardening and operational safeguards | Extends the foundation's import/secret checks with production threat-model hardening. |
 | 8 | F30 - Packaging, release, and update hardening | Extends F01's unpacked production artifact into signed/distributed installers and release channels. |
 
@@ -136,7 +136,7 @@ F01 establishes the smallest usable engineering foundation: a Windows-first Elec
 - FR-02.3: Renderer code SHALL not import Node built-ins, Electron modules, filesystem/process APIs, provider SDKs, or secret-bearing configuration; static boundary checks SHALL fail closed when it does.
 - FR-02.4: F01's preload entry SHALL expose only a typed no-op/placeholder contract, or no capabilities at all, and SHALL not add an unvalidated IPC channel; F04 SHALL own the later validated allowlisted IPC surface.
 - FR-02.5: Shared code intended for renderer use SHALL be platform-neutral, serializable, and free of Electron, Node privileged APIs, GitHub, SQLite, Git, and provider imports.
-- FR-02.6: The application SHALL keep the eventual Codex SDK dependency behind a future provider-adapter boundary; F01 SHALL not invoke it or use provider output to determine shell/test state.
+- FR-02.6: The application SHALL keep the eventual Codex SDK dependency behind a provider-adapter boundary; F01 SHALL not invoke it or use provider output to determine shell/test state. The static boundary SHALL allow the SDK only in the single F15 Codex adapter module once F15 is implemented, and SHALL continue to reject imports from every other main, shared, preload, renderer, persistence, Git, validation, review, synchronization, and publication module.
 
 ### FR-03: Production shell and packaging-friendly artifact
 
@@ -206,6 +206,7 @@ F01 establishes the smallest usable engineering foundation: a Windows-first Elec
 - **PD-02: Windows is the primary F01 runtime** - The shell and smoke path must work on Windows, while source boundaries avoid preventing later macOS/Linux support; F01 does not promise cross-platform release artifacts.
 - **PD-03: No product service is needed to run the root check** - A developer or CI system can validate the foundation without GitHub, Typesafe, an AI provider, or user credentials; specification linting is opt-in and separate.
 - **PD-04: Temporary Git fixtures are synthetic** - Tests must exercise real Git behavior when Git is installed, but fixture repositories contain synthetic identity and no remote or developer worktree.
+- **PD-05: F15 receives one narrow SDK exception** - F01 supplies the package, runtime, test, and import-boundary foundation; F15 owns the only Codex SDK import/invocation. The exception is limited to the main-process adapter and does not broaden renderer/shared privileges or give F01 AI authority.
 
 ## Implementation Decisions
 
@@ -221,6 +222,7 @@ F01 establishes the smallest usable engineering foundation: a Windows-first Elec
 - **IMP-10: Read-only F00 schema drift check** - F01 may change F00 build/check orchestration so compilation and `verify:schema` compare generated JSON Schema in memory or a disposable temporary directory against `Specs/contracts/validation-profile.v1.schema.json` without rewriting the tracked file. The root `npm run check` must not write that tracked file. `generate:validation-schema` remains the explicit opt-in write command and the only schema writer; tests snapshot tracked-schema bytes and `git status --short` before and after normal check, and retain a check/delete race that refuses cleanup when temporary-output ownership or canonical containment changes. F00 exports, behavior, fixtures, schema meaning, and tests remain unchanged.
 - **IMP-11: Sanitized child processes and safe cleanup** - Smoke/test children receive only the documented allowlist (`PATH`, platform loader variables, locale, `CI`, and explicit PRMonitor test variables); `TYPESAFE_API_KEY`, GitHub/AI credentials, `NODE_OPTIONS`, and recognized secret-name variants are removed. Every cleanup first verifies an owner marker, canonical containment, and no symlink/junction/reparse point, and refuses uncertain deletion.
 - **IMP-12: Application-coverage completion gate** - The final F01 evidence report must show exactly `0 covered`, `0 missing`, `70 not-applicable`, and `0 unresolved needs-review`. A covered or missing outcome blocks completion and triggers a mapping/spec correction; a needs-review outcome blocks completion until a human disposition is recorded and the linter is rerun with no unresolved review.
+- **IMP-13: F15 import-guard handoff** - When F15 is implemented, replace the current blanket `@openai/codex-sdk` restriction with one explicit allowlist exception for `src/main/ai/codex-adapter.ts` (or the approved equivalent). Keep the negative import scan for all other source boundaries and record the adapter-only result in the F15 conformance evidence.
 
 ## Testing Decisions
 

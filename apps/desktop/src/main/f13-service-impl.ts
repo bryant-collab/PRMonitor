@@ -35,6 +35,9 @@ import type {
   F13PathAction,
   F13PathActionResult,
   F13PreparationResult,
+  F13ProviderAccess,
+  F13ProviderWorktreeHandoff,
+  F13ProviderWorktreeHandoffResult,
   F13RepositoryIdentity,
   F13ReviewOperationRequest,
   F13RootResolution,
@@ -521,6 +524,55 @@ function changeSummary(
     manualOrUnknown: manualOrUnknown.sort(),
   };
   return { ...summary, hash: hashText(stableJson(summary)) };
+}
+
+function providerWorktreeHandoff(input: {
+  readonly worktree: F13WorktreeRecord;
+  readonly snapshot: F13SnapshotRecord;
+  readonly access: F13ProviderAccess;
+}): F13ProviderWorktreeHandoff {
+  const { worktree, snapshot, access } = input;
+  return {
+    schemaVersion: 1,
+    operationId: worktree.operationId,
+    worktreeId: worktree.worktreeId,
+    ownerType: worktree.ownerType,
+    ownerId: worktree.ownerId,
+    operationKind: worktree.operationKind,
+    canonicalPath: worktree.canonicalPath,
+    access,
+    ownership: {
+      kind: "OPERATION_OWNED",
+      ownerType: worktree.ownerType,
+      ownerId: worktree.ownerId,
+    },
+    actualState: {
+      snapshotId: snapshot.snapshotId,
+      stateFingerprint: snapshot.stateFingerprint,
+      baselineRevision: snapshot.manifest.worktreeBaselineSha,
+      expectedHeadRevision: snapshot.manifest.expectedHeadSha,
+      ...(snapshot.manifest.headSha === undefined
+        ? {}
+        : { currentHeadRevision: snapshot.manifest.headSha }),
+      files: snapshot.manifest.files.map((file) => {
+        const {
+          contentBase64: _contentBase64,
+          contentComplete: _contentComplete,
+          ...metadata
+        } = file;
+        return metadata;
+      }),
+      ignoredFiles: [...snapshot.manifest.ignoredFiles],
+      complete: snapshot.manifest.complete,
+    },
+    permittedCapabilities: {
+      readFiles: true,
+      writeFiles: access === "WORKTREE_WRITE",
+      executeCommands: false,
+      network: false,
+      publication: false,
+    },
+  };
 }
 
 interface LineEdit {
@@ -1642,6 +1694,37 @@ export class F13WorktreeService {
     return this.inspectInternal(intent, phase);
   }
 
+  /**
+   * Read-only provider context.  The path and state are derived from the
+   * durable operation intent and a fresh inspection; callers cannot submit a
+   * replacement path or provider-reported Git state through this API.
+   */
+  public async getProviderWorktreeHandoff(input: {
+    readonly operationId: string;
+    readonly ownerId: string;
+  }): Promise<F13ProviderWorktreeHandoffResult> {
+    const inspection = await this.inspectOperation(
+      input.operationId,
+      input.ownerId,
+      "INSPECTION",
+    );
+    if (!inspection.ok || inspection.snapshot === undefined)
+      return {
+        ok: false,
+        ...(inspection.reason === undefined
+          ? {}
+          : { reason: inspection.reason }),
+      };
+    return {
+      ok: true,
+      handoff: providerWorktreeHandoff({
+        worktree: inspection.worktree,
+        snapshot: inspection.snapshot,
+        access: "READ_ONLY",
+      }),
+    };
+  }
+
   private async inspectInternal(
     intent: F13OperationIntentRecord,
     phase: F13SnapshotPhase,
@@ -2227,6 +2310,11 @@ export class F13WorktreeService {
       ok: true,
       snapshot: inspection.snapshot,
       mutationRoot: intent.canonicalPath,
+      worktree: providerWorktreeHandoff({
+        worktree: inspection.worktree,
+        snapshot: inspection.snapshot,
+        access: "WORKTREE_WRITE",
+      }),
     };
   }
 
@@ -2325,6 +2413,11 @@ export class F13WorktreeService {
       beforeSnapshotId: input.beforeSnapshotId,
       snapshot: saved,
       changeSummary: summary,
+      worktree: providerWorktreeHandoff({
+        worktree: inspection.worktree,
+        snapshot: saved,
+        access: "WORKTREE_WRITE",
+      }),
       ...(inspection.reason === undefined ? {} : { reason: inspection.reason }),
     };
   }

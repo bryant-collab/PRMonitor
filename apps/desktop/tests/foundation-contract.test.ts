@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,21 @@ const appRoot = path.resolve(
 
 async function source(relativePath: string): Promise<string> {
   return readFile(path.join(appRoot, relativePath), "utf8");
+}
+
+async function sourceTree(relativePath: string): Promise<string[]> {
+  const directory = path.join(appRoot, relativePath);
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const child = path.join(relativePath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await sourceTree(child)));
+    } else if (/\.(?:ts|tsx)$/u.test(entry.name)) {
+      files.push(child);
+    }
+  }
+  return files;
 }
 
 describe("F01 workspace contract", () => {
@@ -112,7 +127,7 @@ describe("F01 workspace contract", () => {
     );
   });
 
-  it("defines the exact CI matrix and keeps F01 provider/linter imports out of source", async () => {
+  it("defines the exact CI matrix and keeps provider/linter imports behind F01 boundaries", async () => {
     const repositoryRoot = path.resolve(appRoot, "..", "..");
     const workflow = await readFile(
       path.join(repositoryRoot, ".github", "workflows", "ci.yml"),
@@ -136,6 +151,26 @@ describe("F01 workspace contract", () => {
       expect(contents).not.toMatch(
         /@openai\/codex-sdk|@prmonitor\/spec-linter/u,
       );
+    }
+  });
+
+  it("allows the Codex SDK only in the future main-process adapter", async () => {
+    const allowedAdapter = path.normalize("src/main/ai/codex-adapter.ts");
+    const sdkReference = /@openai\/codex-sdk/u;
+    const violations: string[] = [];
+    for (const relativePath of await sourceTree("src")) {
+      const contents = await source(relativePath);
+      if (sdkReference.test(contents) && path.normalize(relativePath) !== allowedAdapter)
+        violations.push(relativePath);
+    }
+    expect(violations).toEqual([]);
+
+    try {
+      const adapter = await source(allowedAdapter);
+      expect(adapter).toMatch(sdkReference);
+    } catch {
+      // F15 has not implemented the adapter yet; the allowlist is staged for
+      // that single path and the negative scan remains active in the meantime.
     }
   });
 });
