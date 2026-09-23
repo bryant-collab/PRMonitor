@@ -2,8 +2,8 @@
 
 This package is the main-process SQLite authority for durable PRMonitor state.
 It uses the pinned Node 24 `node:sqlite` driver, which avoids a native addon and
-is available to the supported Electron runtime. The current schema is version 5
-with five forward-only migrations. `initializePersistence` requires an absolute
+is available to the supported Electron runtime. The current schema is version 11
+with forward-only migrations. `initializePersistence` requires an absolute
 database path and a separate application-owned backup root; it never derives
 either path from renderer or PR input.
 

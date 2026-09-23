@@ -112,7 +112,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 3 - Local execution and AI platform
 
-- [ ] **F13 - Operation-owned Git worktrees and change attribution**
+- [x] **F13 - Operation-owned Git worktrees and change attribution**
   - **Depends on:** F03, F07, F11-F12.
   - **Deliver:** Implement a thin deterministic Git/worktree service that fetches refs, records `prBaseSha`, `prHeadSha`, `worktreeBaselineSha`, and synchronization merge-base identities, creates clean review and synchronization worktrees under a configurable root, and never touches the developer workspace. Capture before/after snapshots for each mutating AI turn, inspect actual state before every mutation/validation/publication, expose open/reveal actions, and implement safe three-way removal of AI-attributable changes with overlap detection.
   - **Exit:** Concurrent operation types cannot reuse/overwrite a worktree; proposed and context diffs are reproducible; manual edits are preserved; and unsafe overlap blocks **Clear Only AI Changes** instead of guessing.

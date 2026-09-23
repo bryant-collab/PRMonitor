@@ -1006,6 +1006,117 @@ CREATE INDEX IF NOT EXISTS idx_f12_dispatch_recovery
 PRAGMA user_version = 10;
 `;
 
+const MIGRATION_11 = `
+CREATE TABLE IF NOT EXISTS f13_operation_intents (
+  operation_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  correlation_id TEXT NOT NULL,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  managed_pr_id TEXT,
+  developer_clone_path TEXT NOT NULL,
+  operation_kind TEXT NOT NULL CHECK (operation_kind IN ('REVIEW', 'CONVERSATION', 'SYNCHRONIZATION')),
+  worktree_id TEXT NOT NULL UNIQUE REFERENCES worktrees(worktree_id),
+  configured_root TEXT NOT NULL,
+  root_revision INTEGER NOT NULL,
+  canonical_path TEXT NOT NULL UNIQUE,
+  source_repository_json TEXT NOT NULL,
+  source_repository_hash TEXT NOT NULL,
+  destination_repository_json TEXT,
+  destination_repository_hash TEXT,
+  refs_json TEXT NOT NULL,
+  refs_hash TEXT NOT NULL,
+  sha_snapshot_json TEXT NOT NULL,
+  sha_snapshot_hash TEXT NOT NULL,
+  lifecycle TEXT NOT NULL,
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f13_intents_owner
+  ON f13_operation_intents(owner_type, owner_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_f13_intents_recovery
+  ON f13_operation_intents(lifecycle, updated_at);
+
+CREATE TABLE IF NOT EXISTS f13_worktree_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f13_operation_intents(operation_id),
+  worktree_id TEXT NOT NULL REFERENCES worktrees(worktree_id),
+  phase TEXT NOT NULL,
+  turn_id TEXT,
+  state_fingerprint TEXT NOT NULL,
+  manifest_json TEXT NOT NULL,
+  manifest_hash TEXT NOT NULL,
+  change_summary_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f13_snapshots_operation
+  ON f13_worktree_snapshots(operation_id, created_at, snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_f13_snapshots_turn
+  ON f13_worktree_snapshots(operation_id, turn_id, phase, created_at);
+
+CREATE TABLE IF NOT EXISTS f13_diff_evidence (
+  diff_id TEXT PRIMARY KEY REFERENCES diffs(diff_id),
+  operation_id TEXT NOT NULL REFERENCES f13_operation_intents(operation_id),
+  worktree_id TEXT NOT NULL REFERENCES worktrees(worktree_id),
+  diff_kind TEXT NOT NULL CHECK (diff_kind IN ('PROPOSED', 'CONTEXT')),
+  patch_hash TEXT NOT NULL,
+  patch_text TEXT,
+  files_json TEXT NOT NULL,
+  files_hash TEXT NOT NULL,
+  untracked_files_json TEXT NOT NULL,
+  untracked_files_hash TEXT NOT NULL,
+  untracked_evidence_json TEXT NOT NULL,
+  untracked_evidence_hash TEXT NOT NULL,
+  complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
+  regeneration_contract TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f13_diff_operation
+  ON f13_diff_evidence(operation_id, diff_kind, created_at, diff_id);
+
+CREATE TABLE IF NOT EXISTS f13_clear_actions (
+  action_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f13_operation_intents(operation_id),
+  worktree_id TEXT NOT NULL REFERENCES worktrees(worktree_id),
+  choice TEXT NOT NULL CHECK (choice IN ('CLEAR_ALL', 'CLEAR_AI_ONLY', 'KEEP_AND_CANCEL')),
+  confirmation INTEGER NOT NULL CHECK (confirmation IN (0, 1)),
+  before_snapshot_id TEXT,
+  after_snapshot_id TEXT,
+  current_snapshot_id TEXT,
+  status TEXT NOT NULL,
+  outcome_json TEXT NOT NULL DEFAULT '{}',
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f13_clear_actions_operation
+  ON f13_clear_actions(operation_id, created_at, action_id);
+
+CREATE TABLE IF NOT EXISTS f13_path_actions (
+  action_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f13_operation_intents(operation_id),
+  worktree_id TEXT NOT NULL REFERENCES worktrees(worktree_id),
+  action TEXT NOT NULL CHECK (action IN ('OPEN_WORKTREE', 'OPEN_FILE', 'REVEAL_FILE')),
+  requested_relative_path TEXT,
+  resolved_path TEXT,
+  outcome TEXT NOT NULL,
+  reason_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f13_path_actions_operation
+  ON f13_path_actions(operation_id, created_at, action_id);
+
+PRAGMA user_version = 11;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1070,6 +1181,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F12-001-review-scheduler-control-plane",
     sql: MIGRATION_10,
     checksum: checksum(MIGRATION_10),
+  },
+  {
+    version: 11,
+    id: "F13-001-operation-owned-worktrees-and-evidence",
+    sql: MIGRATION_11,
+    checksum: checksum(MIGRATION_11),
   },
 ];
 

@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
+import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -17,6 +19,7 @@ import {
   F10PersistenceRepositories,
   F11PersistenceRepositories,
   F12PersistenceRepositories,
+  F13PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -49,6 +52,8 @@ import type {
   F12SchedulerControlResult,
   F12SchedulerSnapshot,
 } from "../shared/control-plane";
+import { F13WorktreeService } from "./f13-service";
+import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -102,6 +107,7 @@ let activityService: ActivityService | undefined;
 let f11EligibilityService: F11EligibilityService | undefined;
 let prWatcher: MainPrWatcher | undefined;
 let reviewScheduler: MainReviewScheduler | undefined;
+let f13WorktreeService: F13WorktreeService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -287,6 +293,38 @@ async function initializeMainProcessPersistence(): Promise<void> {
   }
   const f03Repositories = createPersistenceRepositories(persistenceStore);
   persistenceRepositories = f03Repositories;
+  const f13Root = path.join(userDataDirectory, "worktrees");
+  await mkdir(f13Root, { recursive: true });
+  const f13Repositories = new F13PersistenceRepositories(persistenceStore);
+  f13WorktreeService = new F13WorktreeService({
+    repositories: f13Repositories,
+    defaultRoot: f13Root,
+    os: new ElectronF13OsPathAdapter(),
+    activity: {
+      append: (event) => {
+        activityService?.writer.append({
+          eventId: `f13-activity-${randomUUID()}`,
+          eventType: "OPERATION_PROGRESS",
+          stage: "WORKTREE",
+          correlationId: event.correlationId,
+          ...(event.operationId === undefined
+            ? {}
+            : { operationId: event.operationId }),
+          occurrenceAt: new Date().toISOString(),
+          severity: "INFO",
+          reason: {
+            code: "PROGRESS",
+            what: event.summary,
+            why: "A deterministic F13 worktree operation recorded bounded evidence.",
+            nextAction: "NONE",
+          },
+          summary: event.summary,
+          details: { f13ReasonCode: event.reasonCode },
+        });
+      },
+    },
+  });
+  await f13WorktreeService.reconcileStartup();
   f11EligibilityService = new F11EligibilityService(
     new F11PersistenceRepositories(persistenceStore),
     { activity: activityService?.writer },
