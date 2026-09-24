@@ -138,7 +138,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Primary application criteria:** APP-AC-32 through APP-AC-36, APP-AC-59 through APP-AC-62, APP-AC-70, APP-AC-74; completes snapshot behavior for APP-AC-41 and APP-AC-42.
   - **F15 handoff:** F16 resolves and snapshots the task profile, Common Instructions, Build & Validation Instructions, and execution policy. It does not import or invoke a provider SDK; F15 translates the snapshot and rejects unsupported or broader behavior.
 
-- [ ] **F17 - Bounded AI Work Controller and deterministic progress evaluation**
+- [x] **F17 - Bounded AI Work Controller and deterministic progress evaluation**
   - **Depends on:** F03, F13-F16.
   - **Deliver:** Persist parent operations, bounded segments, 1-10 turn budgets (default 3, hard maximum 10), consumed counts, turn timeouts, snapshots, usage, actual file/command activity, completion predicates, state fingerprints, progress classifications, and machine-readable stop reasons. Detect repeated state and two consecutive no-material-progress turns. Require explicit continuation/new-budget authorization and preserve cumulative history.
   - **Exit:** Closure/restart cannot reset a budget; timeout/failure/repeated/no-progress/exhaustion becomes reviewable `NEEDS_ATTENTION`; deterministic evidence overrides claims; and a valid no-code semantic result can complete without false no-progress failure.

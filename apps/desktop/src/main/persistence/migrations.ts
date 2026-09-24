@@ -1196,6 +1196,126 @@ CREATE TABLE IF NOT EXISTS f14_validation_warnings (
 PRAGMA user_version = 12;
 `;
 
+const MIGRATION_13 = `
+/* F17 keeps its controller-owned lifecycle records separate from the legacy
+   F15-compatible AI tables.  This lets the bounded controller add durable
+   reservations and reconciliation without changing the earlier provider
+   handoff semantics. */
+CREATE TABLE IF NOT EXISTS f17_ai_work_operations (
+  operation_id TEXT PRIMARY KEY,
+  parent_operation_id TEXT REFERENCES f17_ai_work_operations(operation_id),
+  operation_kind TEXT NOT NULL,
+  task_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  configured_turn_budget INTEGER NOT NULL CHECK (configured_turn_budget BETWEEN 1 AND 10),
+  consumed_turn_count INTEGER NOT NULL DEFAULT 0 CHECK (consumed_turn_count >= 0),
+  reserved_turn_count INTEGER NOT NULL DEFAULT 0 CHECK (reserved_turn_count >= 0),
+  history_revision INTEGER NOT NULL DEFAULT 0 CHECK (history_revision >= 0),
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 0),
+  idempotency_key TEXT UNIQUE,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f17_ai_work_segments (
+  segment_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f17_ai_work_operations(operation_id),
+  segment_index INTEGER NOT NULL CHECK (segment_index >= 0),
+  status TEXT NOT NULL,
+  interaction_mode TEXT NOT NULL CHECK (interaction_mode IN ('read_only', 'worktree_write')),
+  turn_budget INTEGER NOT NULL CHECK (turn_budget BETWEEN 1 AND 10),
+  consumed_turn_baseline INTEGER NOT NULL CHECK (consumed_turn_baseline >= 0),
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 0),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (operation_id, segment_index)
+);
+
+CREATE TABLE IF NOT EXISTS f17_ai_work_turn_intents (
+  turn_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f17_ai_work_operations(operation_id),
+  segment_id TEXT NOT NULL REFERENCES f17_ai_work_segments(segment_id),
+  sequence INTEGER NOT NULL CHECK (sequence >= 0),
+  interaction_mode TEXT NOT NULL CHECK (interaction_mode IN ('read_only', 'worktree_write')),
+  status TEXT NOT NULL,
+  reservation TEXT NOT NULL CHECK (reservation IN ('NONE', 'RESERVED', 'CONSUMED', 'RELEASED', 'UNCERTAIN')),
+  timeout_ms INTEGER NOT NULL CHECK (timeout_ms BETWEEN 1000 AND 3600000),
+  deadline_at TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 0),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  UNIQUE (segment_id, sequence)
+);
+
+CREATE TABLE IF NOT EXISTS f17_ai_work_turn_reports (
+  turn_id TEXT PRIMARY KEY REFERENCES f17_ai_work_turn_intents(turn_id),
+  report_json TEXT NOT NULL,
+  report_hash TEXT NOT NULL,
+  progress_json TEXT,
+  usage_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f17_ai_work_fingerprints (
+  fingerprint_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f17_ai_work_operations(operation_id),
+  turn_id TEXT NOT NULL REFERENCES f17_ai_work_turn_intents(turn_id),
+  fingerprint TEXT NOT NULL,
+  classification TEXT NOT NULL,
+  complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
+  material_progress INTEGER NOT NULL CHECK (material_progress IN (0, 1)),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f17_ai_work_confirmations (
+  confirmation_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f17_ai_work_operations(operation_id),
+  kind TEXT NOT NULL,
+  displayed_history_revision INTEGER NOT NULL CHECK (displayed_history_revision >= 0),
+  selected_budget INTEGER NOT NULL CHECK (selected_budget BETWEEN 1 AND 10),
+  confirmed INTEGER NOT NULL CHECK (confirmed IN (0, 1)),
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'CONSUMED', 'CANCELLED', 'REJECTED')),
+  snapshot_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 0),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  confirmed_at TEXT,
+  consumed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS f17_ai_work_reconciliations (
+  reconciliation_id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES f17_ai_work_operations(operation_id),
+  turn_id TEXT NOT NULL REFERENCES f17_ai_work_turn_intents(turn_id),
+  outcome TEXT NOT NULL CHECK (outcome IN ('INTERRUPTED', 'UNCERTAIN', 'CONFIRMED_TERMINAL')),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f17_ai_work_segments_operation
+  ON f17_ai_work_segments(operation_id, segment_index);
+CREATE INDEX IF NOT EXISTS idx_f17_ai_work_turns_operation
+  ON f17_ai_work_turn_intents(operation_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_f17_ai_work_fingerprints_operation
+  ON f17_ai_work_fingerprints(operation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_f17_ai_work_confirmations_operation
+  ON f17_ai_work_confirmations(operation_id, status);
+
+PRAGMA user_version = 13;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1272,6 +1392,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F14-001-deterministic-validation-evidence",
     sql: MIGRATION_12,
     checksum: checksum(MIGRATION_12),
+  },
+  {
+    version: 13,
+    id: "F17-001-bounded-ai-work-controller",
+    sql: MIGRATION_13,
+    checksum: checksum(MIGRATION_13),
   },
 ];
 
