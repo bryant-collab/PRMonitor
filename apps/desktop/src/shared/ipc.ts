@@ -43,6 +43,24 @@ import {
   type F12SchedulerConfigurationInput,
   type F12SchedulerSnapshot,
 } from "./control-plane";
+import {
+  f16CommonInstructionDeleteInputSchema,
+  f16CommonInstructionSaveInputSchema,
+  f16CommonInstructionSelectionSaveInputSchema,
+  f16OperationalSaveInputSchema,
+  f16PolicySaveInputSchema,
+  f16RepositorySaveInputSchema,
+  f16TaskProfileSaveInputSchema,
+  isF16PreferencesReadModel,
+  type F16CommonInstructionDeleteInput,
+  type F16CommonInstructionSaveInput,
+  type F16CommonInstructionSelectionSaveInput,
+  type F16OperationalSaveInput,
+  type F16PolicySaveInput,
+  type F16PreferencesReadModel,
+  type F16RepositorySaveInput,
+  type F16TaskProfileSaveInput,
+} from "./f16-preferences";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -65,6 +83,14 @@ export type IpcRequestType =
   | "scheduler.check-now"
   | "scheduler.pause"
   | "scheduler.resume"
+  | "preferences.read"
+  | "preferences.task-profile.save"
+  | "preferences.policy.save"
+  | "preferences.operational.save"
+  | "preferences.common-instruction.save"
+  | "preferences.common-instruction.delete"
+  | "preferences.common-instruction.selection.save"
+  | "preferences.repository.save"
   | "github.settings.read"
   | "github.profile.upsert"
   | "github.credential.submit"
@@ -130,6 +156,38 @@ export type IpcRequest =
       readonly payload: { readonly expectedRevision?: number };
     })
   | (IpcRequestBase & {
+      readonly type: "preferences.read";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.task-profile.save";
+      readonly payload: F16TaskProfileSaveInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.policy.save";
+      readonly payload: F16PolicySaveInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.operational.save";
+      readonly payload: F16OperationalSaveInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.common-instruction.save";
+      readonly payload: F16CommonInstructionSaveInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.common-instruction.delete";
+      readonly payload: F16CommonInstructionDeleteInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.common-instruction.selection.save";
+      readonly payload: F16CommonInstructionSelectionSaveInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.repository.save";
+      readonly payload: F16RepositorySaveInput;
+    })
+  | (IpcRequestBase & {
       readonly type: "github.settings.read";
       readonly payload: Record<string, never>;
     })
@@ -187,7 +245,10 @@ export type IpcRequest =
     })
   | (IpcRequestBase & {
       readonly type: "managed-pr.clone.clear";
-      readonly payload: { readonly managedPrId: string; readonly expectedVersion: number };
+      readonly payload: {
+        readonly managedPrId: string;
+        readonly expectedVersion: number;
+      };
     })
   | (IpcRequestBase & {
       readonly type: "managed-pr.configuration.save";
@@ -225,7 +286,8 @@ export interface IpcError {
     | "SERVICE_START_FAILED"
     | "SERVICE_STOP_FAILED"
     | "SERVICE_STOP_TIMEOUT"
-    | "SERVICE_HANDOFF_TIMEOUT";
+    | "SERVICE_HANDOFF_TIMEOUT"
+    | "CONFIGURATION_ERROR";
   readonly message: string;
   readonly correlationId: string;
 }
@@ -266,22 +328,53 @@ export type IpcResponseValue =
   | { readonly kind: "current-state"; readonly state: CurrentState }
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
-  | { readonly kind: "scheduler-snapshot"; readonly snapshot: F12SchedulerSnapshot }
-  | { readonly kind: "scheduler-operation"; readonly operation: F12SchedulerControlResult }
-  | { readonly kind: "github-settings"; readonly settings: GithubServerSettingsView }
-  | { readonly kind: "github-profile"; readonly profile: GithubServerProfileView }
+  | {
+      readonly kind: "scheduler-snapshot";
+      readonly snapshot: F12SchedulerSnapshot;
+    }
+  | {
+      readonly kind: "scheduler-operation";
+      readonly operation: F12SchedulerControlResult;
+    }
+  | {
+      readonly kind: "preferences";
+      readonly preferences: F16PreferencesReadModel;
+    }
+  | {
+      readonly kind: "github-settings";
+      readonly settings: GithubServerSettingsView;
+    }
+  | {
+      readonly kind: "github-profile";
+      readonly profile: GithubServerProfileView;
+    }
   | {
       readonly kind: "github-operation";
       readonly operationId: string;
       readonly profile: GithubServerProfileView;
     }
   | { readonly kind: "managed-pr-list"; readonly value: ManagedPrListView }
-  | { readonly kind: "managed-pr-details"; readonly managedPr: ManagedPrReadModel | null }
-  | { readonly kind: "managed-pr-operation"; readonly operation: ManagedPrOperationView }
-  | { readonly kind: "managed-pr-candidates"; readonly value: ManagedPrCandidateListView }
+  | {
+      readonly kind: "managed-pr-details";
+      readonly managedPr: ManagedPrReadModel | null;
+    }
+  | {
+      readonly kind: "managed-pr-operation";
+      readonly operation: ManagedPrOperationView;
+    }
+  | {
+      readonly kind: "managed-pr-candidates";
+      readonly value: ManagedPrCandidateListView;
+    }
   | { readonly kind: "managed-pr-folder"; readonly path?: string }
-  | { readonly kind: "managed-pr-inbox"; readonly snapshot: ManagedPrInboxReadModel }
-  | { readonly kind: "activity-query"; readonly snapshot: ActivityQuerySnapshot }
+  | {
+      readonly kind: "managed-pr-inbox";
+      readonly snapshot: ManagedPrInboxReadModel;
+    }
+  | {
+      readonly kind: "activity-query";
+      readonly snapshot: ActivityQuerySnapshot;
+    }
   | { readonly kind: "activity-navigation"; readonly target: OpenTarget }
   | { readonly kind: "navigation-target"; readonly target: OpenTarget };
 
@@ -377,14 +470,20 @@ function safeProfileText(value: unknown, maximum: number): value is string {
   );
 }
 
-function safeManagedMultilineText(value: unknown, maximum: number): value is string {
+function safeManagedMultilineText(
+  value: unknown,
+  maximum: number,
+): value is string {
   return (
     typeof value === "string" &&
     byteLength(value) <= maximum &&
     [...value].every((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
       return (
-        (codePoint > 31 || codePoint === 9 || codePoint === 10 || codePoint === 13) &&
+        (codePoint > 31 ||
+          codePoint === 9 ||
+          codePoint === 10 ||
+          codePoint === 13) &&
         codePoint !== 127
       );
     })
@@ -525,6 +624,11 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "operation"]) &&
       isF12SchedulerControlResult(value.operation)
     );
+  if (value.kind === "preferences")
+    return (
+      hasExactKeys(value, ["kind", "preferences"]) &&
+      isF16PreferencesReadModel(value.preferences)
+    );
   if (value.kind === "github-settings")
     return (
       hasExactKeys(value, ["kind", "settings"]) &&
@@ -542,23 +646,49 @@ function parseResponseValue(value: unknown): boolean {
       isGithubServerProfileView(value.profile)
     );
   if (value.kind === "managed-pr-list")
-    return hasExactKeys(value, ["kind", "value"]) && isManagedPrListView(value.value);
+    return (
+      hasExactKeys(value, ["kind", "value"]) && isManagedPrListView(value.value)
+    );
   if (value.kind === "managed-pr-details")
-    return hasExactKeys(value, ["kind", "managedPr"]) && (value.managedPr === null || isManagedPrReadModel(value.managedPr));
+    return (
+      hasExactKeys(value, ["kind", "managedPr"]) &&
+      (value.managedPr === null || isManagedPrReadModel(value.managedPr))
+    );
   if (value.kind === "managed-pr-operation")
-    return hasExactKeys(value, ["kind", "operation"]) && isManagedPrOperationView(value.operation);
+    return (
+      hasExactKeys(value, ["kind", "operation"]) &&
+      isManagedPrOperationView(value.operation)
+    );
   if (value.kind === "managed-pr-candidates")
-    return hasExactKeys(value, ["kind", "value"]) && isManagedPrCandidateListView(value.value);
+    return (
+      hasExactKeys(value, ["kind", "value"]) &&
+      isManagedPrCandidateListView(value.value)
+    );
   if (value.kind === "managed-pr-folder")
-    return hasExactKeys(value, ["kind"], ["path"]) && (value.path === undefined || safeManagedPath(value.path));
+    return (
+      hasExactKeys(value, ["kind"], ["path"]) &&
+      (value.path === undefined || safeManagedPath(value.path))
+    );
   if (value.kind === "managed-pr-inbox")
-    return hasExactKeys(value, ["kind", "snapshot"]) && isManagedPrInboxReadModel(value.snapshot);
+    return (
+      hasExactKeys(value, ["kind", "snapshot"]) &&
+      isManagedPrInboxReadModel(value.snapshot)
+    );
   if (value.kind === "activity-query")
-    return hasExactKeys(value, ["kind", "snapshot"]) && isActivityQuerySnapshot(value.snapshot);
+    return (
+      hasExactKeys(value, ["kind", "snapshot"]) &&
+      isActivityQuerySnapshot(value.snapshot)
+    );
   if (value.kind === "activity-navigation")
-    return hasExactKeys(value, ["kind", "target"]) && parseOpenTargetRecord(value.target).ok;
+    return (
+      hasExactKeys(value, ["kind", "target"]) &&
+      parseOpenTargetRecord(value.target).ok
+    );
   if (value.kind === "navigation-target")
-    return hasExactKeys(value, ["kind", "target"]) && parseOpenTargetRecord(value.target).ok;
+    return (
+      hasExactKeys(value, ["kind", "target"]) &&
+      parseOpenTargetRecord(value.target).ok
+    );
   return false;
 }
 
@@ -712,7 +842,9 @@ export function parseIpcRequest(
             : { maxConcurrentPrs: value.payload.maxConcurrentPrs }),
           ...(value.payload.readOnlyPollWhilePaused === undefined
             ? {}
-            : { readOnlyPollWhilePaused: value.payload.readOnlyPollWhilePaused }),
+            : {
+                readOnlyPollWhilePaused: value.payload.readOnlyPollWhilePaused,
+              }),
           ...(value.payload.expectedRevision === undefined
             ? {}
             : { expectedRevision: value.payload.expectedRevision }),
@@ -760,6 +892,80 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "preferences.read") {
+    if (Object.keys(value.payload).length !== 0)
+      return invalidRequest("The preferences read does not accept a payload.");
+    return { ok: true, value: { ...base, type: value.type, payload: {} } };
+  }
+  if (value.type === "preferences.task-profile.save") {
+    const parsed = f16TaskProfileSaveInputSchema.safeParse(value.payload);
+    if (!parsed.success)
+      return invalidRequest("The AI task profile preferences are invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "preferences.policy.save") {
+    const parsed = f16PolicySaveInputSchema.safeParse(value.payload);
+    if (!parsed.success)
+      return invalidRequest("The execution policy preferences are invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "preferences.operational.save") {
+    const parsed = f16OperationalSaveInputSchema.safeParse(value.payload);
+    if (!parsed.success)
+      return invalidRequest("The operational preferences are invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "preferences.common-instruction.save") {
+    const parsed = f16CommonInstructionSaveInputSchema.safeParse(value.payload);
+    if (!parsed.success)
+      return invalidRequest("The Common Instructions profile is invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "preferences.common-instruction.delete") {
+    const parsed = f16CommonInstructionDeleteInputSchema.safeParse(
+      value.payload,
+    );
+    if (!parsed.success)
+      return invalidRequest(
+        "The Common Instructions delete request is invalid.",
+      );
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "preferences.common-instruction.selection.save") {
+    const parsed = f16CommonInstructionSelectionSaveInputSchema.safeParse(
+      value.payload,
+    );
+    if (!parsed.success)
+      return invalidRequest("The Common Instructions selection is invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "preferences.repository.save") {
+    const parsed = f16RepositorySaveInputSchema.safeParse(value.payload);
+    if (!parsed.success)
+      return invalidRequest("The repository AI preferences are invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
   if (value.type === "github.credential.submit") {
     if (
       !hasExactKeys(value.payload, ["serverId", "token"]) ||
@@ -782,12 +988,18 @@ export function parseIpcRequest(
   }
   if (value.type === "github.settings.read") {
     if (Object.keys(value.payload).length !== 0)
-      return invalidRequest("The GitHub settings read does not accept a payload.");
+      return invalidRequest(
+        "The GitHub settings read does not accept a payload.",
+      );
     return { ok: true, value: { ...base, type: value.type, payload: {} } };
   }
   if (value.type === "github.profile.upsert") {
     if (
-      !hasExactKeys(value.payload, ["displayName", "serverUrl"], ["expectedVersion"]) ||
+      !hasExactKeys(
+        value.payload,
+        ["displayName", "serverUrl"],
+        ["expectedVersion"],
+      ) ||
       !safeProfileText(value.payload.displayName, 120) ||
       !safeProfileText(value.payload.serverUrl, 2_048) ||
       (value.payload.expectedVersion !== undefined &&
@@ -855,7 +1067,10 @@ export function parseIpcRequest(
   ) {
     if (Object.keys(value.payload).length !== 0)
       return invalidRequest("This read request does not accept a payload.");
-    return { ok: true, value: { ...base, type: value.type, payload: {} } as IpcRequest };
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: {} } as IpcRequest,
+    };
   }
   if (
     value.type === "managed-pr.read" ||
@@ -863,7 +1078,10 @@ export function parseIpcRequest(
     value.type === "managed-pr.candidates"
   ) {
     const key = value.type === "managed-pr.retry" ? "attemptId" : "managedPrId";
-    if (!hasExactKeys(value.payload, [key]) || !safeGithubIdentifier(value.payload[key]))
+    if (
+      !hasExactKeys(value.payload, [key]) ||
+      !safeGithubIdentifier(value.payload[key])
+    )
       return invalidRequest("The managed-PR identifier is invalid.");
     return {
       ok: true,
@@ -883,9 +1101,15 @@ export function parseIpcRequest(
       ) ||
       !safeGithubIdentifier(value.payload.serverId) ||
       !safeManagedMultilineText(value.payload.url, 2_048) ||
-      (value.payload.context !== undefined && !safeManagedMultilineText(value.payload.context, 32 * 1024)) ||
-      (value.payload.syncSourceBranchOverride !== undefined && !safeManagedMultilineText(value.payload.syncSourceBranchOverride, 255)) ||
-      (value.payload.localClonePath !== undefined && !safeManagedPath(value.payload.localClonePath))
+      (value.payload.context !== undefined &&
+        !safeManagedMultilineText(value.payload.context, 32 * 1024)) ||
+      (value.payload.syncSourceBranchOverride !== undefined &&
+        !safeManagedMultilineText(
+          value.payload.syncSourceBranchOverride,
+          255,
+        )) ||
+      (value.payload.localClonePath !== undefined &&
+        !safeManagedPath(value.payload.localClonePath))
     )
       return invalidRequest("The managed-PR add request is invalid.");
     return {
@@ -896,21 +1120,36 @@ export function parseIpcRequest(
         payload: {
           serverId: value.payload.serverId,
           url: value.payload.url,
-          ...(value.payload.context === undefined ? {} : { context: value.payload.context }),
-          ...(value.payload.syncSourceBranchOverride === undefined ? {} : { syncSourceBranchOverride: value.payload.syncSourceBranchOverride }),
-          ...(value.payload.localClonePath === undefined ? {} : { localClonePath: value.payload.localClonePath }),
+          ...(value.payload.context === undefined
+            ? {}
+            : { context: value.payload.context }),
+          ...(value.payload.syncSourceBranchOverride === undefined
+            ? {}
+            : {
+                syncSourceBranchOverride:
+                  value.payload.syncSourceBranchOverride,
+              }),
+          ...(value.payload.localClonePath === undefined
+            ? {}
+            : { localClonePath: value.payload.localClonePath }),
         },
       },
     };
   }
   if (value.type === "managed-pr.clone.attach") {
     if (
-      !hasExactKeys(value.payload, ["managedPrId", "expectedVersion", "path"]) ||
+      !hasExactKeys(value.payload, [
+        "managedPrId",
+        "expectedVersion",
+        "path",
+      ]) ||
       !safeGithubIdentifier(value.payload.managedPrId) ||
       !safeVersion(value.payload.expectedVersion) ||
       !safeManagedPath(value.payload.path)
     )
-      return invalidRequest("The managed-PR clone attachment request is invalid.");
+      return invalidRequest(
+        "The managed-PR clone attachment request is invalid.",
+      );
     return {
       ok: true,
       value: {
@@ -930,7 +1169,9 @@ export function parseIpcRequest(
       !safeGithubIdentifier(value.payload.managedPrId) ||
       !safeVersion(value.payload.expectedVersion)
     )
-      return invalidRequest("The managed-PR clone clearing request is invalid.");
+      return invalidRequest(
+        "The managed-PR clone clearing request is invalid.",
+      );
     return {
       ok: true,
       value: {
@@ -945,7 +1186,12 @@ export function parseIpcRequest(
   }
   if (value.type === "managed-pr.configuration.save") {
     if (
-      !hasExactKeys(value.payload, ["managedPrId", "expectedVersion", "context", "syncSourceBranchOverride"]) ||
+      !hasExactKeys(value.payload, [
+        "managedPrId",
+        "expectedVersion",
+        "context",
+        "syncSourceBranchOverride",
+      ]) ||
       !safeGithubIdentifier(value.payload.managedPrId) ||
       !safeVersion(value.payload.expectedVersion) ||
       !safeManagedMultilineText(value.payload.context, 32 * 1024) ||
@@ -993,11 +1239,16 @@ export function parseIpcRequest(
         value: { ...base, type: value.type, payload: query },
       };
     } catch {
-      return invalidRequest("The activity query is invalid or outside its bounded contract.");
+      return invalidRequest(
+        "The activity query is invalid or outside its bounded contract.",
+      );
     }
   }
   if (value.type === "activity.navigate") {
-    if (!hasExactKeys(value.payload, ["eventId"]) || !safeGithubIdentifier(value.payload.eventId))
+    if (
+      !hasExactKeys(value.payload, ["eventId"]) ||
+      !safeGithubIdentifier(value.payload.eventId)
+    )
       return invalidRequest("The activity event identifier is invalid.");
     return {
       ok: true,
@@ -1038,6 +1289,7 @@ export function parseIpcResponse(value: unknown): value is IpcResponse {
       "SERVICE_STOP_FAILED",
       "SERVICE_STOP_TIMEOUT",
       "SERVICE_HANDOFF_TIMEOUT",
+      "CONFIGURATION_ERROR",
     ].includes(String(value.error.code)) &&
     safeText(value.error.message, 1_024) &&
     safeRequestId(value.error.correlationId)
@@ -1065,8 +1317,10 @@ export function parseIpcInboxUpdateEvent(
     value.type !== "inbox-update"
   )
     return false;
-  return hasExactKeys(value, ["schemaVersion", "type", "snapshot"]) &&
-    isManagedPrInboxReadModel(value.snapshot);
+  return (
+    hasExactKeys(value, ["schemaVersion", "type", "snapshot"]) &&
+    isManagedPrInboxReadModel(value.snapshot)
+  );
 }
 
 export function parseIpcActivityUpdateEvent(
@@ -1104,11 +1358,33 @@ export interface PrMonitorPreloadApi {
   readonly requestShutdown: () => Promise<IpcResponse>;
   readonly readScheduler: () => Promise<IpcResponse>;
   readonly saveSchedulerConfiguration: (
-    input: F12SchedulerConfigurationInput & { readonly expectedRevision?: number },
+    input: F12SchedulerConfigurationInput & {
+      readonly expectedRevision?: number;
+    },
   ) => Promise<IpcResponse>;
   readonly checkSchedulerNow: (managedPrId?: string) => Promise<IpcResponse>;
   readonly pauseWatching: (expectedRevision?: number) => Promise<IpcResponse>;
   readonly resumeWatching: (expectedRevision?: number) => Promise<IpcResponse>;
+  readonly readPreferences: () => Promise<IpcResponse>;
+  readonly saveTaskProfile: (
+    input: F16TaskProfileSaveInput,
+  ) => Promise<IpcResponse>;
+  readonly savePolicy: (input: F16PolicySaveInput) => Promise<IpcResponse>;
+  readonly saveOperationalPreferences: (
+    input: F16OperationalSaveInput,
+  ) => Promise<IpcResponse>;
+  readonly saveCommonInstruction: (
+    input: F16CommonInstructionSaveInput,
+  ) => Promise<IpcResponse>;
+  readonly deleteCommonInstruction: (
+    input: F16CommonInstructionDeleteInput,
+  ) => Promise<IpcResponse>;
+  readonly saveCommonInstructionSelection: (
+    input: F16CommonInstructionSelectionSaveInput,
+  ) => Promise<IpcResponse>;
+  readonly saveRepositoryPreferences: (
+    input: F16RepositorySaveInput,
+  ) => Promise<IpcResponse>;
   readonly readGithubSettings: () => Promise<IpcResponse>;
   readonly upsertGithubProfile: (
     input: GithubServerProfileInput,
@@ -1119,17 +1395,28 @@ export interface PrMonitorPreloadApi {
   ) => Promise<IpcResponse>;
   readonly testGithubConnection: (serverId: string) => Promise<IpcResponse>;
   readonly retryGithubOperation: (operationId: string) => Promise<IpcResponse>;
-  readonly cleanupGithubOperation: (operationId: string) => Promise<IpcResponse>;
+  readonly cleanupGithubOperation: (
+    operationId: string,
+  ) => Promise<IpcResponse>;
   readonly removeGithubProfile: (serverId: string) => Promise<IpcResponse>;
   readonly readManagedPrs: () => Promise<IpcResponse>;
   readonly readManagedPr: (managedPrId: string) => Promise<IpcResponse>;
   readonly addManagedPr: (input: ManagedPrAddInput) => Promise<IpcResponse>;
   readonly retryManagedPrAdd: (attemptId: string) => Promise<IpcResponse>;
-  readonly readManagedPrCandidates: (managedPrId: string) => Promise<IpcResponse>;
+  readonly readManagedPrCandidates: (
+    managedPrId: string,
+  ) => Promise<IpcResponse>;
   readonly pickManagedPrFolder: () => Promise<IpcResponse>;
-  readonly attachManagedPrClone: (input: ManagedPrCloneInput) => Promise<IpcResponse>;
-  readonly clearManagedPrClone: (managedPrId: string, expectedVersion: number) => Promise<IpcResponse>;
-  readonly saveManagedPrConfiguration: (input: ManagedPrConfigurationInput) => Promise<IpcResponse>;
+  readonly attachManagedPrClone: (
+    input: ManagedPrCloneInput,
+  ) => Promise<IpcResponse>;
+  readonly clearManagedPrClone: (
+    managedPrId: string,
+    expectedVersion: number,
+  ) => Promise<IpcResponse>;
+  readonly saveManagedPrConfiguration: (
+    input: ManagedPrConfigurationInput,
+  ) => Promise<IpcResponse>;
   readonly readInbox: () => Promise<IpcResponse>;
   readonly subscribeInbox: () => Promise<IpcResponse>;
   readonly readActivity: (query?: ActivityQuery) => Promise<IpcResponse>;

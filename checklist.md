@@ -131,7 +131,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Primary application criteria:** APP-AC-11, APP-AC-12, APP-AC-63, APP-AC-64.
   - **Approved ownership handoff:** F15 owns the provider-neutral contract, capability admission, provider translation, normalized events/results, and fail-closed adapter boundary only. F16 supplies immutable profile/policy snapshots; F17 owns operation/segment lifecycle, budgets, and continuation; F03 owns durable persistence; F13 owns worktree/Git truth; F14 owns validation truth; and downstream workflow features own task preparation, human decisions, presentation, and publication.
 
-- [ ] **F16 - AI preferences, task-profile snapshots, execution policies, and Common Instructions**
+- [x] **F16 - AI preferences, task-profile snapshots, execution policies, and Common Instructions**
   - **Depends on:** F03-F04, F15.
   - **Deliver:** Build Preferences for the four task types, provider/model/reasoning compatibility validation, revisions, maximum-turn setting, named execution-policy presets, configurable worktree root, polling/quiet periods, reusable Common Instruction profiles, and per-repository Build & Validation Instructions. Resolve and snapshot effective profiles/policies/instructions; enforce a read-only floor for proposal analysis and read-only conversation; default accepted implementation work to Autonomous Worktree; withhold GitHub credentials; and reject interactive policies unsupported by the direct SDK.
   - **Exit:** Preference edits affect only future segments/turns, every invocation is routed by declared task type, policy cannot be silently broadened, and persisted/user-visible snapshots make completed work reproducible.

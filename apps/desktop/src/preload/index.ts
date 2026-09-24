@@ -16,6 +16,15 @@ import type {
   ManagedPrCloneInput,
   ManagedPrConfigurationInput,
 } from "../shared/managed-pr";
+import type {
+  F16CommonInstructionDeleteInput,
+  F16CommonInstructionSaveInput,
+  F16CommonInstructionSelectionSaveInput,
+  F16OperationalSaveInput,
+  F16PolicySaveInput,
+  F16RepositorySaveInput,
+  F16TaskProfileSaveInput,
+} from "../shared/f16-preferences";
 
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
@@ -43,10 +52,20 @@ function invoke(
     | ManagedPrConfigurationInput
     | { readonly managedPrId: string }
     | { readonly attemptId: string }
-    | { readonly managedPrId: string; readonly destination: "details" | "settings" }
+    | {
+        readonly managedPrId: string;
+        readonly destination: "details" | "settings";
+      }
     | { readonly managedPrId: string; readonly expectedVersion: number }
+    | F16TaskProfileSaveInput
+    | F16PolicySaveInput
+    | F16OperationalSaveInput
+    | F16CommonInstructionSaveInput
+    | F16CommonInstructionDeleteInput
+    | F16CommonInstructionSelectionSaveInput
+    | F16RepositorySaveInput
     | ActivityQuery
-    | { readonly eventId: string }
+    | { readonly eventId: string },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -66,11 +85,33 @@ const api: PrMonitorPreloadApi = {
   saveSchedulerConfiguration: (input) =>
     invoke("scheduler.configuration.save", input),
   checkSchedulerNow: (managedPrId) =>
-    invoke("scheduler.check-now", managedPrId === undefined ? {} : { managedPrId }),
+    invoke(
+      "scheduler.check-now",
+      managedPrId === undefined ? {} : { managedPrId },
+    ),
   pauseWatching: (expectedRevision) =>
-    invoke("scheduler.pause", expectedRevision === undefined ? {} : { expectedRevision }),
+    invoke(
+      "scheduler.pause",
+      expectedRevision === undefined ? {} : { expectedRevision },
+    ),
   resumeWatching: (expectedRevision) =>
-    invoke("scheduler.resume", expectedRevision === undefined ? {} : { expectedRevision }),
+    invoke(
+      "scheduler.resume",
+      expectedRevision === undefined ? {} : { expectedRevision },
+    ),
+  readPreferences: () => invoke("preferences.read", {}),
+  saveTaskProfile: (input) => invoke("preferences.task-profile.save", input),
+  savePolicy: (input) => invoke("preferences.policy.save", input),
+  saveOperationalPreferences: (input) =>
+    invoke("preferences.operational.save", input),
+  saveCommonInstruction: (input) =>
+    invoke("preferences.common-instruction.save", input),
+  deleteCommonInstruction: (input) =>
+    invoke("preferences.common-instruction.delete", input),
+  saveCommonInstructionSelection: (input) =>
+    invoke("preferences.common-instruction.selection.save", input),
+  saveRepositoryPreferences: (input) =>
+    invoke("preferences.repository.save", input),
   readGithubSettings: () => invoke("github.settings.read", {}),
   upsertGithubProfile: (input) => invoke("github.profile.upsert", input),
   submitGithubCredential: (serverId, token) =>
@@ -87,11 +128,14 @@ const api: PrMonitorPreloadApi = {
   readManagedPr: (managedPrId) => invoke("managed-pr.read", { managedPrId }),
   addManagedPr: (input) => invoke("managed-pr.add", input),
   retryManagedPrAdd: (attemptId) => invoke("managed-pr.retry", { attemptId }),
-  readManagedPrCandidates: (managedPrId) => invoke("managed-pr.candidates", { managedPrId }),
+  readManagedPrCandidates: (managedPrId) =>
+    invoke("managed-pr.candidates", { managedPrId }),
   pickManagedPrFolder: () => invoke("managed-pr.clone.pick", {}),
   attachManagedPrClone: (input) => invoke("managed-pr.clone.attach", input),
-  clearManagedPrClone: (managedPrId, expectedVersion) => invoke("managed-pr.clone.clear", { managedPrId, expectedVersion }),
-  saveManagedPrConfiguration: (input) => invoke("managed-pr.configuration.save", input),
+  clearManagedPrClone: (managedPrId, expectedVersion) =>
+    invoke("managed-pr.clone.clear", { managedPrId, expectedVersion }),
+  saveManagedPrConfiguration: (input) =>
+    invoke("managed-pr.configuration.save", input),
   readInbox: () => invoke("inbox.read", {}),
   subscribeInbox: () => invoke("inbox.subscribe", {}),
   readActivity: (query = {}) => invoke("activity.query", query),

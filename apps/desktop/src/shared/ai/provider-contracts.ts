@@ -653,6 +653,40 @@ export const aiProviderRequestSchema = z
   });
 export type AIProviderRequest = z.infer<typeof aiProviderRequestSchema>;
 
+/** Optional, provider-neutral model admission metadata consumed by F16. */
+export const aiProviderModelDescriptorSchema = z
+  .object({
+    modelId: identifierSchema,
+    taskTypes: z.array(aiProviderTaskTypeSchema).max(16).optional(),
+    reasoningEfforts: z
+      .array(aiProviderReasoningEffortSchema)
+      .max(16)
+      .optional(),
+    supportedOptionKeys: z.array(z.string().min(1).max(128)).max(64).optional(),
+  })
+  .strict();
+export type AIProviderModelDescriptor = z.infer<
+  typeof aiProviderModelDescriptorSchema
+>;
+
+export const aiProviderOptionBoundsSchema = z
+  .object({
+    schemaVersion: z.number().int().positive(),
+    boundsRevision: z.string().min(1).max(128),
+    maxBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(16 * 1024),
+    maxObjectDepth: z.number().int().min(1).max(8),
+    maxObjectKeys: z.number().int().min(1).max(64),
+    maxArrayItems: z.number().int().min(1).max(128),
+  })
+  .strict();
+export type AIProviderOptionBounds = z.infer<
+  typeof aiProviderOptionBoundsSchema
+>;
+
 export const aiProviderCapabilitiesSchema = z
   .object({
     schemaVersion: z.literal(AI_PROVIDER_SCHEMA_VERSION),
@@ -669,6 +703,8 @@ export const aiProviderCapabilitiesSchema = z
     networkModes: z.array(aiProviderNetworkModeSchema).max(4),
     worktreeAccess: z.enum(["none", "read_only", "worktree_write"]),
     controlledEnvironment: z.boolean(),
+    modelCatalog: z.array(aiProviderModelDescriptorSchema).max(64).optional(),
+    providerOptionBounds: aiProviderOptionBoundsSchema.optional(),
   })
   .strict();
 export type AIProviderCapabilities = z.infer<

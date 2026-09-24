@@ -37,6 +37,17 @@ import type {
   F12SchedulerControlResult,
   F12SchedulerSnapshot,
 } from "../shared/control-plane";
+import type {
+  F16CommonInstructionDeleteInput,
+  F16CommonInstructionSaveInput,
+  F16CommonInstructionSelectionSaveInput,
+  F16OperationalSaveInput,
+  F16PolicySaveInput,
+  F16PreferencesReadModel,
+  F16RepositorySaveInput,
+  F16TaskProfileSaveInput,
+} from "../shared/f16-preferences";
+import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
   matchesActivityQuery,
@@ -87,6 +98,26 @@ export interface IpcServices {
     readonly requestId: string;
     readonly expectedRevision?: number;
   }) => F12SchedulerControlResult;
+  readonly readPreferences?: () => F16PreferencesReadModel;
+  readonly saveTaskProfile?: (
+    input: F16TaskProfileSaveInput,
+  ) => F16PreferencesReadModel;
+  readonly savePolicy?: (input: F16PolicySaveInput) => F16PreferencesReadModel;
+  readonly saveOperationalPreferences?: (
+    input: F16OperationalSaveInput,
+  ) => Promise<F16PreferencesReadModel>;
+  readonly saveCommonInstruction?: (
+    input: F16CommonInstructionSaveInput,
+  ) => F16PreferencesReadModel;
+  readonly deleteCommonInstruction?: (
+    input: F16CommonInstructionDeleteInput,
+  ) => F16PreferencesReadModel;
+  readonly saveCommonInstructionSelection?: (
+    input: F16CommonInstructionSelectionSaveInput,
+  ) => F16PreferencesReadModel;
+  readonly saveRepositoryPreferences?: (
+    input: F16RepositorySaveInput,
+  ) => F16PreferencesReadModel;
   readonly readGithubSettings?: () => GithubServerSettingsView;
   readonly upsertGithubProfile?: (
     input: GithubServerProfileInput,
@@ -95,30 +126,56 @@ export interface IpcServices {
     readonly serverId: string;
     readonly token: string;
     readonly operationId: string;
-  }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  }) => Promise<{
+    readonly operationId: string;
+    readonly profile: GithubServerProfileView;
+  }>;
   readonly testGithubConnection?: (input: {
     readonly serverId: string;
     readonly operationId: string;
-  }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
-  readonly retryGithubOperation?: (
-    operationId: string,
-  ) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
-  readonly cleanupGithubOperation?: (
-    operationId: string,
-  ) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  }) => Promise<{
+    readonly operationId: string;
+    readonly profile: GithubServerProfileView;
+  }>;
+  readonly retryGithubOperation?: (operationId: string) => Promise<{
+    readonly operationId: string;
+    readonly profile: GithubServerProfileView;
+  }>;
+  readonly cleanupGithubOperation?: (operationId: string) => Promise<{
+    readonly operationId: string;
+    readonly profile: GithubServerProfileView;
+  }>;
   readonly removeGithubProfile?: (input: {
     readonly serverId: string;
     readonly operationId: string;
-  }) => Promise<{ readonly operationId: string; readonly profile: GithubServerProfileView }>;
+  }) => Promise<{
+    readonly operationId: string;
+    readonly profile: GithubServerProfileView;
+  }>;
   readonly readManagedPrs?: () => ManagedPrListView;
-  readonly readManagedPr?: (managedPrId: string) => Promise<ManagedPrReadModel | undefined>;
-  readonly addManagedPr?: (input: ManagedPrAddInput) => Promise<ManagedPrOperationView>;
-  readonly retryManagedPrAdd?: (attemptId: string) => Promise<ManagedPrOperationView>;
-  readonly readManagedPrCandidates?: (managedPrId: string) => Promise<ManagedPrCandidateListView>;
+  readonly readManagedPr?: (
+    managedPrId: string,
+  ) => Promise<ManagedPrReadModel | undefined>;
+  readonly addManagedPr?: (
+    input: ManagedPrAddInput,
+  ) => Promise<ManagedPrOperationView>;
+  readonly retryManagedPrAdd?: (
+    attemptId: string,
+  ) => Promise<ManagedPrOperationView>;
+  readonly readManagedPrCandidates?: (
+    managedPrId: string,
+  ) => Promise<ManagedPrCandidateListView>;
   readonly pickManagedPrFolder?: () => Promise<string | undefined>;
-  readonly attachManagedPrClone?: (input: ManagedPrCloneInput) => Promise<ManagedPrOperationView>;
-  readonly clearManagedPrClone?: (input: { readonly managedPrId: string; readonly expectedVersion: number }) => Promise<ManagedPrOperationView>;
-  readonly saveManagedPrConfiguration?: (input: ManagedPrConfigurationInput) => Promise<ManagedPrOperationView>;
+  readonly attachManagedPrClone?: (
+    input: ManagedPrCloneInput,
+  ) => Promise<ManagedPrOperationView>;
+  readonly clearManagedPrClone?: (input: {
+    readonly managedPrId: string;
+    readonly expectedVersion: number;
+  }) => Promise<ManagedPrOperationView>;
+  readonly saveManagedPrConfiguration?: (
+    input: ManagedPrConfigurationInput,
+  ) => Promise<ManagedPrOperationView>;
   readonly readInbox?: () => ManagedPrInboxReadModel;
   readonly readActivity?: (query: ActivityQuery) => ActivityQuerySnapshot;
   readonly navigateActivity?: (eventId: string) => OpenTarget | undefined;
@@ -309,7 +366,10 @@ export class IpcRouter {
               : { maxConcurrentPrs: request.payload.maxConcurrentPrs }),
             ...(request.payload.readOnlyPollWhilePaused === undefined
               ? {}
-              : { readOnlyPollWhilePaused: request.payload.readOnlyPollWhilePaused }),
+              : {
+                  readOnlyPollWhilePaused:
+                    request.payload.readOnlyPollWhilePaused,
+                }),
           },
           ...(request.payload.expectedRevision === undefined
             ? {}
@@ -338,7 +398,10 @@ export class IpcRouter {
           }),
         );
       }
-      if (request.type === "scheduler.pause" || request.type === "scheduler.resume") {
+      if (
+        request.type === "scheduler.pause" ||
+        request.type === "scheduler.resume"
+      ) {
         const handler =
           request.type === "scheduler.pause"
             ? this.services.pauseWatching
@@ -358,6 +421,92 @@ export class IpcRouter {
           }),
         );
       }
+      if (request.type === "preferences.read") {
+        if (this.services.readPreferences === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.readPreferences(),
+          }),
+        );
+      }
+      if (request.type === "preferences.task-profile.save") {
+        if (this.services.saveTaskProfile === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.saveTaskProfile(request.payload),
+          }),
+        );
+      }
+      if (request.type === "preferences.policy.save") {
+        if (this.services.savePolicy === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.savePolicy(request.payload),
+          }),
+        );
+      }
+      if (request.type === "preferences.operational.save") {
+        if (this.services.saveOperationalPreferences === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: await this.services.saveOperationalPreferences(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "preferences.common-instruction.save") {
+        if (this.services.saveCommonInstruction === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.saveCommonInstruction(request.payload),
+          }),
+        );
+      }
+      if (request.type === "preferences.common-instruction.delete") {
+        if (this.services.deleteCommonInstruction === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.deleteCommonInstruction(request.payload),
+          }),
+        );
+      }
+      if (request.type === "preferences.common-instruction.selection.save") {
+        if (this.services.saveCommonInstructionSelection === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.saveCommonInstructionSelection(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "preferences.repository.save") {
+        if (this.services.saveRepositoryPreferences === undefined)
+          throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: this.services.saveRepositoryPreferences(
+              request.payload,
+            ),
+          }),
+        );
+      }
       if (request.type === "github.settings.read") {
         if (this.services.readGithubSettings === undefined)
           throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
@@ -371,7 +520,9 @@ export class IpcRouter {
       if (request.type === "github.profile.upsert") {
         if (this.services.upsertGithubProfile === undefined)
           throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
-        const profile = await this.services.upsertGithubProfile(request.payload);
+        const profile = await this.services.upsertGithubProfile(
+          request.payload,
+        );
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "github-profile",
@@ -467,7 +618,8 @@ export class IpcRouter {
         if (this.services.readInbox === undefined)
           throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
         const snapshot = this.services.readInbox();
-        if (request.type === "inbox.subscribe") this.inboxSubscribers.add(sender.id);
+        if (request.type === "inbox.subscribe")
+          this.inboxSubscribers.add(sender.id);
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "managed-pr-inbox",
@@ -488,7 +640,10 @@ export class IpcRouter {
           }),
         );
       }
-      if (request.type === "activity.query" || request.type === "activity.subscribe") {
+      if (
+        request.type === "activity.query" ||
+        request.type === "activity.subscribe"
+      ) {
         if (this.services.readActivity === undefined)
           throw new Error("PRMONITOR_ACTIVITY_SERVICE_NOT_READY");
         const snapshot = await this.services.readActivity(request.payload);
@@ -524,7 +679,10 @@ export class IpcRouter {
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "managed-pr-details",
-            managedPr: (await this.services.readManagedPr(request.payload.managedPrId)) ?? null,
+            managedPr:
+              (await this.services.readManagedPr(
+                request.payload.managedPrId,
+              )) ?? null,
           }),
         );
       }
@@ -544,7 +702,9 @@ export class IpcRouter {
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "managed-pr-operation",
-            operation: await this.services.retryManagedPrAdd(request.payload.attemptId),
+            operation: await this.services.retryManagedPrAdd(
+              request.payload.attemptId,
+            ),
           }),
         );
       }
@@ -554,7 +714,9 @@ export class IpcRouter {
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "managed-pr-candidates",
-            value: await this.services.readManagedPrCandidates(request.payload.managedPrId),
+            value: await this.services.readManagedPrCandidates(
+              request.payload.managedPrId,
+            ),
           }),
         );
       }
@@ -575,7 +737,9 @@ export class IpcRouter {
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "managed-pr-operation",
-            operation: await this.services.attachManagedPrClone(request.payload),
+            operation: await this.services.attachManagedPrClone(
+              request.payload,
+            ),
           }),
         );
       }
@@ -595,7 +759,9 @@ export class IpcRouter {
         return boundedIpcResponse(
           successResponse(request.requestId, {
             kind: "managed-pr-operation",
-            operation: await this.services.saveManagedPrConfiguration(request.payload),
+            operation: await this.services.saveManagedPrConfiguration(
+              request.payload,
+            ),
           }),
         );
       }
@@ -605,6 +771,15 @@ export class IpcRouter {
         "The IPC request type is not allowlisted.",
       );
     } catch (error) {
+      if (error instanceof F16ConfigurationError) {
+        const detail =
+          error.fieldPath === undefined ? "" : ` (${error.fieldPath})`;
+        return errorResponse(
+          request.requestId,
+          "CONFIGURATION_ERROR",
+          `${error.message}${detail} Next action: ${error.userAction}`,
+        );
+      }
       const safeMessage =
         error instanceof Error && error.message.length <= 512
           ? error.message
@@ -650,7 +825,10 @@ export class IpcRouter {
       snapshot,
     };
     try {
-      if (new TextEncoder().encode(JSON.stringify(event)).byteLength > IPC_MAX_RESPONSE_BYTES)
+      if (
+        new TextEncoder().encode(JSON.stringify(event)).byteLength >
+        IPC_MAX_RESPONSE_BYTES
+      )
         return 0;
     } catch {
       return 0;
@@ -681,7 +859,10 @@ export class IpcRouter {
       event,
     };
     try {
-      if (new TextEncoder().encode(JSON.stringify(envelope)).byteLength > IPC_MAX_RESPONSE_BYTES)
+      if (
+        new TextEncoder().encode(JSON.stringify(envelope)).byteLength >
+        IPC_MAX_RESPONSE_BYTES
+      )
         return 0;
     } catch {
       return 0;

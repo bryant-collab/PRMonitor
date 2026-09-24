@@ -53,9 +53,20 @@ import type {
   F12SchedulerControlResult,
   F12SchedulerSnapshot,
 } from "../shared/control-plane";
+import { resolveF12SchedulerConfiguration } from "../shared/control-plane";
+import type {
+  F16RepositoryIdentity,
+  F16ValidationSummary,
+} from "../shared/f16-preferences";
+import { resolveValidationProfile } from "@prmonitor/validation-contract";
+import { AIProviderRegistry, createCodexProvider } from "./ai";
 import { F13WorktreeService } from "./f13-service";
 import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
 import { ValidationRunService } from "./f14-validation-runner";
+import {
+  createF16PreferencesRepository,
+  F16PreferencesService,
+} from "./f16-preferences-service";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -111,6 +122,7 @@ let prWatcher: MainPrWatcher | undefined;
 let reviewScheduler: MainReviewScheduler | undefined;
 let f13WorktreeService: F13WorktreeService | undefined;
 let f14ValidationService: ValidationRunService | undefined;
+let f16PreferencesService: F16PreferencesService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -275,6 +287,65 @@ async function runKeyboardProbe(window: BrowserWindow): Promise<boolean> {
   return tabTarget && enterTarget;
 }
 
+const F00_VALIDATION_BOUNDS_REVISION = "f00-validation-v1";
+
+function resolveF16ValidationSummary(
+  repository: F16RepositoryIdentity,
+  operationId?: string,
+): F16ValidationSummary {
+  const resolution = resolveValidationProfile({
+    repositoryId: repository.key,
+    ...(operationId === undefined ? {} : { operationId }),
+  });
+  if (resolution.status === "unavailable") {
+    return {
+      status: resolution.status,
+      phases: [],
+      warningCode: resolution.warning.code,
+      boundsRevision: F00_VALIDATION_BOUNDS_REVISION,
+    };
+  }
+  if (resolution.status === "invalid") {
+    return {
+      status: resolution.status,
+      source: resolution.source,
+      phases: [],
+      warningCode: resolution.warning.code,
+      boundsRevision: F00_VALIDATION_BOUNDS_REVISION,
+    };
+  }
+  const phases = [
+    ...new Set(
+      resolution.profile.steps.map((step) => step.phase ?? "post_change"),
+    ),
+  ];
+  return {
+    status: resolution.status,
+    source: resolution.source,
+    schemaVersion: resolution.profile.schemaVersion,
+    contentHash: resolution.contentHash,
+    ...(resolution.status === "ready"
+      ? {
+          authorization: {
+            authorizationType: resolution.authorization.authorizationType,
+            id: resolution.authorization.id,
+          },
+        }
+      : {}),
+    commandCount: resolution.profile.steps.filter(
+      (step) => step.kind === "command",
+    ).length,
+    manualCheckCount: resolution.profile.steps.filter(
+      (step) => step.kind === "manual",
+    ).length,
+    phases,
+    ...(resolution.status === "confirmation_required"
+      ? { warningCode: resolution.warning.code }
+      : {}),
+    boundsRevision: F00_VALIDATION_BOUNDS_REVISION,
+  };
+}
+
 try {
   configureSmokePaths();
 } catch (error) {
@@ -403,6 +474,49 @@ async function initializeMainProcessPersistence(): Promise<void> {
     eligibility: f11EligibilityService,
     activity: activityService?.writer,
   });
+  const f15ProviderRegistry = new AIProviderRegistry();
+  f15ProviderRegistry.register(createCodexProvider());
+  f16PreferencesService = new F16PreferencesService({
+    repositories: createF16PreferencesRepository(f03Repositories),
+    capabilities: {
+      boundsRevision: "f15-options-v1",
+      get: (providerId) =>
+        f15ProviderRegistry.resolve(providerId)?.capabilities,
+    },
+    validation: {
+      boundsRevision: F00_VALIDATION_BOUNDS_REVISION,
+      resolve: ({ repository, operationId }) => ({
+        summary: resolveF16ValidationSummary(repository, operationId),
+        boundsRevision: F00_VALIDATION_BOUNDS_REVISION,
+      }),
+    },
+    scheduler: {
+      boundsRevision: "f12-scheduler-v1",
+      validateConfiguration: ({ pollingIntervalMs, quietPeriodMs }) => {
+        const current = reviewScheduler?.read().configuration;
+        return resolveF12SchedulerConfiguration({
+          intervalMs: pollingIntervalMs,
+          quietPeriodMs,
+          maxConcurrentPrs: current?.maxConcurrentPrs,
+          readOnlyPollWhilePaused: current?.readOnlyPollWhilePaused,
+        });
+      },
+      applyConfiguration: (configuration) => {
+        if (reviewScheduler === undefined)
+          throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+        reviewScheduler.updateConfiguration({
+          actor: "USER",
+          requestId: `f16-operational-${randomUUID()}`,
+          configuration,
+        });
+      },
+    },
+    worktreeRoot: {
+      boundsRevision: "f13-root-v1",
+      resolveRoot: (input) => initializedF13WorktreeService.resolveRoot(input),
+    },
+    ipcBoundsRevision: "f04-ipc-v1",
+  });
 }
 
 function createCurrentState(): CurrentState {
@@ -479,7 +593,9 @@ async function startMainProcess(): Promise<void> {
     },
     checkSchedulerNow: (input) => {
       if (reviewScheduler === undefined)
-        return Promise.reject(new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY"));
+        return Promise.reject(
+          new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY"),
+        );
       return reviewScheduler.checkNow(input);
     },
     pauseWatching: (input) => {
@@ -491,6 +607,48 @@ async function startMainProcess(): Promise<void> {
       if (reviewScheduler === undefined)
         throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
       return reviewScheduler.resumeWatching(input);
+    },
+    readPreferences: () => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.readPreferences();
+    },
+    saveTaskProfile: (input) => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.saveTaskProfile(input);
+    },
+    savePolicy: (input) => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.savePolicy(input);
+    },
+    saveOperationalPreferences: (input) => {
+      if (f16PreferencesService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY"),
+        );
+      return f16PreferencesService.saveOperational(input);
+    },
+    saveCommonInstruction: (input) => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.saveCommonInstruction(input);
+    },
+    deleteCommonInstruction: (input) => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.deleteCommonInstruction(input);
+    },
+    saveCommonInstructionSelection: (input) => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.saveCommonInstructionSelection(input);
+    },
+    saveRepositoryPreferences: (input) => {
+      if (f16PreferencesService === undefined)
+        throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
+      return f16PreferencesService.saveRepositorySettings(input);
     },
     requestShutdown: async () => {
       const result = await lifecycle?.requestShutdown();

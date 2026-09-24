@@ -24,7 +24,7 @@ body {
 }
 
 .startup-card {
-  width: min(100%, 36rem);
+  width: min(100%, 64rem);
   padding: 2.5rem;
   border: 1px solid #c7d1df;
   border-radius: 1rem;
@@ -559,6 +559,157 @@ h1 {
   font-weight: 600;
 }
 
+.preferences-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #d6dfeb;
+}
+
+.preference-section {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #c7d1df;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.preference-section h3,
+.preference-card h4,
+.policy-summary h4 {
+  margin: 0;
+}
+
+.preference-grid,
+.policy-summary-grid,
+.instruction-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.preference-card,
+.policy-summary {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid #c7d1df;
+  border-radius: 0.55rem;
+  background: #fff;
+}
+
+.preference-card p,
+.policy-summary p,
+.instruction-preview {
+  overflow-wrap: anywhere;
+}
+
+.preferences-form {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.preferences-form label,
+.preference-section > label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: #29435e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.preferences-form input,
+.preferences-form textarea,
+.preferences-form select,
+.preference-section > label input,
+.preference-section > label select {
+  min-width: 0;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #a9b9cb;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #18202a;
+  font: inherit;
+}
+
+.preferences-form textarea {
+  resize: vertical;
+}
+
+.preferences-form input:focus-visible,
+.preferences-form textarea:focus-visible,
+.preferences-form select:focus-visible,
+.preference-section > label input:focus-visible,
+.preference-section > label select:focus-visible,
+.preference-section button:focus-visible {
+  outline: 3px solid #0a4f9a;
+  outline-offset: 2px;
+}
+
+.preferences-form button,
+.preference-section > button {
+  width: fit-content;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #0a4f9a;
+  border-radius: 0.4rem;
+  background: #0a4f9a;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.preferences-form button:disabled,
+.preference-section > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.checkbox-label {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
+.policy-summary {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.policy-summary-selected {
+  border-color: #2066b1;
+  box-shadow: 0 0 0 2px rgb(32 102 177 / 14%);
+}
+
+.policy-summary p,
+.policy-summary small,
+.instruction-preview {
+  margin: 0;
+  color: #405a78;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.instruction-preview {
+  max-height: 8rem;
+  overflow: auto;
+  padding: 0.6rem;
+  border-left: 3px solid #9eb3ca;
+  background: #f4f7fb;
+  white-space: pre-wrap;
+}
+
 .profile-list,
 .operation-list {
   display: grid;
@@ -701,7 +852,12 @@ h1 {
   .inbox-error,
   .inbox-status,
   .inbox-last-known,
-  .inbox-sync-overlay {
+  .inbox-sync-overlay,
+  .preferences-panel,
+  .preference-section,
+  .preference-card,
+  .policy-summary,
+  .instruction-preview {
     border-color: ButtonText;
     background: Canvas;
     color: CanvasText;

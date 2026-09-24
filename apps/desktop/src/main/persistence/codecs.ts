@@ -16,6 +16,9 @@ const SAFE_USAGE_KEYS = new Set([
   "outputTokens",
   "reasoningOutputTokens",
   "totalTokens",
+  // F16 persists only the provider-neutral capability declaration. It is an
+  // explicit mode plus an allowlist, not process environment data.
+  "controlledEnvironment",
 ]);
 
 type SafeJsonPrimitive = string | number | boolean | null;

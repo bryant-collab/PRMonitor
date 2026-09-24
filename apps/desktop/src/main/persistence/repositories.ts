@@ -46,6 +46,32 @@ export interface RepositoryOptions {
   readonly clock?: PersistenceClock;
 }
 
+export type F16RevisionKind =
+  "TASK_PROFILE" | "EXECUTION_POLICY" | "COMMON_INSTRUCTION";
+
+export interface F16SettingsCommitInput<
+  TSettings = unknown,
+  TRevision = unknown,
+> {
+  readonly settingKey: string;
+  readonly settingsPayload: TSettings;
+  readonly expectedSettingsVersion?: number;
+  readonly revision?: {
+    readonly kind: F16RevisionKind;
+    readonly id: string;
+    readonly revision: number;
+    readonly payload: TRevision;
+  };
+}
+
+export interface F16SettingsCommitResult<
+  TSettings = unknown,
+  TRevision = unknown,
+> {
+  readonly settings: PersistedRecord<TSettings>;
+  readonly revision?: PersistedRecord<TRevision>;
+}
+
 export interface RemoteEventInsertResult<T = unknown> {
   readonly inserted: boolean;
   readonly record: PersistedRecord<T> & {
@@ -539,6 +565,28 @@ function recordFromJsonRow<T>(
   };
 }
 
+function f16RevisionTable(kind: F16RevisionKind): string {
+  switch (kind) {
+    case "TASK_PROFILE":
+      return "ai_task_profiles";
+    case "EXECUTION_POLICY":
+      return "execution_policies";
+    case "COMMON_INSTRUCTION":
+      return "common_instructions";
+  }
+}
+
+function f16RevisionIdColumn(kind: F16RevisionKind): string {
+  switch (kind) {
+    case "TASK_PROFILE":
+      return "profile_id";
+    case "EXECUTION_POLICY":
+      return "policy_id";
+    case "COMMON_INSTRUCTION":
+      return "instruction_id";
+  }
+}
+
 function remoteEventVersionFromRow<T>(
   row: SqlRow,
 ): RemoteEventVersionRecord<T> {
@@ -667,6 +715,123 @@ export class PersistenceRepositories {
       settingKey,
     );
     return row === undefined ? undefined : recordFromRow<T>(row, "setting_key");
+  }
+
+  /**
+   * F16 uses one F03 transaction for the mutable projection and its optional
+   * immutable revision. The feature never writes these tables directly.
+   */
+  public commitF16Settings<TSettings, TRevision>(
+    input: F16SettingsCommitInput<TSettings, TRevision>,
+  ): F16SettingsCommitResult<TSettings, TRevision> {
+    text(input.settingKey, "F16 settings key");
+    const settingsEncoded = encode(input.settingsPayload);
+    const revisionEncoded =
+      input.revision === undefined ? undefined : encode(input.revision.payload);
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const existing = transaction.get(
+        "SELECT * FROM settings WHERE setting_key = ?",
+        input.settingKey,
+      );
+      const currentVersion =
+        existing === undefined ? 0 : rowNumber(existing, "version");
+      if (
+        input.expectedSettingsVersion !== undefined &&
+        currentVersion !== input.expectedSettingsVersion
+      )
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The F16 settings changed before this update was committed.",
+        );
+      if (existing === undefined) {
+        transaction.run(
+          "INSERT INTO settings (setting_key, schema_version, value_json, value_hash, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+          input.settingKey,
+          settingsEncoded.schemaVersion,
+          settingsEncoded.payload,
+          settingsEncoded.payloadHash,
+          timestamp,
+          timestamp,
+        );
+      } else {
+        transaction.run(
+          "UPDATE settings SET schema_version = ?, value_json = ?, value_hash = ?, version = ?, updated_at = ? WHERE setting_key = ? AND version = ?",
+          settingsEncoded.schemaVersion,
+          settingsEncoded.payload,
+          settingsEncoded.payloadHash,
+          currentVersion + 1,
+          timestamp,
+          input.settingKey,
+          currentVersion,
+        );
+      }
+
+      let revisionRecord: PersistedRecord<TRevision> | undefined;
+      if (input.revision !== undefined && revisionEncoded !== undefined) {
+        const table = f16RevisionTable(input.revision.kind);
+        const idColumn = f16RevisionIdColumn(input.revision.kind);
+        if (
+          !Number.isSafeInteger(input.revision.revision) ||
+          input.revision.revision < 1
+        )
+          throw repositoryError(
+            this.store,
+            "INVALID_RECORD",
+            "F16 revisions must be positive safe integers.",
+          );
+        transaction.run(
+          `INSERT OR IGNORE INTO ${table} (${idColumn}, revision, schema_version, payload_json, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+          input.revision.id,
+          input.revision.revision,
+          revisionEncoded.schemaVersion,
+          revisionEncoded.payload,
+          revisionEncoded.payloadHash,
+          timestamp,
+        );
+        const stored = transaction.get(
+          `SELECT ${idColumn} AS id, schema_version, payload_json, payload_hash, revision, created_at FROM ${table} WHERE ${idColumn} = ? AND revision = ?`,
+          input.revision.id,
+          input.revision.revision,
+        );
+        if (stored === undefined)
+          throw new Error("F03_F16_REVISION_NOT_READABLE");
+        if (rowString(stored, "payload_hash") !== revisionEncoded.payloadHash)
+          throw repositoryError(
+            this.store,
+            "CONFLICT",
+            "The F16 immutable revision already contains different content.",
+          );
+        revisionRecord = recordFromRevisionRow<TRevision>(stored, "id");
+      }
+
+      const settingsRow = transaction.get(
+        "SELECT setting_key, schema_version, value_json AS payload_json, value_hash AS payload_hash, version, created_at, updated_at FROM settings WHERE setting_key = ?",
+        input.settingKey,
+      );
+      if (settingsRow === undefined)
+        throw new Error("F03_F16_SETTINGS_NOT_READABLE");
+      return {
+        settings: recordFromRow<TSettings>(settingsRow, "setting_key"),
+        ...(revisionRecord === undefined ? {} : { revision: revisionRecord }),
+      };
+    });
+  }
+
+  public getF16Revision<T>(
+    kind: F16RevisionKind,
+    id: string,
+    revision: number,
+  ): PersistedRecord<T> | undefined {
+    const table = f16RevisionTable(kind);
+    const idColumn = f16RevisionIdColumn(kind);
+    const row = this.store.read(
+      `SELECT ${idColumn} AS id, schema_version, payload_json, payload_hash, revision, created_at FROM ${table} WHERE ${idColumn} = ? AND revision = ?`,
+      id,
+      revision,
+    );
+    return row === undefined ? undefined : recordFromRevisionRow<T>(row, "id");
   }
 
   public putConfigurationSnapshot<T>(
@@ -2972,7 +3137,8 @@ export class PersistenceRepositories {
       ),
     );
     const record = this.getAiProviderConversation(input.conversationId);
-    if (record === undefined) throw new Error("F03_AI_CONVERSATION_NOT_READABLE");
+    if (record === undefined)
+      throw new Error("F03_AI_CONVERSATION_NOT_READABLE");
     return record;
   }
 

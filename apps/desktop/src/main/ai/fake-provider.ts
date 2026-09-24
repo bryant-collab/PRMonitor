@@ -60,6 +60,26 @@ export const defaultFakeAIProviderCapabilities: AIProviderCapabilities = {
   networkModes: ["disabled", "enabled"],
   worktreeAccess: "worktree_write",
   controlledEnvironment: true,
+  modelCatalog: [
+    {
+      modelId: "gpt-5-codex",
+      taskTypes: [
+        "AUTOMATIC_REVIEW_REEVALUATION",
+        "REVIEW_REVISION",
+        "READ_ONLY_CONVERSATION",
+        "MERGE_CONFLICT_RESOLUTION",
+      ],
+      reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+    },
+  ],
+  providerOptionBounds: {
+    schemaVersion: 1,
+    boundsRevision: "f15-options-v1",
+    maxBytes: 16 * 1024,
+    maxObjectDepth: 8,
+    maxObjectKeys: 64,
+    maxArrayItems: 128,
+  },
 };
 
 function defaultNow(): string {
