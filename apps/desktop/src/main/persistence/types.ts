@@ -215,6 +215,23 @@ export interface ReviewBundleCommitInput {
   readonly managedPrExpectedVersion?: number;
 }
 
+/**
+ * Atomically replaces the authoritative Review Bundle payload after the
+ * initial intent has been committed.  F18 uses this for proposal completion,
+ * decision confirmation, and final evidence; item decisions themselves still
+ * use the append-only decision writer above.
+ */
+export interface ReviewBundleUpdateInput {
+  readonly bundleId: string;
+  readonly state: string;
+  readonly stage: "PROPOSAL_REVIEW" | "FINAL_REVIEW";
+  readonly payload: unknown;
+  readonly items?: readonly ReviewBundleCommitInput["items"][number][];
+  readonly managedPrState?: string;
+  readonly expectedBundleVersion?: number;
+  readonly managedPrExpectedVersion?: number;
+}
+
 export interface PublicationIntentInput {
   readonly id: string;
   readonly kind: "REVIEW_BUNDLE" | "SYNCHRONIZATION_RESULT";

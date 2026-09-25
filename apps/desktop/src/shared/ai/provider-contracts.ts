@@ -346,6 +346,22 @@ const humanDecisionSchema = z
   })
   .strict();
 
+const reviewFeedbackInputSchema = z
+  .object({
+    remoteEventVersionId: identifierSchema,
+    sourceKind: identifierSchema,
+    sourceId: identifierSchema,
+    body: z.string().max(AI_MAX_TEXT_LENGTH).optional(),
+    author: z.string().max(512).optional(),
+    path: relativePathSchema.optional(),
+    line: z.number().int().positive().max(10_000_000).optional(),
+    diffHunk: z
+      .string()
+      .max(32 * 1024)
+      .optional(),
+  })
+  .strict();
+
 export const aiProviderInputSnapshotSchema = z
   .object({
     schemaVersion: z.literal(AI_PROVIDER_SCHEMA_VERSION),
@@ -359,8 +375,13 @@ export const aiProviderInputSnapshotSchema = z
       .optional(),
     pullRequest: pullRequestSnapshotSchema.optional(),
     instructions: instructionSnapshotSchema.optional(),
+    prIntentContext: z.string().max(AI_MAX_TEXT_LENGTH).optional(),
     humanDecisions: z
       .array(humanDecisionSchema)
+      .max(AI_MAX_EVENT_INPUT_COUNT)
+      .optional(),
+    feedback: z
+      .array(reviewFeedbackInputSchema)
       .max(AI_MAX_EVENT_INPUT_COUNT)
       .optional(),
     validationEvidence: z.array(aiJsonValueSchema).max(32).optional(),

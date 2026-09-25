@@ -77,7 +77,7 @@ export interface AIWorkProviderRequestFactory {
     readonly operation: AIWorkOperationRecord;
     readonly segment: AIWorkSegmentRecord;
     readonly turn: AIWorkTurnIntent;
-  }) => AIProviderRequest;
+  }) => AIProviderRequest | Promise<AIProviderRequest>;
 }
 
 export interface AIWorkActivityPort {
@@ -980,7 +980,7 @@ export class AIWorkController {
     let request: AIProviderRequest;
     try {
       request = aiProviderRequestSchema.parse(
-        this.options.requestFactory.create({
+        await this.options.requestFactory.create({
           operation,
           segment: reservedSegment,
           turn: reservedTurn,

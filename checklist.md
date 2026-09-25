@@ -147,7 +147,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 4 - Review preparation and human review
 
-- [ ] **F18 - Automatic review-to-Review-Bundle vertical slice**
+- [x] **F18 - Automatic review-to-Review-Bundle vertical slice**
   - **Depends on:** F07, F10-F17.
   - **Deliver:** Dispatch an eligible batch; prepare its isolated worktree; run approved baseline validation when configured; assemble PR metadata, immutable feedback versions, repository instructions, snapshotted PR Intent / Context, Common Instructions, and Build & Validation Instructions; invoke the Automatic Review profile through a read-only proposal phase; atomically persist a proposal-stage Review Bundle and item associations; require an explicit per-item accept/override decision before any implementation turn; require a textbox answer for each `question` disposition; implement only accepted/overridden fix decisions; inspect actual diff; run post-change validation; and atomically persist the final Review Bundle. Support `fixed`, `pushback`, `question`, and `no_change`, including all-no-code completion.
   - **Exit:** A simulated remote comment reaches a reviewable proposal, cannot mutate the worktree before required human decisions, then reaches final `READY_FOR_REVIEW` or actionable `NEEDS_ATTENTION` with a restart-safe bundle, complete turn evidence, correct hold, and zero direct AI/GitHub coupling outside the declared boundaries.

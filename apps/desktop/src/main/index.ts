@@ -21,6 +21,8 @@ import {
   F12PersistenceRepositories,
   F13PersistenceRepositories,
   F14ValidationRepositories,
+  F17PersistenceRepositories,
+  F18PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -67,6 +69,11 @@ import {
   createF16PreferencesRepository,
   F16PreferencesService,
 } from "./f16-preferences-service";
+import {
+  AutomaticReviewCoordinator,
+  type F18AutomaticReviewBoundary,
+} from "./automatic-review-coordinator";
+import { F18AIWorkAdapter } from "./automatic-review-ai-adapter";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -123,6 +130,8 @@ let reviewScheduler: MainReviewScheduler | undefined;
 let f13WorktreeService: F13WorktreeService | undefined;
 let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
+let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
+let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -459,21 +468,6 @@ async function initializeMainProcessPersistence(): Promise<void> {
     activity: activityService?.writer,
   });
   prWatcher.reconcileStartup();
-  reviewScheduler = new ReviewScheduler({
-    managedPrs: {
-      listManagedPrs: () => f07Repositories.listManagedPrs(),
-    },
-    persistence: new F12PersistenceRepositories(persistenceStore),
-    poller: {
-      poll: ({ managedPrIds, signal }) => {
-        if (prWatcher === undefined)
-          return Promise.reject(new Error("PRMONITOR_PR_WATCHER_NOT_READY"));
-        return prWatcher.runForManagedPrs(managedPrIds, signal);
-      },
-    },
-    eligibility: f11EligibilityService,
-    activity: activityService?.writer,
-  });
   const f15ProviderRegistry = new AIProviderRegistry();
   f15ProviderRegistry.register(createCodexProvider());
   f16PreferencesService = new F16PreferencesService({
@@ -517,6 +511,147 @@ async function initializeMainProcessPersistence(): Promise<void> {
     },
     ipcBoundsRevision: "f04-ipc-v1",
   });
+  const initializedF16PreferencesService = f16PreferencesService;
+  if (initializedF16PreferencesService === undefined)
+    throw new Error("PRMONITOR_F16_PREFERENCES_SERVICE_NOT_READY");
+  const initializedF14ValidationService = f14ValidationService;
+  if (initializedF14ValidationService === undefined)
+    throw new Error("PRMONITOR_F14_VALIDATION_SERVICE_NOT_READY");
+  const initializedF11EligibilityService = f11EligibilityService;
+  if (initializedF11EligibilityService === undefined)
+    throw new Error("PRMONITOR_F11_ELIGIBILITY_SERVICE_NOT_READY");
+  const f17Persistence = new F17PersistenceRepositories(persistenceStore);
+  automaticReviewAiAdapter = new F18AIWorkAdapter({
+    persistence: f17Persistence,
+    provider: f15ProviderRegistry,
+    f13: initializedF13WorktreeService,
+    f14: initializedF14ValidationService,
+    validation: {
+      resolve: ({ repositoryId, operationId }) =>
+        resolveValidationProfile({ repositoryId, operationId }),
+    },
+  });
+  const initializedAutomaticReviewAiAdapter = automaticReviewAiAdapter;
+  if (initializedAutomaticReviewAiAdapter === undefined)
+    throw new Error("PRMONITOR_F18_AI_ADAPTER_NOT_READY");
+  automaticReviewCoordinator = new AutomaticReviewCoordinator({
+    persistence: new F18PersistenceRepositories(f03Repositories),
+    managedPrs: {
+      getManagedPr: (managedPrId) => f07Repositories.getManagedPr(managedPrId),
+    },
+    events: {
+      getEventVersion: (managedPrId, eventVersionId) =>
+        initializedF11EligibilityService.persistence.getRemoteEventVersion(
+          managedPrId,
+          eventVersionId,
+        ),
+    },
+    claims: {
+      getClaim: (claimId) =>
+        initializedF11EligibilityService.persistence.getClaim(claimId),
+      getActiveClaim: (managedPrId) =>
+        initializedF11EligibilityService.persistence.getActiveClaim(
+          managedPrId,
+        ),
+      getActiveHold: (managedPrId) =>
+        initializedF11EligibilityService.persistence.getActiveHold(managedPrId),
+    },
+    scheduler: {
+      read: () => {
+        if (reviewScheduler === undefined)
+          throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
+        return reviewScheduler.read();
+      },
+    },
+    f13: initializedF13WorktreeService,
+    f14: initializedF14ValidationService,
+    f16: initializedF16PreferencesService,
+    aiWork: initializedAutomaticReviewAiAdapter,
+    validation: {
+      resolve: ({ repositoryId, operationId }) =>
+        resolveValidationProfile({ repositoryId, operationId }),
+    },
+    activity:
+      activityService?.writer === undefined
+        ? undefined
+        : {
+            append: (event) =>
+              activityService?.writer.append({
+                eventId: event.eventId,
+                eventType: "OPERATION_PROGRESS",
+                stage: "REVIEW",
+                correlationId: event.correlationId,
+                operationId: event.operationId,
+                managedPrId: event.managedPrId,
+                occurrenceAt: new Date().toISOString(),
+                severity:
+                  event.severity === "WARN" ? "WARNING" : event.severity,
+                reason: {
+                  code: "PROGRESS",
+                  what: event.summary,
+                  why: "F18 recorded a bounded automatic-review workflow outcome.",
+                  nextAction: "NONE",
+                },
+                summary: event.summary,
+                details: {},
+              }),
+          },
+  });
+  const initializedAutomaticReviewCoordinator = automaticReviewCoordinator;
+  if (initializedAutomaticReviewCoordinator === undefined)
+    throw new Error("PRMONITOR_F18_COORDINATOR_NOT_READY");
+  reviewScheduler = new ReviewScheduler({
+    managedPrs: {
+      listManagedPrs: () => f07Repositories.listManagedPrs(),
+    },
+    persistence: new F12PersistenceRepositories(persistenceStore),
+    poller: {
+      poll: ({ managedPrIds, signal }) => {
+        if (prWatcher === undefined)
+          return Promise.reject(new Error("PRMONITOR_PR_WATCHER_NOT_READY"));
+        return prWatcher.runForManagedPrs(managedPrIds, signal);
+      },
+    },
+    eligibility: f11EligibilityService,
+    reviewWork: {
+      startAutomaticReview: async (input) => {
+        const result =
+          await initializedAutomaticReviewCoordinator.startAutomaticReview(
+            input,
+          );
+        return {
+          outcome: result.outcome,
+          ...(result.reason === undefined
+            ? {}
+            : {
+                reason: {
+                  code: result.reason.code,
+                  what: result.reason.what,
+                  why: result.reason.why,
+                  nextAction: [
+                    "NONE",
+                    "WAIT",
+                    "RETRY",
+                    "RECONCILE",
+                    "REVIEW",
+                    "FIX_INPUT",
+                  ].includes(result.reason.nextAction)
+                    ? (result.reason.nextAction as
+                        | "NONE"
+                        | "WAIT"
+                        | "RETRY"
+                        | "RECONCILE"
+                        | "REVIEW"
+                        | "FIX_INPUT")
+                    : "RECONCILE",
+                  details: {},
+                },
+              }),
+        };
+      },
+    },
+    activity: activityService?.writer,
+  });
 }
 
 function createCurrentState(): CurrentState {
@@ -554,6 +689,12 @@ async function startMainProcess(): Promise<void> {
         name: "validation-runner",
         stopAdmission: () => f14ValidationService?.shutdown(),
         boundedStop: () => f14ValidationService?.shutdown(),
+      },
+      {
+        name: "automatic-review-ai-work",
+        stopAdmission: () => automaticReviewAiAdapter?.stopAdmission(),
+        handoff: () => automaticReviewAiAdapter?.handoff(),
+        boundedStop: () => automaticReviewAiAdapter?.boundedStop(),
       },
     ],
   });

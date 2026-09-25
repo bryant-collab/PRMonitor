@@ -14,6 +14,7 @@ import type {
   PublicationResponseInput,
   RemoteEventVersionInput,
   ReviewBundleCommitInput,
+  ReviewBundleUpdateInput,
   SqlRow,
 } from "./types";
 import type { PersistenceStore } from "./database";
@@ -2470,6 +2471,174 @@ export class PersistenceRepositories {
           "The Review Bundle disappeared during decision commit.",
         );
       return this.readReviewBundleFromTransaction(transaction, updated);
+    });
+  }
+
+  /**
+   * Persist the next complete F18 bundle snapshot and any first-time item
+   * rows in one transaction.  Replaying the same payload is idempotent even
+   * when the caller supplies an obsolete expected version.
+   */
+  public updateReviewBundleAtomic(
+    input: ReviewBundleUpdateInput,
+  ): ReviewBundleRecord {
+    id(input.bundleId, "Review Bundle identifier");
+    const encoded = encode(input.payload);
+    const itemEncoded = (input.items ?? []).map((item) => ({
+      ...item,
+      encoded: encode(item.payload),
+    }));
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const bundle = transaction.get(
+        "SELECT * FROM review_bundles WHERE bundle_id = ?",
+        input.bundleId,
+      );
+      if (bundle === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The Review Bundle does not exist.",
+        );
+      const currentStage =
+        rowOptionalString(bundle, "stage") === "PROPOSAL_REVIEW"
+          ? "PROPOSAL_REVIEW"
+          : "FINAL_REVIEW";
+      if (
+        rowString(bundle, "payload_hash") === encoded.payloadHash &&
+        rowString(bundle, "state") === input.state &&
+        currentStage === input.stage
+      )
+        return this.readReviewBundleFromTransaction(transaction, bundle);
+      if (
+        input.expectedBundleVersion !== undefined &&
+        rowNumber(bundle, "version") !== input.expectedBundleVersion
+      )
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The Review Bundle changed before its next workflow snapshot was committed.",
+        );
+
+      for (const item of itemEncoded) {
+        transaction.run(
+          "INSERT OR IGNORE INTO review_bundle_items (item_id, bundle_id, event_version_id, schema_version, payload_json, payload_hash, associated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          item.id,
+          input.bundleId,
+          item.eventVersionId,
+          item.encoded.schemaVersion,
+          item.encoded.payload,
+          item.encoded.payloadHash,
+          timestamp,
+        );
+        transaction.run(
+          "INSERT OR IGNORE INTO handled_event_versions (event_version_id, bundle_id, association_state, associated_at, payload_json) VALUES (?, ?, 'ASSIGNED_TO_ACTIVE_BUNDLE', ?, ?)",
+          item.eventVersionId,
+          input.bundleId,
+          timestamp,
+          item.encoded.payload,
+        );
+        const decision = item.decision ?? {
+          decision: "pending" as const,
+          finalDisposition: "no_change" as const,
+        };
+        if (
+          decision.finalDisposition === "question" &&
+          (decision.questionAnswer === undefined ||
+            decision.questionAnswer.trim().length === 0)
+        )
+          throw repositoryError(
+            this.store,
+            "INVALID_RECORD",
+            "A question disposition requires a written answer before it can be persisted.",
+          );
+        const decisionPayload = encode(decision);
+        const decisionId = `decision:${input.bundleId}:${item.id}`;
+        transaction.run(
+          "INSERT OR IGNORE INTO review_bundle_item_decisions (decision_id, bundle_id, item_id, decision, final_disposition, user_instructions, question_answer, version, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+          decisionId,
+          input.bundleId,
+          item.id,
+          decision.decision,
+          decision.finalDisposition,
+          decision.userInstructions ?? null,
+          decision.questionAnswer ?? null,
+          decisionPayload.payload,
+          timestamp,
+        );
+        transaction.run(
+          "INSERT OR IGNORE INTO review_bundle_item_decision_history (history_id, bundle_id, item_id, decision, final_disposition, user_instructions, question_answer, action_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          `${decisionId}:1`,
+          input.bundleId,
+          item.id,
+          decision.decision,
+          decision.finalDisposition,
+          decision.userInstructions ?? null,
+          decision.questionAnswer ?? null,
+          null,
+          timestamp,
+        );
+      }
+
+      const nextVersion = rowNumber(bundle, "version") + 1;
+      const updated = transaction.run(
+        "UPDATE review_bundles SET state = ?, stage = ?, schema_version = ?, payload_json = ?, payload_hash = ?, version = ?, updated_at = ? WHERE bundle_id = ? AND version = ?",
+        input.state,
+        input.stage,
+        encoded.schemaVersion,
+        encoded.payload,
+        encoded.payloadHash,
+        nextVersion,
+        timestamp,
+        input.bundleId,
+        rowNumber(bundle, "version"),
+      );
+      if (updated.changes !== 1)
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The Review Bundle changed while its next workflow snapshot was being committed.",
+        );
+
+      if (input.managedPrState !== undefined) {
+        const managed = transaction.get(
+          "SELECT version FROM managed_prs WHERE managed_pr_id = ?",
+          rowString(bundle, "managed_pr_id"),
+        );
+        if (managed === undefined)
+          throw repositoryError(
+            this.store,
+            "NOT_FOUND",
+            "The Review Bundle owner PR does not exist.",
+          );
+        const managedUpdate =
+          input.managedPrExpectedVersion === undefined
+            ? transaction.run(
+                "UPDATE managed_prs SET state = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ?",
+                input.managedPrState,
+                timestamp,
+                rowString(bundle, "managed_pr_id"),
+              )
+            : transaction.run(
+                "UPDATE managed_prs SET state = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ? AND version = ?",
+                input.managedPrState,
+                timestamp,
+                rowString(bundle, "managed_pr_id"),
+                input.managedPrExpectedVersion,
+              );
+        if (managedUpdate.changes !== 1)
+          throw repositoryError(
+            this.store,
+            "CONFLICT",
+            "The Review Bundle owner PR changed before its workflow state could be updated.",
+          );
+      }
+      const refreshed = transaction.get(
+        "SELECT * FROM review_bundles WHERE bundle_id = ?",
+        input.bundleId,
+      );
+      if (refreshed === undefined) throw new Error("F03_BUNDLE_NOT_READABLE");
+      return this.readReviewBundleFromTransaction(transaction, refreshed);
     });
   }
 
