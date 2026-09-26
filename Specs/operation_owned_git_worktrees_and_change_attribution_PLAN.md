@@ -5,7 +5,7 @@ There might be slices that are needed to describe work that doesn't extend throu
 
 # Plan: F13 Operation-owned Git Worktrees and Change Attribution
 
-> **Document status:** Implemented worktree foundation and F15 adapter-handoff conformance
+> **Document status:** Implemented and revalidated, including the shared WorktreeCondition consumer handoff
 >
 > **Owning PRD:** `Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md`
 >
@@ -22,7 +22,10 @@ downstream validation, AI, review, synchronization, and publication workflows.
 It owns the effective root/path policy, operation-owned source data, explicit
 ref/SHA preparation, worktree ownership and lifecycle, current-state
 inspection, immutable before/after snapshots, proposed/context diff evidence,
-safe open/reveal actions, and three-way change attribution/cleanup.
+safe open/reveal actions, three-way change attribution/cleanup, and the shared
+typed `WorktreeCondition` handoff that tells downstream features whether the
+current state is clean, AI-attributed-only, un-attributed, mixed/overlapping,
+or stale/unknown.
 
 F03 remains authoritative for SQLite, migrations, transactions, uniqueness,
 expected-version conflicts, and durable records. F04 remains authoritative for
@@ -48,6 +51,7 @@ database or treat a free-form payload/activity event as authoritative state.
 - The Git runner test seam can execute only allowlisted argument vectors with bounded output, timeouts, cancellation, controlled locale/environment, and no credential-bearing diagnostics.
 - Temporary fixtures can create a separate operation-owned source/cache and review/synchronization worktrees, then mutate the operation worktree manually and through a fake AI turn without touching the developer clone.
 - Downstream fakes can consume preparation, inspection, snapshot, diff, open/reveal, clear-choice, and recovery contracts without importing Git subprocess details.
+- F20/F22/F23 consumer fakes can consume one fresh `WorktreeCondition` contract containing condition, fingerprint, observed revision, dirty summary, attribution/overlap evidence, and permitted next actions without inventing a UI-level manual-versus-AI classifier.
 
 ## Proposed Vertical Slices
 
@@ -71,21 +75,21 @@ database or treat a free-form payload/activity event as authoritative state.
 
 3. **Actual-state snapshots and authoritative diff evidence**
    - **Blocked by:** Slice 2, F03 immutable evidence records, and the downstream review/validation DTO contracts.
-   - **Stories / requirements / acceptance criteria:** US-04, US-06; FR-05.1-FR-05.6, FR-09.1-FR-09.3; NFR-01, NFR-03, NFR-05-NFR-09; INV-03-INV-05, INV-07, INV-09; AC-06-AC-10, AC-14-AC-16; CT-F13-04, CT-F13-06, CT-F13-07.
-   - **Visible result:** A changed operation worktree produces a current-state fingerprint, immutable manifest, proposed-worktree diff against `worktreeBaselineSha`, and separate PR-context diff against `prBaseSha`; identical state regenerates identical hashes.
+   - **Stories / requirements / acceptance criteria:** US-04, US-06; FR-05.1-FR-05.6, FR-09.1-FR-09.6; NFR-01, NFR-03, NFR-05-NFR-09; INV-03-INV-05, INV-07, INV-09, INV-11; AC-06-AC-10, AC-14, AC-16, AC-19; CT-F13-04, CT-F13-06, CT-F13-07, CT-F13-08.
+   - **Visible result:** A changed operation worktree produces a current-state fingerprint, immutable manifest, typed `WorktreeCondition`, proposed-worktree diff against `worktreeBaselineSha`, and separate PR-context diff against `prBaseSha`; identical state regenerates identical hashes.
    - **Durable records / external effects:** Persists bounded snapshot manifests and diff metadata/hashes linked to the owning worktree/operation/turn. Complete diff content remains regenerable from the recorded path and SHA baseline; over-limit output becomes an explicit attention result rather than a silently truncated authoritative diff.
    - **Failure / cancellation / restart:** Missing path, changed HEAD, unreadable file, malformed Git output, output limit, cancellation, or persistence failure leaves prior immutable evidence intact and returns a safe stale/attention/retryable result. No cached state is used to claim a clean worktree.
-   - **Exact evidence:** Clean/dirty/staged/untracked/ignored matrix; manual edit/build/test refresh; new/deleted/renamed/binary diff vectors; proposed-vs-context comparison; stable hash replay; changed-HEAD/stale check; over-limit failure; `CT-F13-04`, `CT-F13-06`, and `CT-F13-07`.
-   - **Exit criterion:** AC-06-AC-07, AC-09-AC-10, and AC-14 pass, and downstream consumers can distinguish publication-authoritative proposed diff from contextual PR diff without parsing Git output.
+   - **Exact evidence:** Clean/dirty/staged/untracked/ignored matrix; manual edit/build/test refresh; new/deleted/renamed/binary diff vectors; proposed-vs-context comparison; stable hash replay; changed-HEAD/stale check; condition classification matrix; over-limit failure; `CT-F13-04`, `CT-F13-06`, `CT-F13-07`, and `CT-F13-08`.
+   - **Exit criterion:** AC-06-AC-07, AC-09-AC-10, AC-14, and AC-19 pass, and downstream consumers can distinguish publication-authoritative proposed diff from contextual PR diff and un-attributed/overlapping worktree state without parsing Git output.
 
 4. **AI-turn snapshots and safe change attribution**
    - **Blocked by:** Slice 3, F15/F17 turn identity and operation policy contracts, and F03 immutable snapshot persistence.
-   - **Stories / requirements / acceptance criteria:** US-06-US-08; FR-05.2-FR-05.6, FR-07.1-FR-07.8, FR-09.1-FR-09.4; NFR-01-NFR-06, NFR-08-NFR-09; INV-03, INV-04, INV-07-INV-10; AC-09-AC-14, AC-17-AC-18; CT-F13-04, CT-F13-05, CT-F13-06.
+   - **Stories / requirements / acceptance criteria:** US-06-US-08; FR-05.2-FR-05.6, FR-07.1-FR-07.8, FR-09.1-FR-09.6; NFR-01-NFR-06, NFR-08-NFR-09; INV-03, INV-04, INV-07-INV-11; AC-09-AC-14, AC-17-AC-19; CT-F13-04, CT-F13-05, CT-F13-06, CT-F13-08.
    - **Visible result:** A fake mutating turn receives a before snapshot, changes the isolated worktree, produces an after snapshot and deterministic attribution summary, and can remove only independent AI changes while preserving manual edits.
    - **Durable records / external effects:** Persists immutable before/after snapshots, turn linkage, file/change summaries, clear-choice intent, removal outcome, preserved/manual overlap evidence, and final inspection. The fake provider is the only semantic test double; F13 itself does not import it.
    - **Failure / cancellation / restart:** Missing before snapshot, lost owner, dirty current state, binary/rename/delete overlap, reverse-apply failure, cancellation, or uncertain clear command preserves the complete worktree and returns manual-resolution/keep guidance. Clear All requires a separate destructive confirmation and never removes ignored files.
-   - **Exact evidence:** Non-overlapping tracked/untracked changes; same-line and same-file overlap; binary/rename/delete cases; manual change after AI turn; Clear All/AI-only/Keep matrix; byte-for-byte no-mutation assertion on overlap; restart readback; forbidden AI/publication imports; `CT-F13-05` and `CT-F13-06`.
-   - **Exit criterion:** AC-09-AC-14 and AC-17-AC-18 pass, and the service never claims ownership from filenames alone or silently discards a user change.
+   - **Exact evidence:** Non-overlapping tracked/untracked changes; same-line and same-file overlap; binary/rename/delete cases; manual change after AI turn; build/test-created files; clean/AI-attributed-only/un-attributed/mixed/stale condition matrix; Clear All/AI-only/Keep matrix; byte-for-byte no-mutation assertion on overlap; restart readback; forbidden AI/publication imports; `CT-F13-05`, `CT-F13-06`, and `CT-F13-08`.
+   - **Exit criterion:** AC-09-AC-14, AC-17-AC-19 pass, and the service never claims ownership from filenames alone, labels un-attributed changes as human-owned, or silently discards a user change.
 
 5. **Independent synchronization worktree and safe open/reveal contracts**
    - **Blocked by:** Slices 1-3, F04 OS adapter, and F24 synchronization identity inputs.
@@ -98,12 +102,12 @@ database or treat a free-form payload/activity event as authoritative state.
 
 6. **Recovery, conformance, and implementation handoff**
    - **Blocked by:** Slices 1-5, all readiness gates, final F03 migrations/repository changes, and downstream contract fakes.
-   - **Stories / requirements / acceptance criteria:** US-01-US-09; all FRs, NFRs, and INVs; AC-01-AC-18; CT-F13-01-CT-F13-07; APP-AC-10, APP-AC-21, APP-AC-37-APP-AC-39, APP-AC-67.
+   - **Stories / requirements / acceptance criteria:** US-01-US-09; all FRs, NFRs, and INVs; AC-01-AC-19; CT-F13-01-CT-F13-08; APP-AC-10, APP-AC-21, APP-AC-37-APP-AC-39, APP-AC-67.
    - **Visible result:** A machine-readable conformance run proves isolated preparation, exact SHA evidence, reproducible proposed/context diffs, manual-edit preservation, safe three-way attribution, separate synchronization worktrees, restart recovery, and safe OS actions.
    - **Durable records / external effects:** Uses temporary repositories, application-owned temporary roots, test databases, bounded activity/evidence reports, and OS/Git fakes. It does not edit `checklist.md`, use real GitHub credentials, invoke an AI provider, publish code, or contact a real remote.
    - **Failure / cancellation / restart:** Any developer-clone mutation, duplicate path, guessed ref, false clean/clear result, unsafe overlap mutation, secret leak, forbidden capability, missing evidence, or definite coverage-linter miss blocks the gate. A cancelled run leaves no success marker and can be rerun from fresh fixtures.
-   - **Exact evidence:** `npm run check`; F13 contract tests and temporary-repository reports; developer-clone before/after hashes; import/secret/arbitrary-command scan; `git diff --check`; `npm run lint:prd-plan -- Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md Specs/operation_owned_git_worktrees_and_change_attribution_PLAN.md`; `npm run lint:application-coverage -- Specs/application_overview.md Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md`.
-   - **Exit criterion:** All F13 requirements have direct acceptance or contract-test evidence, both specification linters report no definite missing/invalid result, and the validated provider handoff plus negative path/provider-claim tests pass.
+   - **Exact evidence:** F13 contract tests and temporary-repository reports; typed WorktreeCondition consumer projections for F20/F22/F23 plus F14/F18 inspection-contract fixtures; developer-clone before/after hashes; import/secret/arbitrary-command scan; `git diff --check`; `npm run lint:prd-plan -- Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md Specs/operation_owned_git_worktrees_and_change_attribution_PLAN.md`; `npm run lint:application-coverage -- Specs/application_overview.md Specs/operation_owned_git_worktrees_and_change_attribution_PRD.md`.
+   - **Exit criterion:** All F13 requirements have direct acceptance or contract-test evidence, CT-F13-08 proves the shared condition handoff and fail-closed overlap behavior, both specification linters report no definite missing/invalid result, and the validated provider handoff plus negative path/provider-claim tests pass.
 
 ## Cross-Slice Verification and Handoff
 
@@ -114,12 +118,13 @@ database or treat a free-form payload/activity event as authoritative state.
 - F11/F12 remain authoritative for review holds, automatic-batch ownership, and automatic-versus-explicit admission. F13 revalidates owner/operation inputs before local effects but does not release holds or start work.
 - Approved F15 handoff: F13 supplies the canonical operation-owned worktree reference and actual-state evidence; F15 may use it for provider execution but cannot create/select another path, change ownership, or make provider-reported file/command claims authoritative. The immutable handoff and adapter-facing negative tests are proven; the production adapter remains F15-owned.
 - F14 owns validation authorization and execution. F13 only reports actual worktree state and must never treat a model claim or Git command suggestion as validation authority.
+- F13's shared `WorktreeCondition` is the only downstream source for current dirty/attribution status. F14 may require a fresh condition before validation; F18/F20 display it; F22 owns the user choice and orchestration; F23 revalidates it before publication. No downstream feature infers manual ownership from filenames, activity text, or provider claims.
 - F15-F18/F21/F17 own provider invocation, policy, turn budgeting, review proposals, and semantic change requests. F13 stores deterministic snapshots and enforces the local path boundary without importing provider SDKs.
-- F19/F20/F22 own notifications, diff UI, settings presentation, destructive confirmations, discard, and re-evaluate orchestration. F13 supplies exact records and refuses unsafe clear operations.
+- F19/F20/F22 own notifications, diff UI, settings presentation, destructive confirmations, discard, and re-evaluate orchestration. F13 supplies exact records plus the typed WorktreeCondition and refuses unsafe clear operations. F20 may show the condition banner and route a typed request, but F22 owns the choice flow and F13 owns the cleanup mechanics.
 - F24-F27 own synchronization selection, merge, conflict resolution, validation, and publication. F13 provides only an independent worktree and evidence boundary.
 - F23/F27 own commits, pushes, GitHub responses, and publication. F13's proposed diff is evidence, not publication authorization.
 - F28-F30 own full startup/sleep/network recovery, threat-model hardening, packaging, and clean-machine acceptance. F13 supplies concrete operation/path/reconciliation evidence.
-- The F13 checklist item is checked for the implemented worktree isolation, change attribution, and provider handoff. F15 still owns provider invocation and publication remains downstream.
+- The F13 checklist item is `[x]`: the shared WorktreeCondition contract, F20/F22/F23 consumer projections, and CT-F13-08 evidence are revalidated. The existing worktree isolation, attribution, and provider handoff remain in place; F15 still owns provider invocation and publication remains downstream.
 
 ## Requirement-to-Slice Trace
 
@@ -135,7 +140,7 @@ database or treat a free-form payload/activity event as authoritative state.
 | FR-08 | 5-6 |
 | FR-09 | 1, 3-6 |
 | NFR-01-NFR-09 | 1-6 |
-| INV-01-INV-10 | 1-6 |
+| INV-01-INV-11 | 1-6 |
 | APP-AC-10 | 1-2, 6 |
 | APP-AC-21 | 3, 6 |
 | APP-AC-37 | 1, 6 |

@@ -138,6 +138,34 @@ function inspection(
   return {
     ok: true,
     worktree,
+    condition: {
+      schemaVersion: 1,
+      classification: "CLEAN",
+      currentFingerprint: "f14-condition",
+      observedRevision: currentRevision,
+      expectedRevision: currentRevision,
+      dirtySummary: {
+        changedPaths: [],
+        trackedPaths: [],
+        stagedPaths: [],
+        untrackedPaths: [],
+        ignoredPaths: [],
+        hash: "f14-dirty-hash",
+      },
+      attribution: {
+        evidenceRef: "f14-condition-evidence",
+        aiAttributedPaths: [],
+        unAttributedPaths: [],
+        overlapPaths: [],
+        complete: true,
+      },
+      permittedNextActions: [
+        "INSPECT_CHANGES",
+        "VALIDATE_WORKTREE",
+        "CONTINUE_AI_WORK",
+        "REVALIDATE_FOR_PUBLICATION",
+      ],
+    },
     snapshot: {
       manifest: { headSha: currentRevision },
     } as F13InspectionResult["snapshot"],

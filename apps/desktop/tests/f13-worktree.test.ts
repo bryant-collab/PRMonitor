@@ -13,6 +13,7 @@ import {
   F13WorktreeService,
   type F13OsPathAdapter,
 } from "../src/main/f13-service";
+import type { F13WorktreeCondition } from "../src/shared/f13-contracts";
 
 const execFileAsync = promisify(execFile);
 const FIXED_TIME = "2026-09-23T12:00:00.000Z";
@@ -151,6 +152,39 @@ function reviewRequest(fixture: Fixture, operationId = "operation-1") {
   };
 }
 
+function f20ReviewCondition(condition: F13WorktreeCondition) {
+  return {
+    classification: condition.classification,
+    fingerprint: condition.currentFingerprint,
+    observedRevision: condition.observedRevision,
+    dirtySummary: condition.dirtySummary,
+    permittedNextActions: condition.permittedNextActions,
+  };
+}
+
+function f22DecisionCondition(condition: F13WorktreeCondition) {
+  return {
+    classification: condition.classification,
+    evidenceRef: condition.attribution.evidenceRef,
+    aiAttributedPaths: condition.attribution.aiAttributedPaths,
+    unAttributedPaths: condition.attribution.unAttributedPaths,
+    overlapPaths: condition.attribution.overlapPaths,
+    permittedNextActions: condition.permittedNextActions,
+  };
+}
+
+function f23PublicationCondition(condition: F13WorktreeCondition) {
+  return {
+    classification: condition.classification,
+    fingerprint: condition.currentFingerprint,
+    observedRevision: condition.observedRevision,
+    publicationAllowed:
+      condition.permittedNextActions.includes("REVALIDATE_FOR_PUBLICATION") &&
+      (condition.classification === "CLEAN" ||
+        condition.classification === "AI_ATTRIBUTED_ONLY"),
+  };
+}
+
 describe("F13 operation-owned worktrees and change attribution", () => {
   it("prepares an exact detached worktree without touching a dirty developer clone and replays idempotently", async () => {
     const fixture = await createFixture();
@@ -184,6 +218,226 @@ describe("F13 operation-owned worktrees and change attribution", () => {
       ),
     ).toBe(beforeUntracked);
   });
+
+  it("projects fresh clean, AI-only, un-attributed, mixed, and stale conditions", async () => {
+    const fixture = await createFixture();
+
+    const cleanRequest = reviewRequest(fixture, "condition-clean");
+    const clean = await fixture.service.prepare(cleanRequest);
+    expect(clean.inspection?.condition).toMatchObject({
+      classification: "CLEAN",
+      observedRevision: fixture.headSha,
+      expectedRevision: fixture.headSha,
+      dirtySummary: { changedPaths: [] },
+    });
+    expect(clean.inspection?.condition.attribution.complete).toBe(true);
+
+    const unAttributedRequest = reviewRequest(
+      fixture,
+      "condition-unattributed",
+    );
+    const unAttributedPrepared =
+      await fixture.service.prepare(unAttributedRequest);
+    const unAttributedWorktree = unAttributedPrepared.worktree!.canonicalPath;
+    await writeFile(
+      path.join(unAttributedWorktree, "manual.txt"),
+      "manual\n",
+      "utf8",
+    );
+    const unAttributed = await fixture.service.inspectOperation(
+      unAttributedRequest.operationId,
+      unAttributedRequest.ownerId,
+    );
+    expect(unAttributed.condition).toMatchObject({
+      classification: "UNATTRIBUTED_CHANGES",
+      dirtySummary: { untrackedPaths: ["manual.txt"] },
+    });
+    expect(unAttributed.condition.attribution.complete).toBe(false);
+    expect(unAttributed.condition.permittedNextActions).not.toContain(
+      "VALIDATE_WORKTREE",
+    );
+    const unAttributedFingerprint = unAttributed.condition.currentFingerprint;
+    await writeFile(
+      path.join(unAttributedWorktree, "manual.txt"),
+      "manual edit\n",
+      "utf8",
+    );
+    const refreshedUnAttributed = await fixture.service.inspectOperation(
+      unAttributedRequest.operationId,
+      unAttributedRequest.ownerId,
+    );
+    expect(refreshedUnAttributed.condition.currentFingerprint).not.toBe(
+      unAttributedFingerprint,
+    );
+    const blockedUnAttributedTurn = await fixture.service.beginAiTurn({
+      operationId: unAttributedRequest.operationId,
+      ownerId: unAttributedRequest.ownerId,
+      turnId: "condition-unattributed-turn",
+    });
+    expect(blockedUnAttributedTurn.ok).toBe(false);
+    expect(blockedUnAttributedTurn.reason?.code).toBe(
+      "WORKTREE_CONDITION_UNVERIFIED",
+    );
+
+    const aiRequest = reviewRequest(fixture, "condition-ai");
+    const aiPrepared = await fixture.service.prepare(aiRequest);
+    const aiWorktree = aiPrepared.worktree!.canonicalPath;
+    const before = await fixture.service.beginAiTurn({
+      operationId: aiRequest.operationId,
+      ownerId: aiRequest.ownerId,
+      turnId: "condition-ai-turn",
+    });
+    await writeFile(path.join(aiWorktree, "ai-only.txt"), "AI\n", "utf8");
+    const after = await fixture.service.completeAiTurn({
+      operationId: aiRequest.operationId,
+      ownerId: aiRequest.ownerId,
+      turnId: "condition-ai-turn",
+      beforeSnapshotId: before.snapshot!.snapshotId,
+    });
+    expect(after.ok).toBe(true);
+    const aiOnly = await fixture.service.inspectOperation(
+      aiRequest.operationId,
+      aiRequest.ownerId,
+    );
+    expect(aiOnly.condition).toMatchObject({
+      classification: "AI_ATTRIBUTED_ONLY",
+      attribution: {
+        beforeSnapshotId: before.snapshot!.snapshotId,
+        afterSnapshotId: after.snapshot!.snapshotId,
+        aiAttributedPaths: ["ai-only.txt"],
+        unAttributedPaths: [],
+        overlapPaths: [],
+        complete: true,
+      },
+    });
+    expect(aiOnly.condition.permittedNextActions).toContain(
+      "CLEAR_ONLY_AI_CHANGES",
+    );
+
+    const secondBefore = await fixture.service.beginAiTurn({
+      operationId: aiRequest.operationId,
+      ownerId: aiRequest.ownerId,
+      turnId: "condition-ai-turn-2",
+    });
+    await writeFile(path.join(aiWorktree, "ai-second.txt"), "AI 2\n", "utf8");
+    const secondAfter = await fixture.service.completeAiTurn({
+      operationId: aiRequest.operationId,
+      ownerId: aiRequest.ownerId,
+      turnId: "condition-ai-turn-2",
+      beforeSnapshotId: secondBefore.snapshot!.snapshotId,
+    });
+    const multiTurnAiOnly = await fixture.service.inspectOperation(
+      aiRequest.operationId,
+      aiRequest.ownerId,
+    );
+    expect(multiTurnAiOnly.condition).toMatchObject({
+      classification: "AI_ATTRIBUTED_ONLY",
+      attribution: {
+        aiAttributedPaths: ["ai-only.txt", "ai-second.txt"],
+        unAttributedPaths: [],
+        overlapPaths: [],
+        complete: true,
+      },
+    });
+    expect(multiTurnAiOnly.condition.attribution.turnSnapshotIds).toEqual(
+      expect.arrayContaining([
+        {
+          beforeSnapshotId: before.snapshot!.snapshotId,
+          afterSnapshotId: after.snapshot!.snapshotId,
+        },
+        {
+          beforeSnapshotId: secondBefore.snapshot!.snapshotId,
+          afterSnapshotId: secondAfter.snapshot!.snapshotId,
+        },
+      ]),
+    );
+    expect(multiTurnAiOnly.condition.attribution.turnSnapshotIds).toHaveLength(
+      2,
+    );
+
+    const mixedRequest = reviewRequest(fixture, "condition-mixed");
+    const mixedPrepared = await fixture.service.prepare(mixedRequest);
+    const mixedWorktree = mixedPrepared.worktree!.canonicalPath;
+    const mixedBefore = await fixture.service.beginAiTurn({
+      operationId: mixedRequest.operationId,
+      ownerId: mixedRequest.ownerId,
+      turnId: "condition-mixed-turn",
+    });
+    await writeFile(
+      path.join(mixedWorktree, "tracked.txt"),
+      "feature\nAI change\n",
+      "utf8",
+    );
+    const mixedAfter = await fixture.service.completeAiTurn({
+      operationId: mixedRequest.operationId,
+      ownerId: mixedRequest.ownerId,
+      turnId: "condition-mixed-turn",
+      beforeSnapshotId: mixedBefore.snapshot!.snapshotId,
+    });
+    await writeFile(
+      path.join(mixedWorktree, "manual-after-ai.txt"),
+      "manual\n",
+      "utf8",
+    );
+    const mixed = await fixture.service.inspectOperation(
+      mixedRequest.operationId,
+      mixedRequest.ownerId,
+    );
+    expect(mixed.condition).toMatchObject({
+      classification: "MIXED_OR_OVERLAP",
+      attribution: {
+        beforeSnapshotId: mixedBefore.snapshot!.snapshotId,
+        afterSnapshotId: mixedAfter.snapshot!.snapshotId,
+        aiAttributedPaths: ["tracked.txt"],
+        unAttributedPaths: ["manual-after-ai.txt"],
+        overlapPaths: [],
+        complete: true,
+      },
+    });
+    expect(mixed.condition.permittedNextActions).not.toContain(
+      "CLEAR_ONLY_AI_CHANGES",
+    );
+
+    expect(f20ReviewCondition(mixed.condition)).toMatchObject({
+      classification: "MIXED_OR_OVERLAP",
+      fingerprint: mixed.condition.currentFingerprint,
+      observedRevision: fixture.headSha,
+      dirtySummary: mixed.condition.dirtySummary,
+    });
+    expect(f22DecisionCondition(mixed.condition)).toMatchObject({
+      classification: "MIXED_OR_OVERLAP",
+      evidenceRef: mixed.condition.attribution.evidenceRef,
+      unAttributedPaths: ["manual-after-ai.txt"],
+      overlapPaths: [],
+    });
+    expect(f23PublicationCondition(mixed.condition)).toMatchObject({
+      classification: "MIXED_OR_OVERLAP",
+      publicationAllowed: false,
+    });
+
+    const staleRequest = reviewRequest(fixture, "condition-stale");
+    const stalePrepared = await fixture.service.prepare(staleRequest);
+    await git(
+      stalePrepared.worktree!.canonicalPath,
+      "reset",
+      "--hard",
+      fixture.baseSha,
+    );
+    const stale = await fixture.service.inspectOperation(
+      staleRequest.operationId,
+      staleRequest.ownerId,
+    );
+    expect(stale.ok).toBe(false);
+    expect(stale.condition).toMatchObject({
+      classification: "STALE_OR_UNKNOWN",
+      observedRevision: fixture.baseSha,
+      expectedRevision: fixture.headSha,
+    });
+    expect(stale.condition.permittedNextActions).toEqual([
+      "REFRESH_EVIDENCE",
+      "RECONCILE",
+    ]);
+  }, 30_000);
 
   it("keeps proposed and context diffs separate and records before/after turn evidence", async () => {
     const fixture = await createFixture();
@@ -274,9 +528,9 @@ describe("F13 operation-owned worktrees and change attribution", () => {
       beforeSnapshotId: before.snapshot!.snapshotId,
     });
     expect(after.changeSummary?.changed).toContain("actual.txt");
-    expect(after.worktree?.actualState.files.map((file) => file.path)).toContain(
-      "actual.txt",
-    );
+    expect(
+      after.worktree?.actualState.files.map((file) => file.path),
+    ).toContain("actual.txt");
 
     const providerClaim = {
       changedPaths: ["provider-only.txt"],
@@ -412,39 +666,58 @@ describe("F13 operation-owned worktrees and change attribution", () => {
       "manual\n",
     );
 
-    const beforeOverlap = await fixture.service.beginAiTurn({
-      operationId: request.operationId,
-      ownerId: request.ownerId,
+    const overlapFixture = await createFixture();
+    const overlapRequest = reviewRequest(overlapFixture, "overlap-operation");
+    const overlapPrepared =
+      await overlapFixture.service.prepare(overlapRequest);
+    const overlapWorktree = overlapPrepared.worktree!.canonicalPath;
+    const beforeOverlap = await overlapFixture.service.beginAiTurn({
+      operationId: overlapRequest.operationId,
+      ownerId: overlapRequest.ownerId,
       turnId: "turn-2",
     });
     await writeFile(
-      path.join(worktree, "tracked.txt"),
+      path.join(overlapWorktree, "tracked.txt"),
       "feature\nai change\n",
       "utf8",
     );
-    const afterOverlap = await fixture.service.completeAiTurn({
-      operationId: request.operationId,
-      ownerId: request.ownerId,
+    const afterOverlap = await overlapFixture.service.completeAiTurn({
+      operationId: overlapRequest.operationId,
+      ownerId: overlapRequest.ownerId,
       turnId: "turn-2",
       beforeSnapshotId: beforeOverlap.snapshot!.snapshotId,
     });
     await writeFile(
-      path.join(worktree, "tracked.txt"),
+      path.join(overlapWorktree, "tracked.txt"),
       "feature\nai manual replacement\n",
       "utf8",
     );
-    const blocked = await fixture.service.clearChanges({
-      operationId: request.operationId,
-      ownerId: request.ownerId,
+    const overlapInspection = await overlapFixture.service.inspectOperation(
+      overlapRequest.operationId,
+      overlapRequest.ownerId,
+    );
+    expect(overlapInspection.condition).toMatchObject({
+      classification: "MIXED_OR_OVERLAP",
+      attribution: {
+        overlapPaths: ["tracked.txt"],
+        complete: true,
+      },
+    });
+    expect(overlapInspection.condition.permittedNextActions).not.toContain(
+      "CLEAR_ONLY_AI_CHANGES",
+    );
+    const blocked = await overlapFixture.service.clearChanges({
+      operationId: overlapRequest.operationId,
+      ownerId: overlapRequest.ownerId,
       choice: "CLEAR_AI_ONLY",
       beforeSnapshotId: beforeOverlap.snapshot!.snapshotId,
       afterSnapshotId: afterOverlap.snapshot!.snapshotId,
     });
     expect(blocked.ok).toBe(false);
     expect(blocked.reason?.code).toBe("AI_MANUAL_OVERLAP");
-    expect(await readNormalized(path.join(worktree, "tracked.txt"))).toBe(
-      "feature\nai manual replacement\n",
-    );
+    expect(
+      await readNormalized(path.join(overlapWorktree, "tracked.txt")),
+    ).toBe("feature\nai manual replacement\n");
   });
 
   it("uses a distinct synchronization path and refuses unsafe open/reveal targets", async () => {

@@ -51,6 +51,71 @@ export type F13SnapshotPhase =
 export type F13DiffKind = "PROPOSED" | "CONTEXT";
 export type F13ClearChoice = "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL";
 
+export const F13_WORKTREE_CONDITIONS = [
+  "CLEAN",
+  "AI_ATTRIBUTED_ONLY",
+  "UNATTRIBUTED_CHANGES",
+  "MIXED_OR_OVERLAP",
+  "STALE_OR_UNKNOWN",
+] as const;
+export type F13WorktreeConditionKind = (typeof F13_WORKTREE_CONDITIONS)[number];
+
+export const F13_WORKTREE_NEXT_ACTIONS = [
+  "REFRESH_EVIDENCE",
+  "INSPECT_CHANGES",
+  "VALIDATE_WORKTREE",
+  "CONTINUE_AI_WORK",
+  "REQUEST_WORKTREE_DECISION",
+  "CLEAR_ALL_CHANGES",
+  "CLEAR_ONLY_AI_CHANGES",
+  "KEEP_WORKTREE_AND_CANCEL",
+  "RECONCILE",
+  "REVALIDATE_FOR_PUBLICATION",
+] as const;
+export type F13WorktreeNextAction = (typeof F13_WORKTREE_NEXT_ACTIONS)[number];
+
+export interface F13WorktreeDirtySummary {
+  readonly changedPaths: readonly string[];
+  readonly trackedPaths: readonly string[];
+  readonly stagedPaths: readonly string[];
+  readonly untrackedPaths: readonly string[];
+  readonly ignoredPaths: readonly string[];
+  readonly hash: string;
+}
+
+export interface F13WorktreeAttributionEvidence {
+  /** Stable reference to the bounded evidence used for this classification. */
+  readonly evidenceRef: string;
+  readonly beforeSnapshotId?: string;
+  readonly afterSnapshotId?: string;
+  /** Every before/after pair included in the attribution decision. */
+  readonly turnSnapshotIds?: readonly {
+    readonly beforeSnapshotId: string;
+    readonly afterSnapshotId: string;
+  }[];
+  readonly aiAttributedPaths: readonly string[];
+  readonly unAttributedPaths: readonly string[];
+  readonly overlapPaths: readonly string[];
+  /** False when no complete before/after evidence can prove AI ownership. */
+  readonly complete: boolean;
+}
+
+/**
+ * Fresh F13 evidence for downstream validation, review, discard/re-evaluation,
+ * and publication-preparation consumers. This is a condition, not an intent
+ * or an authorization to perform any of the listed actions.
+ */
+export interface F13WorktreeCondition {
+  readonly schemaVersion: 1;
+  readonly classification: F13WorktreeConditionKind;
+  readonly currentFingerprint: string;
+  readonly observedRevision: string;
+  readonly expectedRevision: string;
+  readonly dirtySummary: F13WorktreeDirtySummary;
+  readonly attribution: F13WorktreeAttributionEvidence;
+  readonly permittedNextActions: readonly F13WorktreeNextAction[];
+}
+
 export interface F13RepositoryIdentity {
   readonly serverId: string;
   readonly owner: string;
@@ -262,6 +327,7 @@ export interface F13PreparationResult {
 export interface F13InspectionResult {
   readonly ok: boolean;
   readonly worktree: F13WorktreeRecord;
+  readonly condition: F13WorktreeCondition;
   readonly snapshot?: F13SnapshotRecord;
   readonly proposedDiff?: F13DiffEvidence;
   readonly contextDiff?: F13DiffEvidence;

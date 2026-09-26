@@ -38,7 +38,7 @@ when using this template -->
 | APP-AC-26 | FR-02.6, FR-08.4, INV-05, INV-07 | AC-06, AC-15 | Shared: F13 detects ref/worktree drift and blocks unsafe reuse; F22/F23 own stale-result and publication enforcement. |
 | APP-AC-37 | FR-01.1-FR-01.6, INV-02 | AC-01, AC-15 | Shared: F13 validates and snapshots the effective root; F16 owns the preference surface and future-only setting changes. |
 | APP-AC-38 | FR-06.1-FR-06.5, INV-02 | AC-08 | Shared: F13 provides a safe open/reveal capability for a managed path; F19/F20 own notification and screen controls. |
-| APP-AC-39 | FR-05.1-FR-05.6, FR-07.1-FR-07.8, INV-06-INV-08 | AC-09-AC-14, AC-17 | Primary for preservation, inspection, attribution, and no-guessing cleanup; F22 owns discard/re-evaluate orchestration. |
+| APP-AC-39 | FR-05.1-FR-05.6, FR-07.1-FR-07.8, FR-09.1-FR-09.6, INV-06-INV-08, INV-11 | AC-09-AC-14, AC-17, AC-19 | Primary for preservation, inspection, attribution, no-guessing cleanup, and the typed worktree-condition handoff; F20 presents the condition and F22 owns discard/re-evaluate orchestration. |
 | APP-AC-44 | FR-02.1, FR-02.6, FR-08.2, INV-05 | AC-02, AC-05 | Shared: F13 requires explicit branch/repository/SHA identity and never substitutes a default branch; F24 owns synchronization-source selection. |
 | APP-AC-46 | FR-03.1, FR-04.3, FR-08.1 | AC-05, AC-15 | Shared: F13 owns independent operation paths; F24-F27 own per-PR synchronization results. |
 | APP-AC-49 | FR-04.5, FR-05.4-FR-05.5, FR-08.2 | AC-05-AC-07, AC-15 | Shared: F13 records worktree/ref/diff evidence; F24-F27 own result status, conflicts, validation, and user-facing explanation. |
@@ -128,6 +128,7 @@ publishes.
 - **AC-16:** **GIVEN** a worktree path, Git ref, repository identity, or caller request is malformed, oversized, secret-bearing, or outside the operation boundary, **WHEN** F13 validates it, **THEN** it rejects the request before Git execution, emits a bounded safe reason, and does not persist credentials, raw authorization headers, provider SDK objects, arbitrary commands, or uncontrolled environment values.
 - **AC-17:** **GIVEN** an attribution or cleanup request targets a worktree not owned by the declared operation, **WHEN** F13 checks the ownership and path record, **THEN** it refuses the request without inspecting or mutating the unrelated worktree and returns a conflict or security reason.
 - **AC-18:** **GIVEN** any F13 operation completes, **WHEN** its effects and diagnostics are inspected, **THEN** F13 has emitted at most bounded safe activity and has not invoked an AI provider, validation command, GitHub mutation, response posting, commit, push, merge, or publication capability; all such actions remain downstream and explicit.
+- **AC-19:** **GIVEN** an owned worktree is refreshed for review, validation, discard/re-evaluation, or publication preparation, **WHEN** F13 compares fresh actual state with the recorded baseline and any available before/after AI snapshots, **THEN** it returns a bounded provider-neutral `WorktreeCondition` classified as `CLEAN`, `AI_ATTRIBUTED_ONLY`, `UNATTRIBUTED_CHANGES`, `MIXED_OR_OVERLAP`, or `STALE_OR_UNKNOWN`, together with the current fingerprint, observed revision, dirty summary, attribution/overlap evidence reference, and permitted next actions; it never classifies ownership from filenames or provider prose, and `MIXED_OR_OVERLAP` or `STALE_OR_UNKNOWN` blocks AI-only clearing and any downstream action that would rely on unverified state.
 
 ## Functional Requirements
 
@@ -208,6 +209,7 @@ publishes.
 - FR-09.3: F13 SHALL emit bounded F09 activity for intent, preparation, fetch, ownership conflicts, inspection, snapshot, diff, open/reveal, clear-choice, cleanup, and recovery outcomes without making activity authoritative.
 - FR-09.4: F13 SHALL not import or invoke an AI provider and SHALL not expose GitHub credentials, provider SDK objects, prompts, arbitrary commands, validation authority, GitHub mutation, response posting, commit, push, merge, or publication capabilities.
 - FR-09.5: F13 SHALL provide F15 only a validated provider-neutral worktree handoff containing the operation/worktree identity, canonical operation-owned path, ownership state, baseline/current revision evidence, and permitted capability scope. F15 may consume that handoff but SHALL not choose, rewrite, or treat provider-reported paths or changes as authoritative Git evidence.
+- FR-09.6: F13 SHALL provide downstream review, validation, discard/re-evaluation, and publication consumers with a fresh typed `WorktreeCondition` containing the condition classification, current state fingerprint and revision, dirty-change summary, attribution/overlap evidence, and permitted next actions. `UNATTRIBUTED_CHANGES` SHALL be described as un-attributed rather than proven manual ownership, and `MIXED_OR_OVERLAP` or `STALE_OR_UNKNOWN` SHALL be fail-closed conditions for actions that clear, replace, validate against, or publish the worktree without a new explicit decision or refresh.
 
 ## Non-Functional Requirements
 
@@ -233,6 +235,7 @@ publishes.
 - **INV-08:** Manual edits are preserved unless the user explicitly chooses a supported clear action; AI-only removal uses three-way evidence and never guesses across overlap.
 - **INV-09:** The proposed-worktree diff relative to `worktreeBaselineSha` is distinct from the contextual PR diff relative to `prBaseSha`; only downstream human-approved logic may select a publication diff.
 - **INV-10:** F13 has no AI, GitHub mutation, response-posting, commit, push, merge, validation, or publication authority, and no credential or provider object crosses its persistence or AI-facing boundary.
+- **INV-11:** F13 SHALL never represent an un-attributed or overlapping change as AI-owned merely because it is in a file or path touched by AI; downstream consumers receive the typed condition and evidence and must preserve the worktree when attribution is not provable.
 
 ## Out of Scope
 
@@ -256,6 +259,7 @@ publishes.
 - **PD-07: Open/reveal is a capability, not mutation authority** - opening a worktree or file can be requested from the UI, tray, or notification, but it cannot bypass ownership, state inspection, or publication approval.
 - **PD-08: No automatic cleanup on lifecycle events** - closing the window, pausing watching, a failed AI turn, or a restart does not delete or reset a worktree; an explicit owner/recovery decision is required.
 - **PD-09: F15 receives a reference, not Git authority** - F13 owns the canonical path, worktree identity, actual Git state, and before/after snapshots. The F15 adapter receives the validated reference and may operate only within it; it cannot create paths, select a different worktree, or substitute provider claims for F13 evidence.
+- **PD-10: Worktree conditions describe evidence, not intent** - F13 may prove that changes are attributable to a recorded AI turn or that they are un-attributed/overlapping, but it must not label un-attributed changes as human-owned. F20 presents the condition, F22 owns the user choice, and F23 revalidates before publication.
 
 ## Implementation Decisions
 
@@ -268,6 +272,7 @@ publishes.
 - **IMP-07: Delegate OS actions through F04** - F13 passes validated canonical targets to an OS adapter for open/reveal; platform-specific shell invocation never enters the renderer or a Git command string.
 - **IMP-08: Keep synchronization records independent** - The synchronization worktree references its own operation/result identity and never becomes a Review Bundle worktree through path reuse or record mutation.
 - **IMP-09: Provider-facing handoff is reference-only** - Expose a bounded F13 handoff for F15 that is revalidated immediately before an AI mutation and after the turn. The handoff contains no SDK object, credential, arbitrary path, or provider authority, and the adapter's reported file changes remain non-authoritative until F13 inspects actual Git state.
+- **IMP-10: Publish one shared WorktreeCondition contract** - The condition, fingerprint, observed revision, dirty summary, attribution/overlap evidence, and permitted-action fields are produced by F13 as the shared contract for F14/F18/F20/F22/F23 to consume. No renderer or downstream workflow invents a second manual-versus-AI classifier.
 
 ## Testing Decisions
 
@@ -277,6 +282,7 @@ publishes.
 - **TST-04: Prove developer-workspace protection** - Use a fixture clone with dirty tracked/untracked files and assert that every F13 operation leaves its HEAD, index, worktree files, branch, and status unchanged.
 - **TST-05: Prove no-effect boundaries** - Use imports, spies, and capability fakes to prove F13 cannot reach AI, validation, GitHub mutation, response posting, commit, push, merge, or publication services.
 - **TST-06: Defer visual fidelity to owners** - F13 tests typed path/open/reveal and reason contracts; F16/F19/F20/F22 own settings, accessibility, notification, diff-view, and destructive-confirmation presentation evidence.
+- **TST-07: Prove condition handoff semantics** - Test clean, AI-attributed-only, un-attributed, mixed/overlapping, stale, missing, manual-edit-after-turn, build/test-created, binary, rename, deletion, and untracked cases; assert F20/F22 receive the same fresh classification and that unsafe conditions do not mutate or become publishable.
 
 ## Proposed Modules
 
@@ -290,6 +296,7 @@ publishes.
 - **MOD-08: Change Attribution and Clear Service** - Presents current-change summaries, applies Clear All, performs three-way AI-only removal, and fails closed on overlap.
 - **MOD-09: Managed Path Open/Reveal Adapter** - Validates recorded targets and delegates file-manager/default-application actions to F04.
 - **MOD-10: Worktree Diagnostics and Downstream Contract** - Emits safe activity and exposes provider-neutral preparation, inspection, snapshot, diff, and recovery results.
+- **MOD-11: Worktree Condition Projector** - Derives the bounded condition classification and permitted-action evidence from fresh snapshots and exposes one shared consumer contract without granting cleanup or publication authority.
 
 ## Workflows
 
@@ -343,6 +350,7 @@ publishes.
 - **CT-F13-05:** Attribution tests cover before/after AI snapshots, independent manual changes, tracked/untracked changes, line/file/binary/rename/delete overlap, reverse application, no-op clearing, and byte-for-byte preservation on unsafe overlap.
 - **CT-F13-06:** Open/reveal and boundary tests cover canonical target validation, file-relative path escape, missing targets, OS adapter calls, bounded reasons, forbidden imports, controlled Git environment, and zero AI/validation/publication effects.
 - **CT-F13-07:** End-to-end fixture tests cover review and synchronization worktree non-collision, dirty-worktree choice flows, restart/readback, actual diff refresh after build/test/manual edit, downstream typed handoff, and application-coverage conformance.
+- **CT-F13-08:** Worktree-condition handoff tests cover `CLEAN`, `AI_ATTRIBUTED_ONLY`, `UNATTRIBUTED_CHANGES`, `MIXED_OR_OVERLAP`, and `STALE_OR_UNKNOWN`, fresh fingerprints/revisions, attribution/overlap evidence, manual/build/test/untracked/binary/rename/delete changes, F20/F22 consumer projections, AI-only-clear blocking, publication blocking, and developer-clone preservation.
 
 ## Requirement Traceability
 
@@ -356,6 +364,6 @@ publishes.
 | FR-06 | AC-08, AC-16; CT-F13-06 |
 | FR-07 | AC-09, AC-11-14, AC-17; CT-F13-05, CT-F13-07 |
 | FR-08 | AC-05, AC-14-15; CT-F13-02, CT-F13-03, CT-F13-07 |
-| FR-09 | AC-06, AC-08, AC-15-18; CT-F13-03, CT-F13-06, CT-F13-07 |
-| NFR-01-NFR-09 | AC-01-AC-18; CT-F13-01-CT-F13-07 |
-| INV-01-INV-10 | AC-01-AC-18; CT-F13-01-CT-F13-07 |
+| FR-09 | AC-06, AC-08, AC-15-AC-19; CT-F13-03, CT-F13-06, CT-F13-07, CT-F13-08 |
+| NFR-01-NFR-09 | AC-01-AC-19; CT-F13-01-CT-F13-08 |
+| INV-01-INV-11 | AC-01-AC-19; CT-F13-01-CT-F13-08 |

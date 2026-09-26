@@ -46,6 +46,10 @@ import type {
   F13SnapshotPhase,
   F13SnapshotRecord,
   F13SynchronizationOperationRequest,
+  F13WorktreeCondition,
+  F13WorktreeConditionKind,
+  F13WorktreeDirtySummary,
+  F13WorktreeNextAction,
   F13WorktreeRecord,
 } from "../shared/f13-contracts";
 import type {
@@ -524,6 +528,347 @@ function changeSummary(
     manualOrUnknown: manualOrUnknown.sort(),
   };
   return { ...summary, hash: hashText(stableJson(summary)) };
+}
+
+function snapshotFileIsDirty(file: F13FileEvidence | undefined): boolean {
+  return (
+    file !== undefined &&
+    (file.kind === "untracked" || file.staged || file.worktreeChanged)
+  );
+}
+
+function dirtySummary(actual: ActualState): F13WorktreeDirtySummary {
+  const files = [...actual.fileMap.values()].filter(
+    (file) => file.kind !== "ignored" && snapshotFileIsDirty(file),
+  );
+  const changedPaths = files
+    .map((file) => file.path)
+    .sort((left, right) => left.localeCompare(right));
+  const trackedPaths = files
+    .filter((file) => file.kind !== "untracked")
+    .map((file) => file.path)
+    .sort((left, right) => left.localeCompare(right));
+  const stagedPaths = files
+    .filter((file) => file.staged)
+    .map((file) => file.path)
+    .sort((left, right) => left.localeCompare(right));
+  const untrackedPaths = files
+    .filter((file) => file.kind === "untracked")
+    .map((file) => file.path)
+    .sort((left, right) => left.localeCompare(right));
+  const ignoredPaths = [...actual.manifest.ignoredFiles].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  const summary = {
+    changedPaths,
+    trackedPaths,
+    stagedPaths,
+    untrackedPaths,
+    ignoredPaths,
+  };
+  return { ...summary, hash: hashText(stableJson(summary)) };
+}
+
+function emptyDirtySummary(): F13WorktreeDirtySummary {
+  const summary = {
+    changedPaths: [],
+    trackedPaths: [],
+    stagedPaths: [],
+    untrackedPaths: [],
+    ignoredPaths: [],
+  } as const;
+  return { ...summary, hash: hashText(stableJson(summary)) };
+}
+
+function conditionActions(
+  classification: F13WorktreeConditionKind,
+): readonly F13WorktreeNextAction[] {
+  switch (classification) {
+    case "CLEAN":
+      return [
+        "INSPECT_CHANGES",
+        "VALIDATE_WORKTREE",
+        "CONTINUE_AI_WORK",
+        "REVALIDATE_FOR_PUBLICATION",
+      ];
+    case "AI_ATTRIBUTED_ONLY":
+      return [
+        "INSPECT_CHANGES",
+        "VALIDATE_WORKTREE",
+        "CONTINUE_AI_WORK",
+        "REQUEST_WORKTREE_DECISION",
+        "CLEAR_ONLY_AI_CHANGES",
+        "CLEAR_ALL_CHANGES",
+        "KEEP_WORKTREE_AND_CANCEL",
+        "REVALIDATE_FOR_PUBLICATION",
+      ];
+    case "UNATTRIBUTED_CHANGES":
+      return [
+        "INSPECT_CHANGES",
+        "REFRESH_EVIDENCE",
+        "REQUEST_WORKTREE_DECISION",
+        "KEEP_WORKTREE_AND_CANCEL",
+      ];
+    case "MIXED_OR_OVERLAP":
+      return [
+        "INSPECT_CHANGES",
+        "REFRESH_EVIDENCE",
+        "REQUEST_WORKTREE_DECISION",
+        "KEEP_WORKTREE_AND_CANCEL",
+      ];
+    case "STALE_OR_UNKNOWN":
+      return ["REFRESH_EVIDENCE", "RECONCILE"];
+  }
+}
+
+function conditionEvidenceRef(input: {
+  readonly currentFingerprint: string;
+  readonly beforeSnapshotId?: string;
+  readonly afterSnapshotId?: string;
+  readonly turnSnapshotIds?: readonly {
+    readonly beforeSnapshotId: string;
+    readonly afterSnapshotId: string;
+  }[];
+  readonly aiAttributedPaths: readonly string[];
+  readonly unAttributedPaths: readonly string[];
+  readonly overlapPaths: readonly string[];
+}): string {
+  return `f13-condition-${hashText(stableJson(input)).slice(0, 32)}`;
+}
+
+function worktreeCondition(input: {
+  readonly expectedRevision: string;
+  readonly actual?: ActualState;
+  readonly currentSnapshot?: F13SnapshotRecord;
+  readonly beforeSnapshot?: F13SnapshotRecord;
+  readonly afterSnapshot?: F13SnapshotRecord;
+  readonly aiTurnPairs?: readonly {
+    readonly beforeSnapshot: F13SnapshotRecord;
+    readonly afterSnapshot: F13SnapshotRecord;
+  }[];
+}): F13WorktreeCondition {
+  const actual = input.actual;
+  const currentFingerprint =
+    actual?.manifest.stateFingerprint ??
+    input.currentSnapshot?.stateFingerprint ??
+    "unknown";
+  const observedRevision = actual?.manifest.headSha ?? "UNKNOWN";
+  const summary =
+    actual === undefined ? emptyDirtySummary() : dirtySummary(actual);
+  const currentChangedPaths = summary.changedPaths;
+  const rawTurnPairs =
+    input.aiTurnPairs ??
+    (input.beforeSnapshot === undefined || input.afterSnapshot === undefined
+      ? []
+      : [
+          {
+            beforeSnapshot: input.beforeSnapshot,
+            afterSnapshot: input.afterSnapshot,
+          },
+        ]);
+  const turnPairs = [...rawTurnPairs].sort((left, right) =>
+    left.beforeSnapshot.snapshotId.localeCompare(
+      right.beforeSnapshot.snapshotId,
+    ),
+  );
+  const firstBefore = turnPairs[0]?.beforeSnapshot ?? input.beforeSnapshot;
+  const lastAfter = turnPairs.at(-1)?.afterSnapshot ?? input.afterSnapshot;
+  const turnSnapshotIds = turnPairs.map((pair) => ({
+    beforeSnapshotId: pair.beforeSnapshot.snapshotId,
+    afterSnapshotId: pair.afterSnapshot.snapshotId,
+  }));
+  const evidenceSnapshotFields = {
+    ...(firstBefore === undefined
+      ? {}
+      : { beforeSnapshotId: firstBefore.snapshotId }),
+    ...(lastAfter === undefined
+      ? {}
+      : { afterSnapshotId: lastAfter.snapshotId }),
+    ...(turnSnapshotIds.length === 0 ? {} : { turnSnapshotIds }),
+  };
+  const unknown = (
+    classification: F13WorktreeConditionKind,
+    complete = false,
+  ): F13WorktreeCondition => {
+    const aiAttributedPaths: readonly string[] = [];
+    const unAttributedPaths = [...currentChangedPaths];
+    const overlapPaths: readonly string[] = [];
+    const evidenceInput = {
+      currentFingerprint,
+      ...evidenceSnapshotFields,
+      aiAttributedPaths,
+      unAttributedPaths,
+      overlapPaths,
+    };
+    return {
+      schemaVersion: 1,
+      classification,
+      currentFingerprint,
+      observedRevision,
+      expectedRevision: input.expectedRevision,
+      dirtySummary: summary,
+      attribution: {
+        evidenceRef: conditionEvidenceRef(evidenceInput),
+        ...evidenceSnapshotFields,
+        aiAttributedPaths,
+        unAttributedPaths,
+        overlapPaths,
+        complete,
+      },
+      permittedNextActions: conditionActions(classification),
+    };
+  };
+
+  if (
+    actual === undefined ||
+    observedRevision === "UNKNOWN" ||
+    observedRevision !== input.expectedRevision ||
+    !actual.manifest.complete
+  )
+    return unknown("STALE_OR_UNKNOWN");
+
+  if (currentChangedPaths.length === 0) {
+    const evidenceInput = {
+      currentFingerprint,
+      aiAttributedPaths: [],
+      unAttributedPaths: [],
+      overlapPaths: [],
+    };
+    return {
+      schemaVersion: 1,
+      classification: "CLEAN",
+      currentFingerprint,
+      observedRevision,
+      expectedRevision: input.expectedRevision,
+      dirtySummary: summary,
+      attribution: {
+        evidenceRef: conditionEvidenceRef(evidenceInput),
+        aiAttributedPaths: [],
+        unAttributedPaths: [],
+        overlapPaths: [],
+        complete: true,
+      },
+      permittedNextActions: conditionActions("CLEAN"),
+    };
+  }
+
+  if (turnPairs.length === 0) return unknown("UNATTRIBUTED_CHANGES", false);
+  if (
+    turnPairs.some(
+      (pair) =>
+        !pair.beforeSnapshot.manifest.complete ||
+        !pair.afterSnapshot.manifest.complete,
+    )
+  )
+    return unknown("STALE_OR_UNKNOWN", false);
+
+  const currentFiles = actual.fileMap;
+  const aiEvidenceByPath = new Map<
+    string,
+    Array<{
+      readonly beforeFile: F13FileEvidence | undefined;
+      readonly afterFile: F13FileEvidence | undefined;
+    }>
+  >();
+  const overlapEvidencePaths = new Set<string>();
+  for (const pair of turnPairs) {
+    const pairBeforeFiles = manifestFiles(pair.beforeSnapshot);
+    const pairAfterFiles = manifestFiles(pair.afterSnapshot);
+    for (const filePath of changedPaths(pairBeforeFiles, pairAfterFiles)) {
+      const evidence = aiEvidenceByPath.get(filePath) ?? [];
+      evidence.push({
+        beforeFile: pairBeforeFiles.get(filePath),
+        afterFile: pairAfterFiles.get(filePath),
+      });
+      aiEvidenceByPath.set(filePath, evidence);
+    }
+  }
+  for (const [filePath, evidence] of aiEvidenceByPath) {
+    const afterStates = evidence.map((item) => item.afterFile);
+    if (
+      evidence.some(
+        (item) =>
+          snapshotFileIsDirty(item.beforeFile) &&
+          !afterStates.some((afterFile) =>
+            fileStateEqual(item.beforeFile, afterFile),
+          ),
+      )
+    )
+      overlapEvidencePaths.add(filePath);
+  }
+  const aiChangedPaths = new Set(aiEvidenceByPath.keys());
+  const beforeStatesByPath = new Map<string, (F13FileEvidence | undefined)[]>();
+  for (const [filePath, evidence] of aiEvidenceByPath)
+    beforeStatesByPath.set(
+      filePath,
+      evidence.map((item) => item.beforeFile),
+    );
+  const aiStatesByPath = new Map<string, (F13FileEvidence | undefined)[]>();
+  for (const [filePath, evidence] of aiEvidenceByPath)
+    aiStatesByPath.set(
+      filePath,
+      evidence.map((item) => item.afterFile),
+    );
+  const aiAttributedPaths: string[] = [];
+  const unAttributedPaths: string[] = [];
+  const overlapPaths: string[] = [];
+  for (const filePath of currentChangedPaths) {
+    const current = currentFiles.get(filePath);
+    const aiStates = aiStatesByPath.get(filePath) ?? [];
+    const beforeStates = beforeStatesByPath.get(filePath) ?? [];
+    if (!aiChangedPaths.has(filePath)) {
+      unAttributedPaths.push(filePath);
+      continue;
+    }
+    if (overlapEvidencePaths.has(filePath)) {
+      overlapPaths.push(filePath);
+      continue;
+    }
+    if (
+      aiStates.length > 0 &&
+      aiStates.every((state) => fileStateEqual(state, aiStates[0])) &&
+      fileStateEqual(current, aiStates[0])
+    ) {
+      aiAttributedPaths.push(filePath);
+      continue;
+    }
+    if (beforeStates.some((state) => fileStateEqual(current, state))) {
+      unAttributedPaths.push(filePath);
+      continue;
+    }
+    overlapPaths.push(filePath);
+  }
+  const classification: F13WorktreeConditionKind =
+    overlapPaths.length > 0 ||
+    (aiAttributedPaths.length > 0 && unAttributedPaths.length > 0)
+      ? "MIXED_OR_OVERLAP"
+      : aiAttributedPaths.length > 0
+        ? "AI_ATTRIBUTED_ONLY"
+        : "UNATTRIBUTED_CHANGES";
+  const evidenceInput = {
+    currentFingerprint,
+    ...evidenceSnapshotFields,
+    aiAttributedPaths: [...aiAttributedPaths].sort(),
+    unAttributedPaths: [...unAttributedPaths].sort(),
+    overlapPaths: [...overlapPaths].sort(),
+  };
+  return {
+    schemaVersion: 1,
+    classification,
+    currentFingerprint,
+    observedRevision,
+    expectedRevision: input.expectedRevision,
+    dirtySummary: summary,
+    attribution: {
+      evidenceRef: conditionEvidenceRef(evidenceInput),
+      ...evidenceSnapshotFields,
+      aiAttributedPaths: evidenceInput.aiAttributedPaths,
+      unAttributedPaths: evidenceInput.unAttributedPaths,
+      overlapPaths: evidenceInput.overlapPaths,
+      complete: true,
+    },
+    permittedNextActions: conditionActions(classification),
+  };
 }
 
 function providerWorktreeHandoff(input: {
@@ -1677,6 +2022,7 @@ export class F13WorktreeService {
       return {
         ok: false,
         worktree: this.placeholderWorktree(operationId),
+        condition: worktreeCondition({ expectedRevision: "UNKNOWN" }),
         reason,
       };
     }
@@ -1689,7 +2035,14 @@ export class F13WorktreeService {
         "RECONCILE",
         intent.correlationId,
       );
-      return { ok: false, worktree: this.worktreeRecord(intent), reason };
+      return {
+        ok: false,
+        worktree: this.worktreeRecord(intent),
+        condition: worktreeCondition({
+          expectedRevision: expectedHeadFromIntent(intent),
+        }),
+        reason,
+      };
     }
     return this.inspectInternal(intent, phase);
   }
@@ -1751,6 +2104,18 @@ export class F13WorktreeService {
         stateFingerprint: actual.manifest.stateFingerprint,
         manifest: actual.manifest,
       });
+      const aiTurnPairs = this.aiTurnPairsForCondition(
+        intent.operationId,
+        phase,
+        turnId,
+        snapshot,
+      );
+      const condition = worktreeCondition({
+        expectedRevision: expectedHeadFromIntent(intent),
+        actual,
+        currentSnapshot: snapshot,
+        ...(aiTurnPairs.length === 0 ? {} : { aiTurnPairs }),
+      });
       const proposedDiff = await this.materializeDiff(
         intent,
         actual,
@@ -1758,13 +2123,24 @@ export class F13WorktreeService {
       );
       const contextDiff = await this.materializeDiff(intent, actual, "CONTEXT");
       const stale = actual.manifest.headSha !== expectedHeadFromIntent(intent);
+      const conditionReason =
+        condition.classification === "STALE_OR_UNKNOWN" && !stale
+          ? safeReason(
+              "WORKTREE_CONDITION_UNVERIFIED",
+              "RECOVERY",
+              "The current worktree condition could not be verified completely.",
+              "F13 preserved the worktree and will not let downstream actions rely on incomplete evidence.",
+              "RECONCILE",
+              intent.correlationId,
+            )
+          : undefined;
       const terminalLifecycle =
         intent.lifecycle === "RETAINED" ||
         intent.lifecycle === "CLEARED" ||
         intent.lifecycle === "RELEASED";
       const lifecycle = terminalLifecycle
         ? intent.lifecycle
-        : stale
+        : stale || conditionReason !== undefined
           ? "UNKNOWN"
           : actual.dirty
             ? "DIRTY"
@@ -1778,7 +2154,7 @@ export class F13WorktreeService {
             "RECONCILE",
             intent.correlationId,
           )
-        : undefined;
+        : conditionReason;
       const updated = this.options.repositories.updateLifecycle({
         operationId: intent.operationId,
         lifecycle,
@@ -1798,8 +2174,9 @@ export class F13WorktreeService {
         "The current operation worktree state was inspected.",
       );
       return {
-        ok: !stale,
+        ok: !stale && conditionReason === undefined,
         worktree: updatedWorktree,
+        condition,
         snapshot,
         proposedDiff,
         contextDiff,
@@ -1831,7 +2208,14 @@ export class F13WorktreeService {
         reason.code,
         "Worktree inspection returned an attention result.",
       );
-      return { ok: false, worktree: this.worktreeRecord(intent), reason };
+      return {
+        ok: false,
+        worktree: this.worktreeRecord(intent),
+        condition: worktreeCondition({
+          expectedRevision: expectedHeadFromIntent(intent),
+        }),
+        reason,
+      };
     }
   }
 
@@ -2301,6 +2685,18 @@ export class F13WorktreeService {
     );
     if (!inspection.ok || inspection.snapshot === undefined)
       return { ok: false, reason: inspection.reason };
+    if (!inspection.condition.permittedNextActions.includes("CONTINUE_AI_WORK"))
+      return {
+        ok: false,
+        reason: safeReason(
+          "WORKTREE_CONDITION_UNVERIFIED",
+          "CONFLICT",
+          "The current worktree condition is not verified for another AI turn.",
+          "F13 preserved the worktree and requires an explicit decision or fresh evidence before AI work continues.",
+          "SELECT_WORKTREE_ACTION",
+          intent.correlationId,
+        ),
+      };
     this.emit(
       intent,
       "AI_TURN_SNAPSHOT_BEFORE",
@@ -3325,6 +3721,56 @@ export class F13WorktreeService {
       .listSnapshots({ operationId })
       .filter((snapshot) => snapshot.phase === phase)
       .at(-1);
+  }
+
+  private aiTurnPairsForCondition(
+    operationId: string,
+    phase: F13SnapshotPhase,
+    turnId: string | undefined,
+    currentSnapshot: F13SnapshotRecord,
+  ): readonly {
+    readonly beforeSnapshot: F13SnapshotRecord;
+    readonly afterSnapshot: F13SnapshotRecord;
+  }[] {
+    const snapshots = this.options.repositories.listSnapshots({ operationId });
+    const storedAfterSnapshots = snapshots.filter(
+      (snapshot) =>
+        snapshot.phase === "AFTER_AI" &&
+        (turnId === undefined || snapshot.turnId !== turnId),
+    );
+    const afterCandidates =
+      phase === "AFTER_AI" && turnId !== undefined
+        ? [...storedAfterSnapshots, currentSnapshot]
+        : storedAfterSnapshots;
+    const afterByTurn = new Map<string, F13SnapshotRecord>();
+    for (const afterSnapshot of afterCandidates) {
+      if (afterSnapshot.turnId === undefined) continue;
+      const existing = afterByTurn.get(afterSnapshot.turnId);
+      if (
+        existing === undefined ||
+        (existing.changeSummary === undefined &&
+          afterSnapshot.changeSummary !== undefined) ||
+        (existing.changeSummary === afterSnapshot.changeSummary &&
+          existing.snapshotId.localeCompare(afterSnapshot.snapshotId) < 0)
+      )
+        afterByTurn.set(afterSnapshot.turnId, afterSnapshot);
+    }
+    const pairs: Array<{
+      readonly beforeSnapshot: F13SnapshotRecord;
+      readonly afterSnapshot: F13SnapshotRecord;
+    }> = [];
+    for (const afterSnapshot of afterByTurn.values()) {
+      const beforeSnapshot = snapshots
+        .filter(
+          (snapshot) =>
+            snapshot.phase === "BEFORE_AI" &&
+            snapshot.turnId === afterSnapshot.turnId,
+        )
+        .at(-1);
+      if (beforeSnapshot !== undefined)
+        pairs.push({ beforeSnapshot, afterSnapshot });
+    }
+    return pairs;
   }
 
   private worktreeRecord(intent: F13OperationIntentRecord): F13WorktreeRecord {

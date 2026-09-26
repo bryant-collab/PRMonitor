@@ -227,6 +227,34 @@ function inspection(): F13InspectionResult {
   return {
     ok: true,
     worktree: worktreeRecord,
+    condition: {
+      schemaVersion: 1,
+      classification: "CLEAN",
+      currentFingerprint: "fingerprint-1",
+      observedRevision: "b".repeat(40),
+      expectedRevision: "b".repeat(40),
+      dirtySummary: {
+        changedPaths: [],
+        trackedPaths: [],
+        stagedPaths: [],
+        untrackedPaths: [],
+        ignoredPaths: [],
+        hash: "dirty-hash-1",
+      },
+      attribution: {
+        evidenceRef: "f13-condition-1",
+        aiAttributedPaths: [],
+        unAttributedPaths: [],
+        overlapPaths: [],
+        complete: true,
+      },
+      permittedNextActions: [
+        "INSPECT_CHANGES",
+        "VALIDATE_WORKTREE",
+        "CONTINUE_AI_WORK",
+        "REVALIDATE_FOR_PUBLICATION",
+      ],
+    },
     snapshot: {
       snapshotId: "f13-inspection-1",
       operationId: "operation-1",

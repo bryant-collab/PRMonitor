@@ -117,6 +117,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Deliver:** Implement a thin deterministic Git/worktree service that fetches refs, records `prBaseSha`, `prHeadSha`, `worktreeBaselineSha`, and synchronization merge-base identities, creates clean review and synchronization worktrees under a configurable root, and never touches the developer workspace. Capture before/after snapshots for each mutating AI turn, inspect actual state before every mutation/validation/publication, expose open/reveal actions, and implement safe three-way removal of AI-attributable changes with overlap detection.
   - **Exit:** Concurrent operation types cannot reuse/overwrite a worktree; proposed and context diffs are reproducible; manual edits are preserved; and unsafe overlap blocks **Clear Only AI Changes** instead of guessing.
   - **Primary application criteria:** APP-AC-10, APP-AC-37, APP-AC-39; supplies the snapshot/diff foundation for APP-AC-67.
+  - **Revalidation completed:** F13 now returns the fresh typed `WorktreeCondition` classifications, fingerprint/revision, dirty summary, attribution/overlap evidence, and permitted next actions required by F20/F22/F23. CT-F13-08 coverage includes typed review/decision/publication consumer projections, overlap blocking for AI-only clearing, stale blocking, and developer-clone preservation; F20/F22/F23 remain owners of presentation, user choice, and publication revalidation.
 
 - [x] **F14 - Deterministic validation runner and result model**
   - **Depends on:** F00, F03, F09, F13.
@@ -264,7 +265,7 @@ This ledger is a completeness check, not a substitute for the PRD coverage linte
 | APP-AC-32, APP-AC-33, APP-AC-34, APP-AC-35, APP-AC-36 | F16 |
 | APP-AC-37 | F13, F16 |
 | APP-AC-38 | F19, F20 |
-| APP-AC-39 | F13, F22 |
+| APP-AC-39 | F13, F20, F22 |
 | APP-AC-40 | F07 |
 | APP-AC-41, APP-AC-42 | F16, F18 |
 | APP-AC-43, APP-AC-44, APP-AC-45 | F24 |
