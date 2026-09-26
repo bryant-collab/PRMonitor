@@ -29,6 +29,7 @@ import {
 import { ManagedPrInbox } from "./ManagedPrInbox";
 import { ActivityViewer } from "./ActivityViewer";
 import { Preferences } from "./Preferences";
+import { ReviewBundleWorkspace } from "./ReviewBundleWorkspace";
 
 function operationNeedsAction(
   operation: GithubCredentialOperationView,
@@ -52,6 +53,7 @@ export function StartupApp() {
     GithubServerSettingsView | undefined
   >();
   const [targetLabel, setTargetLabel] = useState("home");
+  const [reviewBundleId, setReviewBundleId] = useState<string>();
   const [displayName, setDisplayName] = useState("");
   const [serverUrl, setServerUrl] = useState("https://github.com");
   const [selectedProfileId, setSelectedProfileId] = useState<
@@ -164,6 +166,8 @@ export function StartupApp() {
     });
     const unsubscribe = bridge.onOpenTarget((target) => {
       if (!active) return;
+      if (target.kind === "REVIEW_BUNDLE" && target.id !== undefined)
+        setReviewBundleId(target.id);
       setTargetLabel(
         target.kind === "HOME"
           ? "home"
@@ -617,6 +621,9 @@ export function StartupApp() {
           }
           onAddPr={focusAddPr}
         />
+        {reviewBundleId !== undefined ? (
+          <ReviewBundleWorkspace bundleId={reviewBundleId} />
+        ) : null}
         <ActivityViewer
           enabled={state !== undefined}
           onNavigate={(target) => {

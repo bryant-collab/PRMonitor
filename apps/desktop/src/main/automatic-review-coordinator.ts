@@ -43,6 +43,7 @@ import {
   type F18AutomaticReviewHandoff,
   type F18BundleItem,
   type F18DecisionInput,
+  type F18DraftResponseInput,
   type F18FeedbackSnapshot,
   type F18Reason,
   type F18ReviewBundleReadModel,
@@ -193,6 +194,17 @@ export interface F18AutomaticReviewBoundary {
   readonly getReadModel?: (
     bundleId: string,
   ) => F18ReviewBundleReadModel | undefined;
+  readonly recordDecision: (
+    input: F18DecisionInput,
+  ) => F18ReviewBundleReadModel;
+  readonly confirmReviewDecisions: (input: {
+    readonly bundleId: string;
+    readonly expectedVersion?: number;
+    readonly actionId?: string;
+  }) => Promise<F18ReviewBundleReadModel>;
+  readonly saveDraftResponse: (
+    input: F18DraftResponseInput,
+  ) => F18ReviewBundleReadModel;
 }
 
 function now(clock: (() => string) | undefined): string {
@@ -249,6 +261,9 @@ function taskSnapshotRef(
     modelId: snapshot.profile.modelId,
     policyId: snapshot.policy.policyId,
     policyRevision: snapshot.policy.revision,
+    ...(snapshot.profile.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: snapshot.profile.reasoningEffort }),
     effectivePreset: snapshot.policy.effectivePreset,
     sandboxMode: snapshot.policy.sandboxMode,
     approvalPolicy: snapshot.policy.approvalPolicy,
@@ -290,6 +305,39 @@ function diffReference(
   };
 }
 
+function persistedWorktreeCondition(
+  condition: NonNullable<F13InspectionResult["condition"]>,
+): NonNullable<F18WorktreeEvidence["condition"]> {
+  const {
+    dirtySummary,
+    attribution,
+    permittedNextActions,
+    ...identity
+  } = condition;
+  const { turnSnapshotIds, ...attributionIdentity } = attribution;
+  return {
+    ...identity,
+    dirtySummary: {
+      ...dirtySummary,
+      changedPaths: [...dirtySummary.changedPaths],
+      trackedPaths: [...dirtySummary.trackedPaths],
+      stagedPaths: [...dirtySummary.stagedPaths],
+      untrackedPaths: [...dirtySummary.untrackedPaths],
+      ignoredPaths: [...dirtySummary.ignoredPaths],
+    },
+    attribution: {
+      ...attributionIdentity,
+      ...(turnSnapshotIds === undefined
+        ? {}
+        : { turnSnapshotIds: turnSnapshotIds.map((pair) => ({ ...pair })) }),
+      aiAttributedPaths: [...attribution.aiAttributedPaths],
+      unAttributedPaths: [...attribution.unAttributedPaths],
+      overlapPaths: [...attribution.overlapPaths],
+    },
+    permittedNextActions: [...permittedNextActions],
+  };
+}
+
 function worktreeEvidence(
   inspection: F13InspectionResult,
 ): F18WorktreeEvidence {
@@ -313,6 +361,9 @@ function worktreeEvidence(
       inspection.snapshot?.stateFingerprint ?? "f13-inspection-missing",
     clean: changedFiles.length === 0,
     complete: inspection.snapshot?.manifest.complete ?? false,
+    ...(inspection.condition === undefined
+      ? {}
+      : { condition: persistedWorktreeCondition(inspection.condition) }),
     changedFiles,
     ...(diffReference(inspection.proposedDiff) === undefined
       ? {}
@@ -892,6 +943,48 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
         ? {}
         : { expectedVersion: input.expectedVersion }),
       ...(input.actionId === undefined ? {} : { actionId: input.actionId }),
+    });
+    return this.readModel(updated);
+  }
+
+  public saveDraftResponse(
+    input: F18DraftResponseInput,
+  ): F18ReviewBundleReadModel {
+    const current = this.requireBundle(input.bundleId);
+    if (current.stage !== "FINAL_REVIEW")
+      throw new Error("F18_DRAFT_STAGE_INVALID");
+    if (input.text.trim().length === 0 || input.text.length > 64 * 1024)
+      throw new Error("F18_DRAFT_INVALID");
+    if (
+      !current.items.some(
+        (item) => item.eventVersionId === input.eventVersionId,
+      )
+    )
+      throw new Error("F18_DRAFT_ITEM_NOT_FOUND");
+    const existing = current.draftResponses.find(
+      (draft) => draft.eventVersionId === input.eventVersionId,
+    );
+    if (existing?.text === input.text && existing.source === "HUMAN_DRAFT")
+      return this.readModel(current);
+    const next = cloneRecord(current, {
+      version: current.version + 1,
+      draftResponses: [
+        ...current.draftResponses.filter(
+          (draft) => draft.eventVersionId !== input.eventVersionId,
+        ),
+        {
+          eventVersionId: input.eventVersionId,
+          text: input.text,
+          source: "HUMAN_DRAFT" as const,
+        },
+      ],
+      updatedAt: now(this.options.clock),
+    });
+    const updated = this.options.persistence.update({
+      record: next,
+      ...(input.expectedVersion === undefined
+        ? { expectedBundleVersion: current.version }
+        : { expectedBundleVersion: input.expectedVersion }),
     });
     return this.readModel(updated);
   }

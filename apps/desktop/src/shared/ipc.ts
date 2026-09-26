@@ -61,6 +61,19 @@ import {
   type F16RepositorySaveInput,
   type F16TaskProfileSaveInput,
 } from "./f16-preferences";
+import {
+  f20DiffModeSchema,
+  f20DiffViewSchema,
+  f20PathActionResultSchema,
+  f20WorkspaceReadModelSchema,
+  type F20DecisionCommandInput,
+  type F20DiffMode,
+  type F20DiffView,
+  type F20DraftCommandInput,
+  type F20PathActionInput,
+  type F20PathActionResult,
+  type F20WorkspaceReadModel,
+} from "./f20-workspace";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -112,7 +125,14 @@ export type IpcRequestType =
   | "inbox.navigate"
   | "activity.query"
   | "activity.subscribe"
-  | "activity.navigate";
+  | "activity.navigate"
+  | "review-bundle.read"
+  | "review-bundle.diff.read"
+  | "review-bundle.decision.record"
+  | "review-bundle.decisions.confirm"
+  | "review-bundle.draft.save"
+  | "review-bundle.worktree.refresh"
+  | "review-bundle.path-action";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -272,6 +292,45 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "activity.navigate";
       readonly payload: { readonly eventId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.read";
+      readonly payload: { readonly bundleId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.diff.read";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly mode: F20DiffMode;
+        readonly itemId?: string;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.decision.record";
+      readonly payload: F20DecisionCommandInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.decisions.confirm";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly expectedVersion?: number;
+        readonly actionId?: string;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.draft.save";
+      readonly payload: F20DraftCommandInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.worktree.refresh";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly expectedVersion?: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.path-action";
+      readonly payload: F20PathActionInput;
     });
 
 export interface IpcError {
@@ -376,7 +435,19 @@ export type IpcResponseValue =
       readonly snapshot: ActivityQuerySnapshot;
     }
   | { readonly kind: "activity-navigation"; readonly target: OpenTarget }
-  | { readonly kind: "navigation-target"; readonly target: OpenTarget };
+  | { readonly kind: "navigation-target"; readonly target: OpenTarget }
+  | {
+      readonly kind: "review-bundle-workspace";
+      readonly workspace: F20WorkspaceReadModel;
+    }
+  | {
+      readonly kind: "review-bundle-diff";
+      readonly diff: F20DiffView;
+    }
+  | {
+      readonly kind: "review-bundle-path-action";
+      readonly result: F20PathActionResult;
+    };
 
 export type IpcResponse =
   | {
@@ -499,6 +570,14 @@ function safeManagedPath(value: unknown): value is string {
       const codePoint = character.codePointAt(0) ?? 0;
       return codePoint > 31 && codePoint !== 127;
     })
+  );
+}
+
+function safeReviewBundleRelativePath(value: unknown): value is string {
+  return (
+    safeManagedPath(value) &&
+    !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/u.test(value) &&
+    !value.split(/[\\/]/u).includes("..")
   );
 }
 
@@ -688,6 +767,21 @@ function parseResponseValue(value: unknown): boolean {
     return (
       hasExactKeys(value, ["kind", "target"]) &&
       parseOpenTargetRecord(value.target).ok
+    );
+  if (value.kind === "review-bundle-workspace")
+    return (
+      hasExactKeys(value, ["kind", "workspace"]) &&
+      f20WorkspaceReadModelSchema.safeParse(value.workspace).success
+    );
+  if (value.kind === "review-bundle-diff")
+    return (
+      hasExactKeys(value, ["kind", "diff"]) &&
+      f20DiffViewSchema.safeParse(value.diff).success
+    );
+  if (value.kind === "review-bundle-path-action")
+    return (
+      hasExactKeys(value, ["kind", "result"]) &&
+      f20PathActionResultSchema.safeParse(value.result).success
     );
   return false;
 }
@@ -1259,6 +1353,227 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "review-bundle.read") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId)
+    )
+      return invalidRequest("The Review Bundle identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { bundleId: value.payload.bundleId },
+      },
+    };
+  }
+  if (value.type === "review-bundle.diff.read") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId", "mode"], ["itemId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !f20DiffModeSchema.safeParse(value.payload.mode).success ||
+      (value.payload.itemId !== undefined &&
+        !safeGithubIdentifier(value.payload.itemId))
+    )
+      return invalidRequest("The Review Bundle diff request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          mode: value.payload.mode as F20DiffMode,
+          ...(value.payload.itemId === undefined
+            ? {}
+            : { itemId: value.payload.itemId }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.decision.record") {
+    const decision = value.payload.decision;
+    const finalDisposition = value.payload.finalDisposition;
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["bundleId", "itemId", "decision", "finalDisposition"],
+        ["instruction", "answer", "expectedVersion", "actionId"],
+      ) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !safeGithubIdentifier(value.payload.itemId) ||
+      !["accepted", "overridden"].includes(String(decision)) ||
+      !["fixed", "pushback", "question", "no_change"].includes(
+        String(finalDisposition),
+      ) ||
+      (value.payload.instruction !== undefined &&
+        !safeManagedMultilineText(value.payload.instruction, 64 * 1024)) ||
+      (value.payload.answer !== undefined &&
+        !safeManagedMultilineText(value.payload.answer, 64 * 1024)) ||
+      (value.payload.expectedVersion !== undefined &&
+        !safeVersion(value.payload.expectedVersion)) ||
+      (value.payload.actionId !== undefined &&
+        !safeGithubIdentifier(value.payload.actionId))
+    )
+      return invalidRequest("The Review Bundle decision request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          itemId: value.payload.itemId,
+          decision: decision as "accepted" | "overridden",
+          finalDisposition: finalDisposition as
+            | "fixed"
+            | "pushback"
+            | "question"
+            | "no_change",
+          ...(value.payload.instruction === undefined
+            ? {}
+            : { instruction: value.payload.instruction }),
+          ...(value.payload.answer === undefined
+            ? {}
+            : { answer: value.payload.answer }),
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+          ...(value.payload.actionId === undefined
+            ? {}
+            : { actionId: value.payload.actionId }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.decisions.confirm") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"], ["expectedVersion", "actionId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      (value.payload.expectedVersion !== undefined &&
+        !safeVersion(value.payload.expectedVersion)) ||
+      (value.payload.actionId !== undefined &&
+        !safeGithubIdentifier(value.payload.actionId))
+    )
+      return invalidRequest("The Review Bundle confirmation request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+          ...(value.payload.actionId === undefined
+            ? {}
+            : { actionId: value.payload.actionId }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.draft.save") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["bundleId", "eventVersionId", "text"],
+        ["expectedVersion", "actionId"],
+      ) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !safeGithubIdentifier(value.payload.eventVersionId) ||
+      !safeManagedMultilineText(value.payload.text, 64 * 1024) ||
+      value.payload.text.trim().length === 0 ||
+      (value.payload.expectedVersion !== undefined &&
+        !safeVersion(value.payload.expectedVersion)) ||
+      (value.payload.actionId !== undefined &&
+        !safeGithubIdentifier(value.payload.actionId))
+    )
+      return invalidRequest("The Review Bundle draft request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          eventVersionId: value.payload.eventVersionId,
+          text: value.payload.text,
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+          ...(value.payload.actionId === undefined
+            ? {}
+            : { actionId: value.payload.actionId }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.worktree.refresh") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"], ["expectedVersion"]) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      (value.payload.expectedVersion !== undefined &&
+        !safeVersion(value.payload.expectedVersion))
+    )
+      return invalidRequest("The Review Bundle refresh request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.path-action") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["bundleId", "action"],
+        ["relativePath", "expectedVersion"],
+      ) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !["OPEN_WORKTREE", "OPEN_FILE", "REVEAL_FILE"].includes(
+        String(value.payload.action),
+      ) ||
+      ((value.payload.action === "OPEN_FILE" ||
+        value.payload.action === "REVEAL_FILE") &&
+        (value.payload.relativePath === undefined ||
+          !safeReviewBundleRelativePath(value.payload.relativePath))) ||
+      (value.payload.action === "OPEN_WORKTREE" &&
+        value.payload.relativePath !== undefined) ||
+      (value.payload.expectedVersion !== undefined &&
+        !safeVersion(value.payload.expectedVersion))
+    )
+      return invalidRequest("The Review Bundle path action is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          action: value.payload.action as
+            | "OPEN_WORKTREE"
+            | "OPEN_FILE"
+            | "REVEAL_FILE",
+          ...(value.payload.relativePath === undefined
+            ? {}
+            : { relativePath: value.payload.relativePath as string }),
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+        },
+      },
+    };
+  }
   return invalidRequest("The IPC request type is not allowlisted.");
 }
 
@@ -1425,6 +1740,30 @@ export interface PrMonitorPreloadApi {
   readonly navigateManagedPr: (
     managedPrId: string,
     destination: "details" | "settings",
+  ) => Promise<IpcResponse>;
+  readonly readReviewBundle: (bundleId: string) => Promise<IpcResponse>;
+  readonly readReviewBundleDiff: (
+    bundleId: string,
+    mode: F20DiffMode,
+    itemId?: string,
+  ) => Promise<IpcResponse>;
+  readonly recordReviewBundleDecision: (
+    input: F20DecisionCommandInput,
+  ) => Promise<IpcResponse>;
+  readonly confirmReviewBundleDecisions: (
+    bundleId: string,
+    expectedVersion?: number,
+    actionId?: string,
+  ) => Promise<IpcResponse>;
+  readonly saveReviewBundleDraft: (
+    input: F20DraftCommandInput,
+  ) => Promise<IpcResponse>;
+  readonly refreshReviewBundleWorktree: (
+    bundleId: string,
+    expectedVersion?: number,
+  ) => Promise<IpcResponse>;
+  readonly reviewBundlePathAction: (
+    input: F20PathActionInput,
   ) => Promise<IpcResponse>;
   readonly onOpenTarget: (listener: (target: OpenTarget) => void) => () => void;
   readonly onInboxUpdated: (

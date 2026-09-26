@@ -125,6 +125,18 @@ export const f18TaskSnapshotRefSchema = z
     profileRevision: z.number().int().positive(),
     providerId: identifierSchema,
     modelId: identifierSchema,
+    reasoningEffort: z
+      .enum([
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra",
+        "persistent",
+      ])
+      .optional(),
     policyId: identifierSchema,
     policyRevision: z.number().int().positive(),
     effectivePreset: identifierSchema,
@@ -146,6 +158,74 @@ export const f18TaskSnapshotRefSchema = z
   .strict();
 export type F18TaskSnapshotRef = z.infer<typeof f18TaskSnapshotRefSchema>;
 
+const f18WorktreeConditionKindSchema = z.enum([
+  "CLEAN",
+  "AI_ATTRIBUTED_ONLY",
+  "UNATTRIBUTED_CHANGES",
+  "MIXED_OR_OVERLAP",
+  "STALE_OR_UNKNOWN",
+]);
+
+const f18WorktreeConditionActionSchema = z.enum([
+  "REFRESH_EVIDENCE",
+  "INSPECT_CHANGES",
+  "VALIDATE_WORKTREE",
+  "CONTINUE_AI_WORK",
+  "REQUEST_WORKTREE_DECISION",
+  "CLEAR_ALL_CHANGES",
+  "CLEAR_ONLY_AI_CHANGES",
+  "KEEP_WORKTREE_AND_CANCEL",
+  "RECONCILE",
+  "REVALIDATE_FOR_PUBLICATION",
+]);
+
+/** F13's fresh condition retained with the F18 evidence snapshot. */
+export const f18WorktreeConditionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    classification: f18WorktreeConditionKindSchema,
+    currentFingerprint: boundedHashSchema,
+    observedRevision: boundedHashSchema,
+    expectedRevision: boundedHashSchema,
+    dirtySummary: z
+      .object({
+        changedPaths: z.array(relativePathSchema).max(2_000),
+        trackedPaths: z.array(relativePathSchema).max(2_000),
+        stagedPaths: z.array(relativePathSchema).max(2_000),
+        untrackedPaths: z.array(relativePathSchema).max(2_000),
+        ignoredPaths: z.array(relativePathSchema).max(2_000),
+        hash: boundedHashSchema,
+      })
+      .strict(),
+    attribution: z
+      .object({
+        evidenceRef: identifierSchema,
+        beforeSnapshotId: identifierSchema.optional(),
+        afterSnapshotId: identifierSchema.optional(),
+        turnSnapshotIds: z
+          .array(
+            z
+              .object({
+                beforeSnapshotId: identifierSchema,
+                afterSnapshotId: identifierSchema,
+              })
+              .strict(),
+          )
+          .max(64)
+          .optional(),
+        aiAttributedPaths: z.array(relativePathSchema).max(2_000),
+        unAttributedPaths: z.array(relativePathSchema).max(2_000),
+        overlapPaths: z.array(relativePathSchema).max(2_000),
+        complete: z.boolean(),
+      })
+      .strict(),
+    permittedNextActions: z.array(f18WorktreeConditionActionSchema).max(32),
+  })
+  .strict();
+export type F18WorktreeCondition = z.infer<
+  typeof f18WorktreeConditionSchema
+>;
+
 export const f18WorktreeEvidenceSchema = z
   .object({
     operationId: identifierSchema,
@@ -160,6 +240,7 @@ export const f18WorktreeEvidenceSchema = z
     stateFingerprint: boundedHashSchema,
     clean: z.boolean(),
     complete: z.boolean(),
+    condition: f18WorktreeConditionSchema.optional(),
     changedFiles: z.array(relativePathSchema).max(2_000),
     proposedDiff: z
       .object({
@@ -318,7 +399,7 @@ export const f18DraftResponseSchema = z
   .object({
     eventVersionId: identifierSchema,
     text: textSchema,
-    source: z.literal("MODEL_PROPOSAL"),
+    source: z.enum(["MODEL_PROPOSAL", "HUMAN_DRAFT"]),
   })
   .strict();
 export type F18DraftResponse = z.infer<typeof f18DraftResponseSchema>;
@@ -434,6 +515,14 @@ export interface F18DecisionInput {
 
 export interface F18ConfirmInput {
   readonly bundleId: string;
+  readonly expectedVersion?: number;
+  readonly actionId?: string;
+}
+
+export interface F18DraftResponseInput {
+  readonly bundleId: string;
+  readonly eventVersionId: string;
+  readonly text: string;
   readonly expectedVersion?: number;
   readonly actionId?: string;
 }

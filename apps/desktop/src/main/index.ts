@@ -84,6 +84,7 @@ import {
   type F18AutomaticReviewBoundary,
 } from "./automatic-review-coordinator";
 import { F18AIWorkAdapter } from "./automatic-review-ai-adapter";
+import { F20WorkspaceService } from "./f20-workspace-service";
 import { TrayNotificationCoordinator } from "./f19-coordinator";
 import { ElectronF19NativeSurfaceAdapter } from "./f19-native-adapter";
 import { createF19EffectiveBounds } from "../shared/f19-native-surfaces";
@@ -149,6 +150,7 @@ let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
 let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
+let f20WorkspaceService: F20WorkspaceService | undefined;
 let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
 let f19Coordinator: TrayNotificationCoordinator | undefined;
 const pendingTargets = new OpenTargetQueue();
@@ -738,6 +740,18 @@ async function startMainProcess(): Promise<void> {
     }
   };
 
+  if (
+    automaticReviewCoordinator === undefined ||
+    f13WorktreeService === undefined ||
+    f14ValidationService === undefined
+  )
+    throw new Error("PRMONITOR_F20_DEPENDENCY_NOT_READY");
+  f20WorkspaceService = new F20WorkspaceService({
+    bundles: automaticReviewCoordinator,
+    worktrees: f13WorktreeService,
+    validation: f14ValidationService,
+  });
+
   ipcRouter = new IpcRouter(ipcMain, {
     readCurrentState: () => createCurrentState(),
     getLifecycleStatus: () =>
@@ -1018,6 +1032,49 @@ async function startMainProcess(): Promise<void> {
       return activityService.query(query);
     },
     navigateActivity: (eventId) => activityService?.relatedTarget(eventId),
+    readReviewBundle: (bundleId) => {
+      if (f20WorkspaceService === undefined)
+        throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+      return f20WorkspaceService.read(bundleId);
+    },
+    readReviewBundleDiff: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.readDiff(input);
+    },
+    recordReviewBundleDecision: (input) => {
+      if (f20WorkspaceService === undefined)
+        throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+      return f20WorkspaceService.recordDecision(input);
+    },
+    confirmReviewBundleDecisions: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.confirmDecisions(input);
+    },
+    saveReviewBundleDraft: (input) => {
+      if (f20WorkspaceService === undefined)
+        throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+      return f20WorkspaceService.saveDraft(input);
+    },
+    refreshReviewBundleWorktree: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.refreshWorktree(input);
+    },
+    reviewBundlePathAction: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.pathAction(input);
+    },
     onRendererReady: (senderId) => {
       windowManager?.markRendererReady(senderId);
     },
@@ -1188,6 +1245,7 @@ app.on("will-quit", () => {
   reviewScheduler = undefined;
   githubServerService = undefined;
   managedPrService = undefined;
+  f20WorkspaceService = undefined;
   persistenceStore?.close();
   persistenceStore = undefined;
 });

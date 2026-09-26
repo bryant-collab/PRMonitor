@@ -47,6 +47,16 @@ import type {
   F16RepositorySaveInput,
   F16TaskProfileSaveInput,
 } from "../shared/f16-preferences";
+import type {
+  F20DecisionCommandInput,
+  F20DraftCommandInput,
+  F20PathActionInput,
+  F20ReadDiffInput,
+  F20RefreshWorktreeInput,
+  F20WorkspaceReadModel,
+  F20DiffView,
+  F20PathActionResult,
+} from "../shared/f20-workspace";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -183,6 +193,29 @@ export interface IpcServices {
     managedPrId: string,
     destination: ManagedPrNavigationDestination,
   ) => OpenTarget;
+  readonly readReviewBundle?: (
+    bundleId: string,
+  ) => F20WorkspaceReadModel;
+  readonly readReviewBundleDiff?: (
+    input: F20ReadDiffInput,
+  ) => Promise<F20DiffView>;
+  readonly recordReviewBundleDecision?: (
+    input: F20DecisionCommandInput,
+  ) => F20WorkspaceReadModel;
+  readonly confirmReviewBundleDecisions?: (input: {
+    readonly bundleId: string;
+    readonly expectedVersion?: number;
+    readonly actionId?: string;
+  }) => Promise<F20WorkspaceReadModel>;
+  readonly saveReviewBundleDraft?: (
+    input: F20DraftCommandInput,
+  ) => F20WorkspaceReadModel;
+  readonly refreshReviewBundleWorktree?: (
+    input: F20RefreshWorktreeInput,
+  ) => Promise<F20WorkspaceReadModel>;
+  readonly reviewBundlePathAction?: (
+    input: F20PathActionInput,
+  ) => Promise<F20PathActionResult>;
   readonly onRendererReady?: (senderId: number, sessionId: string) => void;
 }
 
@@ -762,6 +795,82 @@ export class IpcRouter {
             operation: await this.services.saveManagedPrConfiguration(
               request.payload,
             ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.read") {
+        if (this.services.readReviewBundle === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-workspace",
+            workspace: this.services.readReviewBundle(request.payload.bundleId),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.diff.read") {
+        if (this.services.readReviewBundleDiff === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-diff",
+            diff: await this.services.readReviewBundleDiff(request.payload),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.decision.record") {
+        if (this.services.recordReviewBundleDecision === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-workspace",
+            workspace: this.services.recordReviewBundleDecision(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.decisions.confirm") {
+        if (this.services.confirmReviewBundleDecisions === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-workspace",
+            workspace: await this.services.confirmReviewBundleDecisions(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.draft.save") {
+        if (this.services.saveReviewBundleDraft === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-workspace",
+            workspace: this.services.saveReviewBundleDraft(request.payload),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.worktree.refresh") {
+        if (this.services.refreshReviewBundleWorktree === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-workspace",
+            workspace: await this.services.refreshReviewBundleWorktree(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.path-action") {
+        if (this.services.reviewBundlePathAction === undefined)
+          throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-path-action",
+            result: await this.services.reviewBundlePathAction(request.payload),
           }),
         );
       }

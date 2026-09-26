@@ -25,6 +25,12 @@ import type {
   F16RepositorySaveInput,
   F16TaskProfileSaveInput,
 } from "../shared/f16-preferences";
+import type {
+  F20DecisionCommandInput,
+  F20DiffMode,
+  F20DraftCommandInput,
+  F20PathActionInput,
+} from "../shared/f20-workspace";
 
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
@@ -65,7 +71,25 @@ function invoke(
     | F16CommonInstructionSelectionSaveInput
     | F16RepositorySaveInput
     | ActivityQuery
-    | { readonly eventId: string },
+    | { readonly eventId: string }
+    | { readonly bundleId: string }
+    | {
+        readonly bundleId: string;
+        readonly mode: F20DiffMode;
+        readonly itemId?: string;
+      }
+    | F20DecisionCommandInput
+    | {
+        readonly bundleId: string;
+        readonly expectedVersion?: number;
+        readonly actionId?: string;
+      }
+    | F20DraftCommandInput
+    | {
+        readonly bundleId: string;
+        readonly expectedVersion?: number;
+      }
+    | F20PathActionInput,
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -143,6 +167,29 @@ const api: PrMonitorPreloadApi = {
   navigateActivity: (eventId) => invoke("activity.navigate", { eventId }),
   navigateManagedPr: (managedPrId, destination) =>
     invoke("inbox.navigate", { managedPrId, destination }),
+  readReviewBundle: (bundleId) => invoke("review-bundle.read", { bundleId }),
+  readReviewBundleDiff: (bundleId, mode, itemId) =>
+    invoke(
+      "review-bundle.diff.read",
+      itemId === undefined ? { bundleId, mode } : { bundleId, mode, itemId },
+    ),
+  recordReviewBundleDecision: (input) =>
+    invoke("review-bundle.decision.record", input),
+  confirmReviewBundleDecisions: (bundleId, expectedVersion, actionId) =>
+    invoke("review-bundle.decisions.confirm", {
+      bundleId,
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+      ...(actionId === undefined ? {} : { actionId }),
+    }),
+  saveReviewBundleDraft: (input) =>
+    invoke("review-bundle.draft.save", input),
+  refreshReviewBundleWorktree: (bundleId, expectedVersion) =>
+    invoke("review-bundle.worktree.refresh", {
+      bundleId,
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    }),
+  reviewBundlePathAction: (input) =>
+    invoke("review-bundle.path-action", input),
   onOpenTarget: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (!parseIpcOpenTargetEvent(payload)) return;

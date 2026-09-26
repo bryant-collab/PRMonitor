@@ -870,6 +870,581 @@ h1 {
   }
 }
 
+.review-bundle-workspace {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #c7d1df;
+  border-radius: 0.75rem;
+  background: #fbfdff;
+}
+
+.review-bundle-header,
+.review-guidance,
+.review-action-message,
+.review-error,
+.review-detail-card,
+.review-evidence-section,
+.review-worktree-panel,
+.review-diff-panel,
+.review-item-navigation {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.6rem;
+  background: #fff;
+}
+
+.review-bundle-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-left: 0.35rem solid #2066b1;
+}
+
+.review-bundle-header h2,
+.review-evidence-section h3,
+.review-worktree-panel h3,
+.review-diff-panel h3,
+.review-detail-card h3,
+.review-item-navigation h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-state-summary {
+  display: grid;
+  flex-shrink: 0;
+  gap: 0.2rem;
+  max-width: 16rem;
+  padding: 0.7rem;
+  border: 1px solid #7fa9d5;
+  border-radius: 0.5rem;
+  background: #e9f2ff;
+  color: #12395e;
+  text-align: right;
+}
+
+.review-state-summary strong {
+  letter-spacing: 0.04em;
+}
+
+.review-state-attention {
+  border-left-color: #b66a00;
+}
+
+.review-state-attention .review-state-summary,
+.review-worktree-unsafe,
+.review-validation-FAILURE,
+.review-validation-BLOCKED {
+  border-color: #b66a00;
+  background: #fff7e8;
+  color: #684000;
+}
+
+.review-state-working .review-state-summary {
+  border-color: #a9b9cb;
+  background: #f2f5f9;
+  color: #405a78;
+}
+
+.review-reference,
+.review-path,
+.review-feedback,
+.review-command,
+.review-evidence-note,
+.review-control-help,
+.review-diff-purpose,
+.review-empty,
+.review-action-message,
+.review-error span {
+  overflow-wrap: anywhere;
+}
+
+.review-reference,
+.review-path {
+  margin: 0.4rem 0 0;
+  color: #405a78;
+}
+
+.review-path,
+.review-command,
+.review-feedback,
+.review-diff-line-text {
+  font-family: Consolas, "Cascadia Code", monospace;
+}
+
+.review-guidance {
+  display: grid;
+  gap: 0.3rem;
+  border-left: 0.35rem solid #7fa9d5;
+  color: #29435e;
+}
+
+.review-guidance span:last-child {
+  color: #405a78;
+  font-size: 0.9rem;
+}
+
+.review-workspace-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.review-item-navigation {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.review-item-navigation ol {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-item-button {
+  display: grid;
+  width: 100%;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.45rem;
+  background: #f8fbff;
+  color: #18202a;
+  text-align: left;
+}
+
+.review-item-button.selected,
+.review-diff-mode-buttons .selected {
+  border-color: #2066b1;
+  background: #e9f2ff;
+  color: #12395e;
+}
+
+.review-item-button small {
+  overflow-wrap: anywhere;
+  color: #405a78;
+}
+
+.review-item-detail,
+.review-evidence-section,
+.review-worktree-panel,
+.review-diff-panel {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.review-detail-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.review-authority-label,
+.review-diff-marker {
+  display: inline-flex;
+  flex-shrink: 0;
+  max-width: 16rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #a9b9cb;
+  border-radius: 999px;
+  color: #29435e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
+.review-evidence-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.review-evidence-grid > div {
+  min-width: 0;
+  padding: 0.55rem;
+  border-radius: 0.35rem;
+  background: #f4f7fb;
+}
+
+.review-evidence-grid dt {
+  color: #4b5f78;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.review-evidence-grid dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.review-feedback,
+.review-command,
+.review-diff-line-text {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-feedback {
+  max-height: 20rem;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.4rem;
+  background: #f8fbff;
+}
+
+.review-subpanel,
+.review-condition,
+.review-validation-step,
+.review-ai-summary {
+  display: grid;
+  min-width: 0;
+  gap: 0.45rem;
+  padding: 0.75rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.45rem;
+  background: #f8fbff;
+}
+
+.review-subpanel h4,
+.review-validation-step h4 {
+  margin: 0;
+}
+
+.review-condition {
+  border-left: 0.3rem solid #2f7d4a;
+}
+
+.review-worktree-unsafe .review-condition {
+  border-left-color: #b66a00;
+}
+
+.review-condition span {
+  overflow-wrap: anywhere;
+}
+
+.review-decision-controls,
+.review-button-row,
+.review-diff-mode-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.review-decision-controls,
+.review-diff-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
+.review-decision-controls label,
+.review-diff-mode-buttons button {
+  min-width: 0;
+}
+
+.review-decision-controls textarea,
+.review-detail-card textarea {
+  min-height: 5rem;
+}
+
+.review-evidence-panels {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: 1rem;
+}
+
+.review-evidence-panel {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.55rem;
+  background: #fff;
+}
+
+.review-evidence-panel h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-evidence-list,
+.review-turn-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.review-turn-list li {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.review-validation-steps {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.review-validation-status {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.35rem;
+  background: #e9f2ff;
+  color: #12395e;
+  font-weight: 700;
+}
+
+.review-command {
+  padding: 0.55rem;
+  background: #172235;
+  color: #f4f7fb;
+}
+
+.review-diff-mode-buttons button {
+  min-height: 2.5rem;
+}
+
+.review-diff-toolbar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.review-diff-message {
+  margin: 0;
+  color: #405a78;
+}
+
+.review-diff-files {
+  display: grid;
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.review-diff-file {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.5rem;
+}
+
+.review-diff-file-heading {
+  display: flex;
+  min-width: 0;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.7rem;
+  background: #f4f7fb;
+}
+
+.review-diff-file-heading h4,
+.review-diff-file-heading p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-diff-file-heading p {
+  margin-top: 0.25rem;
+  color: #405a78;
+  font-size: 0.85rem;
+}
+
+.review-diff-file-actions,
+.review-diff-file-action {
+  display: flex;
+  min-width: 0;
+  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.review-diff-file-actions {
+  justify-content: flex-end;
+}
+
+.review-diff-file-action {
+  justify-content: space-between;
+  padding: 0.55rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.4rem;
+  background: #f8fbff;
+}
+
+.review-diff-file-action code {
+  min-width: 0;
+  flex: 1 1 14rem;
+  overflow-wrap: anywhere;
+}
+
+.review-diff-file-actions-panel {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.6rem;
+  background: #fff;
+}
+
+.review-diff-file-actions-panel h3 {
+  margin: 0;
+}
+
+.review-diff-file-actions-list {
+  display: grid;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+.review-diff-hunks {
+  min-width: 0;
+  overflow: auto;
+}
+
+.review-diff-hunk h5 {
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  background: #e9f2ff;
+  color: #29435e;
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.review-diff-lines {
+  min-width: 32rem;
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: 0.8rem;
+}
+
+.review-diff-line {
+  display: grid;
+  grid-template-columns: 3.5rem 3.5rem minmax(0, 1fr);
+  min-width: 0;
+  border-top: 1px solid rgb(205 217 232 / 60%);
+}
+
+.review-diff-line-context-collapsed {
+  display: none;
+}
+
+.review-diff-line-number {
+  padding: 0.25rem 0.4rem;
+  color: #667b94;
+  text-align: right;
+  user-select: none;
+}
+
+.review-diff-line-text {
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  border-left: 1px solid rgb(205 217 232 / 60%);
+}
+
+.review-diff-line-addition {
+  background: #ecf8ef;
+}
+
+.review-diff-line-removal {
+  background: #fff0ef;
+}
+
+.review-diff-line-meta {
+  background: #f4f7fb;
+  color: #405a78;
+}
+
+.review-diff-binary {
+  margin: 0;
+  padding: 0.8rem;
+  color: #405a78;
+}
+
+@media (max-width: 760px) {
+  .review-bundle-header,
+  .review-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-bundle-header {
+    display: grid;
+  }
+
+  .review-state-summary {
+    max-width: none;
+    text-align: left;
+  }
+}
+
+@media (forced-colors: active) {
+  .review-bundle-workspace,
+  .review-bundle-header,
+  .review-guidance,
+  .review-detail-card,
+  .review-evidence-section,
+  .review-evidence-panel,
+  .review-worktree-panel,
+  .review-diff-panel,
+  .review-item-navigation,
+  .review-diff-file,
+  .review-diff-file-actions-panel,
+  .review-diff-file-action,
+  .review-subpanel,
+  .review-condition,
+  .review-validation-step,
+  .review-ai-summary,
+  .review-feedback,
+  .review-item-button,
+  .review-diff-file-heading,
+  .review-diff-hunk h5,
+  .review-diff-line-meta {
+    border-color: ButtonText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+
+  .review-state-summary,
+  .review-validation-status,
+  .review-diff-line-addition,
+  .review-diff-line-removal,
+  .review-command {
+    border: 1px solid ButtonText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .review-item-button.selected,
+  .review-diff-mode-buttons .selected {
+    outline: 2px solid Highlight;
+  }
+}
+
 .activity-viewer {
   display: grid;
   gap: 1rem;
