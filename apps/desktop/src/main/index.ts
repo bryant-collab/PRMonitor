@@ -8,8 +8,16 @@ import {
   SMOKE_READY_PREFIX,
   STARTUP_STATUS_ID,
 } from "../shared/startup";
-import { OpenTargetQueue } from "../shared/routing";
-import type { CurrentState } from "../shared/ipc";
+import { OPEN_TARGET_QUEUE_MAX, OpenTargetQueue } from "../shared/routing";
+import type { CurrentState, IpcError } from "../shared/ipc";
+import {
+  IPC_MAX_REQUEST_BYTES,
+  IPC_MAX_RESPONSE_BYTES,
+} from "../shared/ipc";
+import {
+  ACTIVITY_MAX_DETAIL_BYTES,
+  ACTIVITY_MAX_SUMMARY_BYTES,
+} from "../shared/activity";
 import {
   createPersistenceRepositories,
   initializePersistence,
@@ -23,10 +31,12 @@ import {
   F14ValidationRepositories,
   F17PersistenceRepositories,
   F18PersistenceRepositories,
+  F19PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
   LifecycleCoordinator,
+  DEFAULT_SERVICE_HANDOFF_TIMEOUT_MS,
 } from "./lifecycle";
 import { IpcRouter } from "./ipc-router";
 import { FetchGithubHttpTransport } from "./github-connection-test";
@@ -74,6 +84,13 @@ import {
   type F18AutomaticReviewBoundary,
 } from "./automatic-review-coordinator";
 import { F18AIWorkAdapter } from "./automatic-review-ai-adapter";
+import { TrayNotificationCoordinator } from "./f19-coordinator";
+import { ElectronF19NativeSurfaceAdapter } from "./f19-native-adapter";
+import { createF19EffectiveBounds } from "../shared/f19-native-surfaces";
+import {
+  MAX_PERSISTED_JSON_BYTES,
+  MAX_PERSISTED_TEXT_BYTES,
+} from "./persistence/types";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -132,6 +149,8 @@ let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
 let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
+let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
+let f19Coordinator: TrayNotificationCoordinator | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -376,6 +395,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
   }
   const f03Repositories = createPersistenceRepositories(persistenceStore);
   persistenceRepositories = f03Repositories;
+  f19PersistenceRepositories = new F19PersistenceRepositories(persistenceStore);
   const f13Root = path.join(userDataDirectory, "worktrees");
   await mkdir(f13Root, { recursive: true });
   const f13Repositories = new F13PersistenceRepositories(persistenceStore);
@@ -619,6 +639,17 @@ async function initializeMainProcessPersistence(): Promise<void> {
           await initializedAutomaticReviewCoordinator.startAutomaticReview(
             input,
           );
+        if (
+          result.outcome === "ACCEPTED" ||
+          result.outcome === "ALREADY_ACCEPTED"
+        ) {
+          const readModel =
+            initializedAutomaticReviewCoordinator.getReadModel?.(input.bundleId);
+          if (readModel !== undefined)
+            void f19Coordinator
+              ?.handleReviewBundleOutcome(readModel)
+              .catch(() => undefined);
+        }
         return {
           outcome: result.outcome,
           ...(result.reason === undefined
@@ -698,11 +729,6 @@ async function startMainProcess(): Promise<void> {
       },
     ],
   });
-  const started = await lifecycle.start();
-  if (!started.ok)
-    throw new Error(
-      started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
-    );
   const refreshManagedPrInbox = (): void => {
     try {
       managedPrInboxService?.refresh();
@@ -714,7 +740,16 @@ async function startMainProcess(): Promise<void> {
 
   ipcRouter = new IpcRouter(ipcMain, {
     readCurrentState: () => createCurrentState(),
-    getLifecycleStatus: () => lifecycle?.getStatus() ?? started.status,
+    getLifecycleStatus: () =>
+      lifecycle?.getStatus() ?? {
+        schemaVersion: 1,
+        phase: "RECOVERY_REQUIRED" as const,
+        sessionId: "lifecycle-missing",
+        correlationId: "lifecycle-missing",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        incompleteHandoff: true,
+      },
     readScheduler: () => {
       if (reviewScheduler === undefined)
         throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
@@ -792,12 +827,50 @@ async function startMainProcess(): Promise<void> {
       return f16PreferencesService.saveRepositorySettings(input);
     },
     requestShutdown: async () => {
+      if (f19Coordinator !== undefined) {
+        const result = await f19Coordinator.requestShutdown();
+        if (result.ok) windowManager?.closeForShutdown();
+        const allowedCodes: readonly IpcError["code"][] = [
+          "HANDOFF_RECOVERY_REQUIRED",
+          "SERVICE_START_FAILED",
+          "SERVICE_STOP_FAILED",
+          "SERVICE_STOP_TIMEOUT",
+          "SERVICE_HANDOFF_TIMEOUT",
+          "HANDLER_FAILED",
+        ];
+        return {
+          ok: result.ok,
+          status: result.status,
+          ...(result.error === undefined
+            ? {}
+            : {
+                error: {
+                  code: allowedCodes.includes(
+                    result.error.code as IpcError["code"],
+                  )
+                    ? (result.error.code as IpcError["code"])
+                    : "HANDLER_FAILED",
+                  message: result.error.message,
+                  correlationId: result.error.correlationId,
+                },
+              }),
+        };
+      }
       const result = await lifecycle?.requestShutdown();
       if (result?.ok) windowManager?.closeForShutdown();
       return (
         result ?? {
           ok: false,
-          status: started.status,
+          status:
+            lifecycle?.getStatus() ?? {
+              schemaVersion: 1,
+              phase: "RECOVERY_REQUIRED" as const,
+              sessionId: "lifecycle-missing",
+              correlationId: "lifecycle-missing",
+              startedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              incompleteHandoff: true,
+            },
           error: {
             code: "HANDLER_FAILED",
             message: "Lifecycle coordinator is unavailable.",
@@ -987,6 +1060,68 @@ async function startMainProcess(): Promise<void> {
     onRendererDetached: (contentsId) => ipcRouter?.detachRenderer(contentsId),
   });
 
+  if (
+    f19PersistenceRepositories === undefined ||
+    managedPrInboxService === undefined ||
+    reviewScheduler === undefined ||
+    f13WorktreeService === undefined ||
+    lifecycle === undefined
+  )
+    throw new Error("PRMONITOR_F19_DEPENDENCY_NOT_READY");
+  const initializedF19PersistenceRepositories = f19PersistenceRepositories;
+  const initializedManagedPrInboxService = managedPrInboxService;
+  const initializedReviewScheduler = reviewScheduler;
+  const initializedF13WorktreeService = f13WorktreeService;
+  const initializedLifecycle = lifecycle;
+  f19Coordinator = new TrayNotificationCoordinator({
+    persistence: initializedF19PersistenceRepositories,
+    surface: new ElectronF19NativeSurfaceAdapter(),
+    inbox: {
+      read: () => initializedManagedPrInboxService.read(),
+      subscribe: (listener) => initializedManagedPrInboxService.subscribe(listener),
+    },
+    scheduler: {
+      read: () => initializedReviewScheduler.read(),
+      pauseWatching: (input) => initializedReviewScheduler.pauseWatching(input),
+      resumeWatching: (input) => initializedReviewScheduler.resumeWatching(input),
+    },
+    window: {
+      open: (target) =>
+        windowManager?.open(target) ??
+        Promise.resolve({
+          ok: false,
+          outcome: "focus-denied" as const,
+          rendererReady: false,
+          targetDelivered: 0,
+          reasonCode: "WINDOW_MANAGER_UNAVAILABLE",
+        }),
+    },
+    worktrees: {
+      openWorktree: (input) => initializedF13WorktreeService.openWorktree(input),
+    },
+    lifecycle: {
+      requestShutdown: () => initializedLifecycle.requestShutdown(),
+    },
+    activity: activityService?.writer,
+    bounds: createF19EffectiveBounds({
+      shutdownTimeoutMs: DEFAULT_SERVICE_HANDOFF_TIMEOUT_MS,
+      ipcMaxRequestBytes: IPC_MAX_REQUEST_BYTES,
+      ipcMaxResponseBytes: IPC_MAX_RESPONSE_BYTES,
+      activityMaxSummaryBytes: ACTIVITY_MAX_SUMMARY_BYTES,
+      activityMaxDetailBytes: ACTIVITY_MAX_DETAIL_BYTES,
+      persistenceMaxJsonBytes: MAX_PERSISTED_JSON_BYTES,
+      persistenceMaxTextBytes: MAX_PERSISTED_TEXT_BYTES,
+      activationQueueEntries: OPEN_TARGET_QUEUE_MAX,
+    }),
+    exitProcess: () => app.quit(),
+  });
+  const started = await lifecycle.start();
+  if (!started.ok)
+    throw new Error(
+      started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
+    );
+  await f19Coordinator.start();
+
   if (smokeMode && !smokeNonce) {
     smokeFailure("SMOKE_NONCE_MISSING");
     return;
@@ -1043,6 +1178,8 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  f19Coordinator?.stop();
+  f19Coordinator = undefined;
   void f14ValidationService?.shutdown();
   f14ValidationService = undefined;
   prWatcher?.stop();

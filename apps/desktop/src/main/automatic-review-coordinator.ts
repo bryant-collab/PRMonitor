@@ -189,6 +189,10 @@ export interface F18AutomaticReviewBoundary {
       "ACCEPTED" | "ALREADY_ACCEPTED" | "REJECTED" | "UNCERTAIN";
     readonly reason?: F18Reason;
   }>;
+  /** Read-only downstream handoff for F19/F20; it grants no workflow effect. */
+  readonly getReadModel?: (
+    bundleId: string,
+  ) => F18ReviewBundleReadModel | undefined;
 }
 
 function now(clock: (() => string) | undefined): string {

@@ -154,7 +154,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Primary application criteria:** APP-AC-14, APP-AC-41, APP-AC-42, APP-AC-66, APP-AC-71, APP-AC-72, APP-AC-73, APP-AC-74; integrates APP-AC-10 through APP-AC-17.
   - **F15 handoff:** F18 prepares immutable review context and consumes the read-only structured Review Proposal. F15 validates and normalizes provider output; F18/F17/F03/F13/F14 retain workflow, lifecycle, persistence, Git, and validation authority.
 
-- [ ] **F19 - System tray, native notifications, deep links, and shutdown**
+- [x] **F19 - System tray, native notifications, deep links, and shutdown**
   - **Depends on:** F04, F08-F09, F12, F13, F18.
   - **Deliver:** Keep a tray icon whenever the main process runs; show attention/working items and paused state; implement **Open PRMonitor**, **Pause Watching**, and **Shutdown PRMonitor**; send outcome-oriented native notifications for review, validation, attention, and sync-batch outcomes; deep-link notification/tray selections; and expose **Open Worktree** through the OS shell adapter.
   - **Exit:** With no window open, background work continues, notifications arrive, clicks create a focused current-desktop window at the correct persisted result, worktree actions target only the recorded isolated path, and only **Shutdown PRMonitor** exits gracefully.

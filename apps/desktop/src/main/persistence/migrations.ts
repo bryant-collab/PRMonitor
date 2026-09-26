@@ -1316,6 +1316,55 @@ CREATE INDEX IF NOT EXISTS idx_f17_ai_work_confirmations_operation
 PRAGMA user_version = 13;
 `;
 
+const MIGRATION_14 = `
+/* F19 stores native-surface intents separately from workflow state.  These
+   records contain only bounded provider-neutral snapshots and opaque target
+   identities; the OS effect is attempted only after the row is committed. */
+CREATE TABLE IF NOT EXISTS f19_notification_deliveries (
+  notification_id TEXT PRIMARY KEY,
+  outcome_id TEXT NOT NULL,
+  outcome_kind TEXT NOT NULL,
+  outcome_revision INTEGER NOT NULL CHECK (outcome_revision >= 1),
+  managed_pr_id TEXT,
+  operation_id TEXT,
+  category TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('PENDING', 'DELIVERED', 'DENIED', 'UNAVAILABLE', 'FAILED', 'UNKNOWN')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0 AND attempt_count <= 2),
+  reconciliation_count INTEGER NOT NULL DEFAULT 0 CHECK (reconciliation_count >= 0 AND reconciliation_count <= 2),
+  canonical_payload_hash TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  last_reason_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (outcome_kind, outcome_id, outcome_revision, category)
+);
+CREATE INDEX IF NOT EXISTS idx_f19_notification_state
+  ON f19_notification_deliveries(state, updated_at);
+CREATE INDEX IF NOT EXISTS idx_f19_notification_pr
+  ON f19_notification_deliveries(managed_pr_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS f19_shutdown_intents (
+  shutdown_id TEXT PRIMARY KEY,
+  command TEXT NOT NULL CHECK (command = 'Shutdown PRMonitor'),
+  state TEXT NOT NULL CHECK (state IN ('REQUESTED', 'HANDING_OFF', 'COMPLETED', 'RECOVERY_REQUIRED')),
+  correlation_id TEXT NOT NULL,
+  lifecycle_correlation_id TEXT,
+  reason_code TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL CHECK (attempt_count >= 1),
+  version INTEGER NOT NULL CHECK (version >= 1),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_f19_shutdown_state
+  ON f19_shutdown_intents(state, updated_at);
+
+PRAGMA user_version = 14;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1398,6 +1447,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F17-001-bounded-ai-work-controller",
     sql: MIGRATION_13,
     checksum: checksum(MIGRATION_13),
+  },
+  {
+    version: 14,
+    id: "F19-001-native-surface-intents",
+    sql: MIGRATION_14,
+    checksum: checksum(MIGRATION_14),
   },
 ];
 

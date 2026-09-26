@@ -8,6 +8,8 @@ import {
 export const OPEN_TARGET_SCHEMA_VERSION = 1 as const;
 export const OPEN_TARGET_MAX_BYTES = 2_048;
 export const OPEN_TARGET_MAX_ID_LENGTH = 128;
+/** F04's bounded main-process handoff queue consumed by F19 activation. */
+export const OPEN_TARGET_QUEUE_MAX = 256;
 
 export type OpenTargetKind =
   | "HOME"
@@ -249,6 +251,7 @@ export class OpenTargetQueue {
 
   public enqueue(target: OpenTarget): boolean {
     if (this.seen.has(target.requestId)) return false;
+    if (this.pending.length >= OPEN_TARGET_QUEUE_MAX) return false;
     this.seen.add(target.requestId);
     this.pending.push(target);
     return true;
