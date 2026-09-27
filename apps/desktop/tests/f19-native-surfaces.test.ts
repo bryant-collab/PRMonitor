@@ -754,7 +754,7 @@ describe("F19 persistence and coordinator", () => {
       { clock: { now: () => TIME }, applicationBuild: "f19-test" },
     );
     stores.push(store);
-    expect(store.health.schemaVersion).toBe(14);
+    expect(store.health.schemaVersion).toBe(15);
     const first = new F19PersistenceRepositories(store, {
       clock: { now: () => TIME },
     });

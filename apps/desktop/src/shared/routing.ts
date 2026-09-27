@@ -227,7 +227,9 @@ export function buildManagedPrTarget(
     throw new Error("INVALID_MANAGED_PR_TARGET_ID");
   const kind: OpenTargetKind =
     destination === "settings" ? "MANAGED_PR_SETTINGS" : "MANAGED_PR";
-  const requestId = requestIdFor(`prmonitor://${destination === "settings" ? "pr-settings" : "pr"}/${managedPrId}`);
+  const requestId = requestIdFor(
+    `prmonitor://${destination === "settings" ? "pr-settings" : "pr"}/${managedPrId}`,
+  );
   return {
     schemaVersion: OPEN_TARGET_SCHEMA_VERSION,
     kind,

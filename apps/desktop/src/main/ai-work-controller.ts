@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   aiProviderRequestSchema,
+  aiProviderNormalizedEventSchema,
   aiProviderTurnResultSchema,
   type AIProviderRequest,
+  type AIProviderNormalizedEvent,
   type AIProviderTurnResult,
 } from "../shared/ai/provider-contracts";
 import type { AIProviderInvokeOptions } from "./ai/registry";
@@ -99,6 +101,8 @@ export interface AIWorkControllerOptions {
   readonly evidence: AIWorkEvidencePort;
   readonly predicates?: AIWorkPredicateRegistry;
   readonly activity?: AIWorkActivityPort;
+  /** Main-process-only, bounded stream sink used by F21 projections. */
+  readonly onEvent?: (event: AIProviderNormalizedEvent) => void;
   readonly clock?: AIWorkClock;
   readonly reconciliationWindowMs?: number;
 }
@@ -882,15 +886,35 @@ export class AIWorkController {
     return true;
   }
 
+  public async cancelTurnAndWait(
+    turnId: string,
+  ): Promise<AIWorkReadModel | undefined> {
+    const cancelled = this.cancelTurn(turnId);
+    if (!cancelled) return undefined;
+    const run = this.activeRuns.get(turnId);
+    if (run === undefined) return undefined;
+    return run;
+  }
+
   public rendererClosed(): void {
     // Renderer lifecycle is intentionally not connected to the main-process
     // abort controllers.  The call is a named no-op for lifecycle adapters and
     // an explicit regression seam for the renderer-close invariant.
   }
 
-  public async reconcileStartup(): Promise<readonly AIWorkReadModel[]> {
+  public async reconcileStartup(
+    filter?: (operation: AIWorkOperationRecord) => boolean,
+  ): Promise<readonly AIWorkReadModel[]> {
     const results: AIWorkReadModel[] = [];
     for (const turn of this.options.persistence.listInFlightTurns()) {
+      const operationBefore = this.options.persistence.getOperation(
+        turn.operationId,
+      );
+      if (
+        operationBefore === undefined ||
+        (filter !== undefined && !filter(operationBefore))
+      )
+        continue;
       const stop = reason(
         "AI_APP_RESTART",
         "A committed F17 turn was in flight when the application restarted.",
@@ -1043,7 +1067,16 @@ export class AIWorkController {
       .then(() =>
         this.options.provider.invoke(request, {
           signal: abortController.signal,
-          onEvent: () => undefined,
+          onEvent: (event) => {
+            const parsed = aiProviderNormalizedEventSchema.safeParse(event);
+            if (parsed.success) {
+              try {
+                this.options.onEvent?.(parsed.data);
+              } catch {
+                // Streaming is diagnostic/progress only; it cannot alter F17.
+              }
+            }
+          },
           now: this.clock.now,
         }),
       )
@@ -1203,6 +1236,9 @@ export class AIWorkController {
       startedAt: turn.startedAt ?? startedAt,
       completedAt: providerResult.completedAt,
       providerStatus: providerResult.status,
+      ...(providerResult.conversationReference === undefined
+        ? {}
+        : { conversationReference: providerResult.conversationReference }),
       modelClaims: aiWorkModelClaimsFromProviderResult(providerResult),
       actualChangedFiles: evidenceResult.evidence.worktree.files,
       actualCommands: evidenceResult.evidence.worktree.actualCommands,

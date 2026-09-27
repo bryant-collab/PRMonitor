@@ -5,11 +5,7 @@ import type {
 import type { SecureCredentialStore } from "./secure-credential-store";
 
 export type GithubCredentialAccessState =
-  | "MISSING"
-  | "UNVERIFIED"
-  | "EXPIRED_OR_REJECTED"
-  | "UNAVAILABLE"
-  | "VERIFIED";
+  "MISSING" | "UNVERIFIED" | "EXPIRED_OR_REJECTED" | "UNAVAILABLE" | "VERIFIED";
 
 export class GithubCredentialBrokerError extends Error {
   public constructor(
@@ -78,14 +74,20 @@ export class SecureGithubCredentialBroker implements GithubCredentialBroker {
     readonly consumer: (capability: GithubRequestCapability) => Promise<T>;
   }): Promise<T> {
     const auth = input.profile.auth;
-    if (auth === undefined || auth.activeRef === undefined || auth.activeRevision === undefined)
+    if (
+      auth === undefined ||
+      auth.activeRef === undefined ||
+      auth.activeRevision === undefined
+    )
       throw new GithubCredentialBrokerError(
         "MISSING",
         "The GitHub server profile has no active protected access value.",
       );
     if (auth.status !== "VERIFIED")
       throw new GithubCredentialBrokerError(
-        auth.status === "NEEDS_ATTENTION" ? "EXPIRED_OR_REJECTED" : "UNVERIFIED",
+        auth.status === "NEEDS_ATTENTION"
+          ? "EXPIRED_OR_REJECTED"
+          : "UNVERIFIED",
         "The GitHub server profile is not verified for deterministic requests.",
       );
     ensureProfileIdentity(input.profile, input.profile.apiBaseUrl);
@@ -124,7 +126,10 @@ export class SecureGithubCredentialBroker implements GithubCredentialBroker {
         "UNVERIFIED",
         "The pending protected access value no longer matches its operation snapshot.",
       );
-    ensureProfileIdentity(input.profile, input.operation.endpointSnapshot.apiBaseUrl);
+    ensureProfileIdentity(
+      input.profile,
+      input.operation.endpointSnapshot.apiBaseUrl,
+    );
     return this.withReference({
       profile: input.profile,
       reference: input.operation.candidateRef,

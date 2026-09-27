@@ -14,11 +14,7 @@ export const MAX_LOCAL_GIT_OUTPUT_BYTES = 64 * 1024;
 export const MAX_MANAGED_PR_REASON_BYTES = 8 * 1024;
 
 export type AddPrAttemptStatus =
-  | "PENDING"
-  | "SUCCEEDED"
-  | "CANCELLED"
-  | "FAILED"
-  | "RECOVERY_REQUIRED";
+  "PENDING" | "SUCCEEDED" | "CANCELLED" | "FAILED" | "RECOVERY_REQUIRED";
 
 export type ManagedPrLocalSetupStatus =
   | "LOCAL_CLONE_REQUIRED"
@@ -233,7 +229,10 @@ function hasUnsafeControlCharacter(value: string): boolean {
   return [...value].some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return (
-      (codePoint <= 31 && codePoint !== 9 && codePoint !== 10 && codePoint !== 13) ||
+      (codePoint <= 31 &&
+        codePoint !== 9 &&
+        codePoint !== 10 &&
+        codePoint !== 13) ||
       codePoint === 127
     );
   });
@@ -248,7 +247,9 @@ function hasAnyControlCharacter(value: string): boolean {
 
 export function validateManagedPrUrl(
   value: string,
-): { readonly ok: true; readonly value: string } | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
+):
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -259,7 +260,8 @@ export function validateManagedPrUrl(
       ok: false,
       error: {
         code: "INVALID_PR_URL",
-        message: "Enter a pull-request URL up to 2,048 bytes without control characters.",
+        message:
+          "Enter a pull-request URL up to 2,048 bytes without control characters.",
         nextAction: "FIX_INPUT",
       },
     };
@@ -268,14 +270,21 @@ export function validateManagedPrUrl(
 
 export function validatePrIntentContext(
   value: string | undefined,
-): { readonly ok: true; readonly value: string | null } | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
+):
+  | { readonly ok: true; readonly value: string | null }
+  | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
   const context = value ?? "";
-  if (typeof context !== "string" || byteLength(context) > MAX_PR_INTENT_CONTEXT_BYTES || hasUnsafeControlCharacter(context))
+  if (
+    typeof context !== "string" ||
+    byteLength(context) > MAX_PR_INTENT_CONTEXT_BYTES ||
+    hasUnsafeControlCharacter(context)
+  )
     return {
       ok: false,
       error: {
         code: "INVALID_PR_CONTEXT",
-        message: "PR Intent / Context must be at most 32 KiB and may contain only ordinary text and line breaks.",
+        message:
+          "PR Intent / Context must be at most 32 KiB and may contain only ordinary text and line breaks.",
         nextAction: "FIX_INPUT",
       },
     };
@@ -301,20 +310,35 @@ export function isValidGitBranchName(value: string): boolean {
     /[ ~^:?*[\]\\]/u.test(value)
   )
     return false;
-  return value.split("/").every((component) => component.length > 0 && component !== "." && component !== ".." && !component.startsWith(".") && !component.endsWith("."));
+  return value
+    .split("/")
+    .every(
+      (component) =>
+        component.length > 0 &&
+        component !== "." &&
+        component !== ".." &&
+        !component.startsWith(".") &&
+        !component.endsWith("."),
+    );
 }
 
 export function validateSyncSourceBranchOverride(
   value: string | undefined,
-): { readonly ok: true; readonly value: string | null } | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
+):
+  | { readonly ok: true; readonly value: string | null }
+  | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
   const override = typeof value === "string" ? value : "";
   if (override.trim().length === 0) return { ok: true, value: null };
-  if (typeof override !== "string" || (override.length > 0 && !isValidGitBranchName(override)))
+  if (
+    typeof override !== "string" ||
+    (override.length > 0 && !isValidGitBranchName(override))
+  )
     return {
       ok: false,
       error: {
         code: "INVALID_SYNC_SOURCE_BRANCH",
-        message: "The synchronization source must be a valid Git branch name up to 255 bytes.",
+        message:
+          "The synchronization source must be a valid Git branch name up to 255 bytes.",
         nextAction: "FIX_INPUT",
       },
     };
@@ -323,13 +347,21 @@ export function validateSyncSourceBranchOverride(
 
 export function validateManagedPrPath(
   value: string,
-): { readonly ok: true; readonly value: string } | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
-  if (typeof value !== "string" || value.length === 0 || value.length > MAX_LOCAL_CLONE_PATH_LENGTH || hasAnyControlCharacter(value))
+):
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly error: ManagedPrValidationFailure } {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_LOCAL_CLONE_PATH_LENGTH ||
+    hasAnyControlCharacter(value)
+  )
     return {
       ok: false,
       error: {
         code: "INVALID_LOCAL_PATH",
-        message: "Choose an existing local directory with a canonical path no longer than 4,096 characters.",
+        message:
+          "Choose an existing local directory with a canonical path no longer than 4,096 characters.",
         nextAction: "SELECT_CLONE",
       },
     };
@@ -337,114 +369,246 @@ export function validateManagedPrPath(
 }
 
 export function isManagedPrReason(value: unknown): value is ManagedPrReason {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.code === "string" && candidate.code.length <= 128 &&
+    typeof candidate.code === "string" &&
+    candidate.code.length <= 128 &&
     typeof candidate.category === "string" &&
-    ["VALIDATION", "AUTHENTICATION", "AUTHORIZATION", "NOT_FOUND", "RATE_LIMIT", "NETWORK", "TIMEOUT", "CANCELLED", "CONFLICT", "LOCAL_PATH", "LOCAL_GIT", "RECOVERY", "UNKNOWN"].includes(candidate.category) &&
-    typeof candidate.what === "string" && byteLength(candidate.what) <= MAX_MANAGED_PR_REASON_BYTES &&
-    typeof candidate.why === "string" && byteLength(candidate.why) <= MAX_MANAGED_PR_REASON_BYTES &&
+    [
+      "VALIDATION",
+      "AUTHENTICATION",
+      "AUTHORIZATION",
+      "NOT_FOUND",
+      "RATE_LIMIT",
+      "NETWORK",
+      "TIMEOUT",
+      "CANCELLED",
+      "CONFLICT",
+      "LOCAL_PATH",
+      "LOCAL_GIT",
+      "RECOVERY",
+      "UNKNOWN",
+    ].includes(candidate.category) &&
+    typeof candidate.what === "string" &&
+    byteLength(candidate.what) <= MAX_MANAGED_PR_REASON_BYTES &&
+    typeof candidate.why === "string" &&
+    byteLength(candidate.why) <= MAX_MANAGED_PR_REASON_BYTES &&
     typeof candidate.nextAction === "string" &&
-    ["FIX_INPUT", "REPLACE_ACCESS", "RETRY", "WAIT", "SELECT_CLONE", "ADD_WITHOUT_LOCAL_CLONE", "RELOAD", "NONE"].includes(candidate.nextAction) &&
-    typeof candidate.correlationId === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.correlationId)
+    [
+      "FIX_INPUT",
+      "REPLACE_ACCESS",
+      "RETRY",
+      "WAIT",
+      "SELECT_CLONE",
+      "ADD_WITHOUT_LOCAL_CLONE",
+      "RELOAD",
+      "NONE",
+    ].includes(candidate.nextAction) &&
+    typeof candidate.correlationId === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.correlationId)
   );
 }
 
-export function isManagedPrConfigurationView(value: unknown): value is ManagedPrConfigurationView {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+export function isManagedPrConfigurationView(
+  value: unknown,
+): value is ManagedPrConfigurationView {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.revisionId === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.revisionId) &&
-    typeof candidate.revision === "number" && Number.isSafeInteger(candidate.revision) && candidate.revision > 0 &&
-    (candidate.context === null || (typeof candidate.context === "string" && byteLength(candidate.context) <= MAX_PR_INTENT_CONTEXT_BYTES && !hasUnsafeControlCharacter(candidate.context))) &&
-    (candidate.syncSourceBranchOverride === null || (typeof candidate.syncSourceBranchOverride === "string" && isValidGitBranchName(candidate.syncSourceBranchOverride))) &&
-    typeof candidate.contentHash === "string" && /^[0-9a-f]{64}$/u.test(candidate.contentHash) &&
+    typeof candidate.revisionId === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.revisionId) &&
+    typeof candidate.revision === "number" &&
+    Number.isSafeInteger(candidate.revision) &&
+    candidate.revision > 0 &&
+    (candidate.context === null ||
+      (typeof candidate.context === "string" &&
+        byteLength(candidate.context) <= MAX_PR_INTENT_CONTEXT_BYTES &&
+        !hasUnsafeControlCharacter(candidate.context))) &&
+    (candidate.syncSourceBranchOverride === null ||
+      (typeof candidate.syncSourceBranchOverride === "string" &&
+        isValidGitBranchName(candidate.syncSourceBranchOverride))) &&
+    typeof candidate.contentHash === "string" &&
+    /^[0-9a-f]{64}$/u.test(candidate.contentHash) &&
     ["ADD_PR", "USER_EDIT"].includes(String(candidate.source)) &&
     typeof candidate.createdAt === "string"
   );
 }
 
-function isRepositoryIdentity(value: unknown): value is GithubAnyRepositoryIdentity {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+function isRepositoryIdentity(
+  value: unknown,
+): value is GithubAnyRepositoryIdentity {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
   return (
-    candidate.schemaVersion === 1 && typeof candidate.key === "string" && typeof candidate.server === "object" && candidate.server !== null &&
+    candidate.schemaVersion === 1 &&
+    typeof candidate.key === "string" &&
+    typeof candidate.server === "object" &&
+    candidate.server !== null &&
     (candidate.available === true
-      ? typeof candidate.owner === "string" && typeof candidate.name === "string"
-      : ["DELETED", "INACCESSIBLE", "MISSING_FROM_PAYLOAD"].includes(String(candidate.reason)))
+      ? typeof candidate.owner === "string" &&
+        typeof candidate.name === "string"
+      : ["DELETED", "INACCESSIBLE", "MISSING_FROM_PAYLOAD"].includes(
+          String(candidate.reason),
+        ))
   );
 }
 
-export function isManagedPrReadModel(value: unknown): value is ManagedPrReadModel {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+export function isManagedPrReadModel(
+  value: unknown,
+): value is ManagedPrReadModel {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
   return (
     candidate.schemaVersion === F07_SCHEMA_VERSION &&
-    typeof candidate.id === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.id) &&
-    typeof candidate.canonicalUrl === "string" && byteLength(candidate.canonicalUrl) <= MAX_MANAGED_PR_URL_BYTES &&
+    typeof candidate.id === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.id) &&
+    typeof candidate.canonicalUrl === "string" &&
+    byteLength(candidate.canonicalUrl) <= MAX_MANAGED_PR_URL_BYTES &&
     typeof candidate.pullRequestKey === "string" &&
     typeof candidate.serverId === "string" &&
-    typeof candidate.owner === "string" && typeof candidate.repositoryName === "string" &&
-    typeof candidate.number === "number" && Number.isSafeInteger(candidate.number) && candidate.number > 0 &&
-    ["OPEN", "CLOSED"].includes(String(candidate.state)) && typeof candidate.merged === "boolean" &&
-    isRepositoryIdentity(candidate.baseRepository) && isRepositoryIdentity(candidate.headRepository) &&
-    typeof candidate.prBaseBranch === "string" && typeof candidate.prHeadBranch === "string" &&
-    typeof candidate.prBaseSha === "string" && typeof candidate.prHeadSha === "string" &&
-    ["WATCHING", "WORKING", "READY_FOR_REVIEW", "NEEDS_ATTENTION"].includes(String(candidate.primaryState)) &&
-    ["LOCAL_CLONE_REQUIRED", "VALID", "DIRTY", "MISSING", "INVALID", "UNKNOWN"].includes(String(candidate.localSetupStatus)) &&
+    typeof candidate.owner === "string" &&
+    typeof candidate.repositoryName === "string" &&
+    typeof candidate.number === "number" &&
+    Number.isSafeInteger(candidate.number) &&
+    candidate.number > 0 &&
+    ["OPEN", "CLOSED"].includes(String(candidate.state)) &&
+    typeof candidate.merged === "boolean" &&
+    isRepositoryIdentity(candidate.baseRepository) &&
+    isRepositoryIdentity(candidate.headRepository) &&
+    typeof candidate.prBaseBranch === "string" &&
+    typeof candidate.prHeadBranch === "string" &&
+    typeof candidate.prBaseSha === "string" &&
+    typeof candidate.prHeadSha === "string" &&
+    ["WATCHING", "WORKING", "READY_FOR_REVIEW", "NEEDS_ATTENTION"].includes(
+      String(candidate.primaryState),
+    ) &&
+    [
+      "LOCAL_CLONE_REQUIRED",
+      "VALID",
+      "DIRTY",
+      "MISSING",
+      "INVALID",
+      "UNKNOWN",
+    ].includes(String(candidate.localSetupStatus)) &&
     isManagedPrConfigurationView(candidate.configuration) &&
-    (candidate.lastOperationReason === undefined || isManagedPrReason(candidate.lastOperationReason)) &&
-    typeof candidate.version === "number" && Number.isSafeInteger(candidate.version) && candidate.version > 0 &&
-    typeof candidate.createdAt === "string" && typeof candidate.updatedAt === "string"
+    (candidate.lastOperationReason === undefined ||
+      isManagedPrReason(candidate.lastOperationReason)) &&
+    typeof candidate.version === "number" &&
+    Number.isSafeInteger(candidate.version) &&
+    candidate.version > 0 &&
+    typeof candidate.createdAt === "string" &&
+    typeof candidate.updatedAt === "string"
   );
 }
 
 export function isAddPrAttemptView(value: unknown): value is AddPrAttemptView {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
   return (
     candidate.schemaVersion === F07_SCHEMA_VERSION &&
-    typeof candidate.id === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.id) &&
-    typeof candidate.correlationId === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.correlationId) &&
-    typeof candidate.idempotencyKey === "string" && typeof candidate.canonicalPrKey === "string" &&
-    typeof candidate.serverId === "string" && typeof candidate.normalizedUrl === "string" &&
-    ["PENDING", "SUCCEEDED", "CANCELLED", "FAILED", "RECOVERY_REQUIRED"].includes(String(candidate.status)) &&
-    (candidate.managedPrId === undefined || typeof candidate.managedPrId === "string") &&
+    typeof candidate.id === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.id) &&
+    typeof candidate.correlationId === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.correlationId) &&
+    typeof candidate.idempotencyKey === "string" &&
+    typeof candidate.canonicalPrKey === "string" &&
+    typeof candidate.serverId === "string" &&
+    typeof candidate.normalizedUrl === "string" &&
+    [
+      "PENDING",
+      "SUCCEEDED",
+      "CANCELLED",
+      "FAILED",
+      "RECOVERY_REQUIRED",
+    ].includes(String(candidate.status)) &&
+    (candidate.managedPrId === undefined ||
+      typeof candidate.managedPrId === "string") &&
     (candidate.reason === undefined || isManagedPrReason(candidate.reason)) &&
-    typeof candidate.version === "number" && Number.isSafeInteger(candidate.version) && candidate.version > 0 &&
-    typeof candidate.createdAt === "string" && typeof candidate.updatedAt === "string"
+    typeof candidate.version === "number" &&
+    Number.isSafeInteger(candidate.version) &&
+    candidate.version > 0 &&
+    typeof candidate.createdAt === "string" &&
+    typeof candidate.updatedAt === "string"
   );
 }
 
-export function isManagedPrOperationView(value: unknown): value is ManagedPrOperationView {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+export function isManagedPrOperationView(
+  value: unknown,
+): value is ManagedPrOperationView {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
   return (
     candidate.schemaVersion === F07_SCHEMA_VERSION &&
-    ["ADD_PR", "RETRY_ADD_PR", "ATTACH_CLONE", "CLEAR_CLONE", "SAVE_CONFIGURATION"].includes(String(candidate.kind)) &&
-    ["PENDING", "SUCCEEDED", "CANCELLED", "FAILED", "RECOVERY_REQUIRED", "COMPLETED"].includes(String(candidate.status)) &&
-    (candidate.attempt === undefined || isAddPrAttemptView(candidate.attempt)) &&
-    (candidate.managedPr === undefined || isManagedPrReadModel(candidate.managedPr)) &&
+    [
+      "ADD_PR",
+      "RETRY_ADD_PR",
+      "ATTACH_CLONE",
+      "CLEAR_CLONE",
+      "SAVE_CONFIGURATION",
+    ].includes(String(candidate.kind)) &&
+    [
+      "PENDING",
+      "SUCCEEDED",
+      "CANCELLED",
+      "FAILED",
+      "RECOVERY_REQUIRED",
+      "COMPLETED",
+    ].includes(String(candidate.status)) &&
+    (candidate.attempt === undefined ||
+      isAddPrAttemptView(candidate.attempt)) &&
+    (candidate.managedPr === undefined ||
+      isManagedPrReadModel(candidate.managedPr)) &&
     (candidate.reason === undefined || isManagedPrReason(candidate.reason))
   );
 }
 
-export function isManagedPrListView(value: unknown): value is ManagedPrListView {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+export function isManagedPrListView(
+  value: unknown,
+): value is ManagedPrListView {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
-  return candidate.schemaVersion === F07_SCHEMA_VERSION &&
-    Array.isArray(candidate.managedPrs) && candidate.managedPrs.every(isManagedPrReadModel) &&
-    Array.isArray(candidate.attempts) && candidate.attempts.every(isAddPrAttemptView);
+  return (
+    candidate.schemaVersion === F07_SCHEMA_VERSION &&
+    Array.isArray(candidate.managedPrs) &&
+    candidate.managedPrs.every(isManagedPrReadModel) &&
+    Array.isArray(candidate.attempts) &&
+    candidate.attempts.every(isAddPrAttemptView)
+  );
 }
 
-export function isManagedPrCandidateListView(value: unknown): value is { readonly schemaVersion: 1; readonly managedPrId: string; readonly candidates: readonly ManagedPrCandidateView[] } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+export function isManagedPrCandidateListView(value: unknown): value is {
+  readonly schemaVersion: 1;
+  readonly managedPrId: string;
+  readonly candidates: readonly ManagedPrCandidateView[];
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const candidate = value as Record<string, unknown>;
-  if (candidate.schemaVersion !== F07_SCHEMA_VERSION || typeof candidate.managedPrId !== "string" || !Array.isArray(candidate.candidates)) return false;
+  if (
+    candidate.schemaVersion !== F07_SCHEMA_VERSION ||
+    typeof candidate.managedPrId !== "string" ||
+    !Array.isArray(candidate.candidates)
+  )
+    return false;
   return candidate.candidates.every((item) => {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
+    if (typeof item !== "object" || item === null || Array.isArray(item))
+      return false;
     const valueItem = item as Record<string, unknown>;
-    return valueItem.schemaVersion === F07_SCHEMA_VERSION && typeof valueItem.canonicalRoot === "string" && typeof valueItem.repository === "object" && valueItem.repository !== null && typeof valueItem.status === "string" && typeof valueItem.cleanState === "string";
+    return (
+      valueItem.schemaVersion === F07_SCHEMA_VERSION &&
+      typeof valueItem.canonicalRoot === "string" &&
+      typeof valueItem.repository === "object" &&
+      valueItem.repository !== null &&
+      typeof valueItem.status === "string" &&
+      typeof valueItem.cleanState === "string"
+    );
   });
 }

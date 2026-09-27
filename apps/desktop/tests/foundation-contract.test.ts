@@ -160,7 +160,10 @@ describe("F01 workspace contract", () => {
     const violations: string[] = [];
     for (const relativePath of await sourceTree("src")) {
       const contents = await source(relativePath);
-      if (sdkReference.test(contents) && path.normalize(relativePath) !== allowedAdapter)
+      if (
+        sdkReference.test(contents) &&
+        path.normalize(relativePath) !== allowedAdapter
+      )
         violations.push(relativePath);
     }
     expect(violations).toEqual([]);

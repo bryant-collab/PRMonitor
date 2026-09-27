@@ -10,10 +10,7 @@ import {
 } from "../shared/startup";
 import { OPEN_TARGET_QUEUE_MAX, OpenTargetQueue } from "../shared/routing";
 import type { CurrentState, IpcError } from "../shared/ipc";
-import {
-  IPC_MAX_REQUEST_BYTES,
-  IPC_MAX_RESPONSE_BYTES,
-} from "../shared/ipc";
+import { IPC_MAX_REQUEST_BYTES, IPC_MAX_RESPONSE_BYTES } from "../shared/ipc";
 import {
   ACTIVITY_MAX_DETAIL_BYTES,
   ACTIVITY_MAX_SUMMARY_BYTES,
@@ -32,6 +29,7 @@ import {
   F17PersistenceRepositories,
   F18PersistenceRepositories,
   F19PersistenceRepositories,
+  F21PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -84,6 +82,8 @@ import {
   type F18AutomaticReviewBoundary,
 } from "./automatic-review-coordinator";
 import { F18AIWorkAdapter } from "./automatic-review-ai-adapter";
+import { F21AIWorkAdapter } from "./f21-ai-work-adapter";
+import { F21ConversationService } from "./f21-conversation-service";
 import { F20WorkspaceService } from "./f20-workspace-service";
 import { TrayNotificationCoordinator } from "./f19-coordinator";
 import { ElectronF19NativeSurfaceAdapter } from "./f19-native-adapter";
@@ -150,6 +150,8 @@ let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
 let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
+let f21AiWorkAdapter: F21AIWorkAdapter | undefined;
+let f21ConversationService: F21ConversationService | undefined;
 let f20WorkspaceService: F20WorkspaceService | undefined;
 let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
 let f19Coordinator: TrayNotificationCoordinator | undefined;
@@ -622,6 +624,68 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedAutomaticReviewCoordinator = automaticReviewCoordinator;
   if (initializedAutomaticReviewCoordinator === undefined)
     throw new Error("PRMONITOR_F18_COORDINATOR_NOT_READY");
+  f21AiWorkAdapter = new F21AIWorkAdapter({
+    persistence: f17Persistence,
+    provider: f15ProviderRegistry,
+    f13: initializedF13WorktreeService,
+    f14: initializedF14ValidationService,
+    validation: {
+      resolve: ({ repositoryId, operationId }) =>
+        resolveValidationProfile({ repositoryId, operationId }),
+    },
+  });
+  const initializedF21AiWorkAdapter = f21AiWorkAdapter;
+  if (initializedF21AiWorkAdapter === undefined)
+    throw new Error("PRMONITOR_F21_AI_ADAPTER_NOT_READY");
+  if (initializedAutomaticReviewCoordinator.getReadModel === undefined)
+    throw new Error("PRMONITOR_F21_F18_READ_MODEL_NOT_READY");
+  if (
+    initializedAutomaticReviewCoordinator.saveProposalInput === undefined ||
+    initializedAutomaticReviewCoordinator.beginReviewRevision === undefined ||
+    initializedAutomaticReviewCoordinator.finalizeReviewRevision === undefined
+  )
+    throw new Error("PRMONITOR_F21_F18_REVISION_BOUNDARY_NOT_READY");
+  f21ConversationService = new F21ConversationService({
+    persistence: new F21PersistenceRepositories(persistenceStore),
+    bundles: {
+      startAutomaticReview:
+        initializedAutomaticReviewCoordinator.startAutomaticReview.bind(
+          initializedAutomaticReviewCoordinator,
+        ),
+      recordDecision: initializedAutomaticReviewCoordinator.recordDecision.bind(
+        initializedAutomaticReviewCoordinator,
+      ),
+      confirmReviewDecisions:
+        initializedAutomaticReviewCoordinator.confirmReviewDecisions.bind(
+          initializedAutomaticReviewCoordinator,
+        ),
+      saveDraftResponse:
+        initializedAutomaticReviewCoordinator.saveDraftResponse.bind(
+          initializedAutomaticReviewCoordinator,
+        ),
+      getReadModel: initializedAutomaticReviewCoordinator.getReadModel.bind(
+        initializedAutomaticReviewCoordinator,
+      ),
+      saveProposalInput:
+        initializedAutomaticReviewCoordinator.saveProposalInput.bind(
+          initializedAutomaticReviewCoordinator,
+        ),
+      beginReviewRevision:
+        initializedAutomaticReviewCoordinator.beginReviewRevision.bind(
+          initializedAutomaticReviewCoordinator,
+        ),
+      finalizeReviewRevision:
+        initializedAutomaticReviewCoordinator.finalizeReviewRevision.bind(
+          initializedAutomaticReviewCoordinator,
+        ),
+    },
+    f13: initializedF13WorktreeService,
+    f16: initializedF16PreferencesService,
+    aiWork: initializedF21AiWorkAdapter,
+  });
+  if (f21ConversationService === undefined)
+    throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+  await f21ConversationService.reconcileStartup();
   reviewScheduler = new ReviewScheduler({
     managedPrs: {
       listManagedPrs: () => f07Repositories.listManagedPrs(),
@@ -646,7 +710,9 @@ async function initializeMainProcessPersistence(): Promise<void> {
           result.outcome === "ALREADY_ACCEPTED"
         ) {
           const readModel =
-            initializedAutomaticReviewCoordinator.getReadModel?.(input.bundleId);
+            initializedAutomaticReviewCoordinator.getReadModel?.(
+              input.bundleId,
+            );
           if (readModel !== undefined)
             void f19Coordinator
               ?.handleReviewBundleOutcome(readModel)
@@ -728,6 +794,12 @@ async function startMainProcess(): Promise<void> {
         stopAdmission: () => automaticReviewAiAdapter?.stopAdmission(),
         handoff: () => automaticReviewAiAdapter?.handoff(),
         boundedStop: () => automaticReviewAiAdapter?.boundedStop(),
+      },
+      {
+        name: "review-conversation-ai-work",
+        stopAdmission: () => f21AiWorkAdapter?.stopAdmission(),
+        handoff: () => f21AiWorkAdapter?.handoff(),
+        boundedStop: () => f21AiWorkAdapter?.boundedStop(),
       },
     ],
   });
@@ -875,16 +947,15 @@ async function startMainProcess(): Promise<void> {
       return (
         result ?? {
           ok: false,
-          status:
-            lifecycle?.getStatus() ?? {
-              schemaVersion: 1,
-              phase: "RECOVERY_REQUIRED" as const,
-              sessionId: "lifecycle-missing",
-              correlationId: "lifecycle-missing",
-              startedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              incompleteHandoff: true,
-            },
+          status: lifecycle?.getStatus() ?? {
+            schemaVersion: 1,
+            phase: "RECOVERY_REQUIRED" as const,
+            sessionId: "lifecycle-missing",
+            correlationId: "lifecycle-missing",
+            startedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            incompleteHandoff: true,
+          },
           error: {
             code: "HANDLER_FAILED",
             message: "Lifecycle coordinator is unavailable.",
@@ -1075,6 +1146,49 @@ async function startMainProcess(): Promise<void> {
         );
       return f20WorkspaceService.pathAction(input);
     },
+    readReviewBundleConversation: (bundleId) => {
+      if (f21ConversationService === undefined)
+        throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+      return f21ConversationService.read(bundleId);
+    },
+    askReviewBundleConversation: (input) => {
+      if (f21ConversationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY"),
+        );
+      return f21ConversationService.ask(input);
+    },
+    requestReviewBundleRevision: (input) => {
+      if (f21ConversationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY"),
+        );
+      return f21ConversationService.requestRevision(input);
+    },
+    startNewReviewBundleOperation: (input) => {
+      if (f21ConversationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY"),
+        );
+      return f21ConversationService.startNewOperation(input);
+    },
+    saveReviewBundleProposalInput: (input) => {
+      if (f21ConversationService === undefined)
+        throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+      return f21ConversationService.saveProposalInput(input);
+    },
+    cancelReviewBundleConversation: (input) => {
+      if (f21ConversationService === undefined)
+        throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+      return f21ConversationService.cancel(input);
+    },
+    continueReviewBundleConversation: (input) => {
+      if (f21ConversationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY"),
+        );
+      return f21ConversationService.continue(input);
+    },
     onRendererReady: (senderId) => {
       windowManager?.markRendererReady(senderId);
     },
@@ -1135,12 +1249,14 @@ async function startMainProcess(): Promise<void> {
     surface: new ElectronF19NativeSurfaceAdapter(),
     inbox: {
       read: () => initializedManagedPrInboxService.read(),
-      subscribe: (listener) => initializedManagedPrInboxService.subscribe(listener),
+      subscribe: (listener) =>
+        initializedManagedPrInboxService.subscribe(listener),
     },
     scheduler: {
       read: () => initializedReviewScheduler.read(),
       pauseWatching: (input) => initializedReviewScheduler.pauseWatching(input),
-      resumeWatching: (input) => initializedReviewScheduler.resumeWatching(input),
+      resumeWatching: (input) =>
+        initializedReviewScheduler.resumeWatching(input),
     },
     window: {
       open: (target) =>
@@ -1154,7 +1270,8 @@ async function startMainProcess(): Promise<void> {
         }),
     },
     worktrees: {
-      openWorktree: (input) => initializedF13WorktreeService.openWorktree(input),
+      openWorktree: (input) =>
+        initializedF13WorktreeService.openWorktree(input),
     },
     lifecycle: {
       requestShutdown: () => initializedLifecycle.requestShutdown(),
@@ -1245,6 +1362,8 @@ app.on("will-quit", () => {
   reviewScheduler = undefined;
   githubServerService = undefined;
   managedPrService = undefined;
+  f21ConversationService = undefined;
+  f21AiWorkAdapter = undefined;
   f20WorkspaceService = undefined;
   persistenceStore?.close();
   persistenceStore = undefined;

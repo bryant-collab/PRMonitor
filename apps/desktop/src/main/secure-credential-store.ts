@@ -105,12 +105,15 @@ function validateValue(value: string): void {
     throw new SecureCredentialStoreError({
       code: "STORE_WRITE_FAILED",
       category: "SECURE_STORAGE",
-      message: "The protected access value is empty or exceeds the bounded input limit.",
+      message:
+        "The protected access value is empty or exceeds the bounded input limit.",
     });
   }
 }
 
-function unavailableStatus(storage: ElectronSafeStorageLike): SecureStoreStatus {
+function unavailableStatus(
+  storage: ElectronSafeStorageLike,
+): SecureStoreStatus {
   let encryptionAvailable: boolean;
   try {
     encryptionAvailable = storage.isEncryptionAvailable();
@@ -120,7 +123,8 @@ function unavailableStatus(storage: ElectronSafeStorageLike): SecureStoreStatus 
       reason: {
         code: "STORE_UNAVAILABLE",
         category: "SECURE_STORAGE",
-        message: "The host secure-storage service could not be queried. Enable it and retry.",
+        message:
+          "The host secure-storage service could not be queried. Enable it and retry.",
       },
     };
   }
@@ -144,7 +148,8 @@ function unavailableStatus(storage: ElectronSafeStorageLike): SecureStoreStatus 
       reason: {
         code: "STORE_WEAK",
         category: "SECURE_STORAGE",
-        message: "The host secure-storage backend is not strong enough for GitHub access values.",
+        message:
+          "The host secure-storage backend is not strong enough for GitHub access values.",
       },
     };
   }
@@ -211,7 +216,8 @@ export class ElectronSecureCredentialStore implements SecureCredentialStore {
         {
           code: "STORE_WRITE_FAILED",
           category: "SECURE_STORAGE",
-          message: "The protected access value could not be stored. Retry without using plaintext fallback.",
+          message:
+            "The protected access value could not be stored. Retry without using plaintext fallback.",
         },
         { cause: error },
       );
@@ -249,7 +255,8 @@ export class ElectronSecureCredentialStore implements SecureCredentialStore {
           {
             code: "STORE_READ_FAILED",
             category: "SECURE_STORAGE",
-            message: "The protected access value could not be recovered. Replace it and retry.",
+            message:
+              "The protected access value could not be recovered. Replace it and retry.",
           },
           { cause: error },
         );
@@ -258,7 +265,8 @@ export class ElectronSecureCredentialStore implements SecureCredentialStore {
         {
           code: "STORE_READ_FAILED",
           category: "SECURE_STORAGE",
-          message: "The protected access value could not be recovered. Replace it and retry.",
+          message:
+            "The protected access value could not be recovered. Replace it and retry.",
         },
         { cause: error },
       );
@@ -328,7 +336,8 @@ export class InMemorySecureCredentialStore implements SecureCredentialStore {
     validateValue(input.value);
     abortIfRequested(input.signal);
     this.assertAvailable();
-    if (!this.values.has(input.reference)) this.values.set(input.reference, input.value);
+    if (!this.values.has(input.reference))
+      this.values.set(input.reference, input.value);
   }
 
   public async readForRequest(input: {
@@ -343,7 +352,8 @@ export class InMemorySecureCredentialStore implements SecureCredentialStore {
       throw new SecureCredentialStoreError({
         code: "STORE_READ_FAILED",
         category: "SECURE_STORAGE",
-        message: "The protected access value could not be recovered. Replace it and retry.",
+        message:
+          "The protected access value could not be recovered. Replace it and retry.",
       });
     return value;
   }

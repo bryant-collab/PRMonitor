@@ -29,16 +29,20 @@ class FakeGithubTransport implements GithubHttpTransport {
     url: "https://api.github.com/user",
   };
 
-  public async request(request: GithubHttpRequest): Promise<GithubHttpResponse> {
+  public async request(
+    request: GithubHttpRequest,
+  ): Promise<GithubHttpResponse> {
     this.requests.push({ ...request, headers: { ...request.headers } });
     return this.response;
   }
 }
 
-async function createService(options: {
-  readonly store?: InMemorySecureCredentialStore;
-  readonly transport?: FakeGithubTransport;
-} = {}): Promise<{
+async function createService(
+  options: {
+    readonly store?: InMemorySecureCredentialStore;
+    readonly transport?: FakeGithubTransport;
+  } = {},
+): Promise<{
   readonly service: GithubServerService;
   readonly transport: FakeGithubTransport;
   readonly store: InMemorySecureCredentialStore;
@@ -86,7 +90,9 @@ describe("F05 GitHub server identity", () => {
         apiBaseUrl: "https://api.github.com",
       },
     });
-    expect(normalizeGithubServerUrl("https://GHEs.example.test/")).toMatchObject({
+    expect(
+      normalizeGithubServerUrl("https://GHEs.example.test/"),
+    ).toMatchObject({
       ok: true,
       value: {
         kind: "GHES",
@@ -102,7 +108,9 @@ describe("F05 GitHub server identity", () => {
       "https://github.com#fragment",
       "not a URL",
     ]) {
-      expect(normalizeGithubServerUrl(value), value).toMatchObject({ ok: false });
+      expect(normalizeGithubServerUrl(value), value).toMatchObject({
+        ok: false,
+      });
     }
   });
 });
@@ -134,10 +142,20 @@ describe("F05 secure GitHub authentication lifecycle", () => {
       expect(serialized).not.toContain("prmonitor.github.v1.");
       expect(
         fixture.persistence.readAll("SELECT * FROM github_servers"),
-      ).not.toContainEqual(expect.objectContaining({ metadata_json: expect.stringContaining("synthetic-access-value") }));
+      ).not.toContainEqual(
+        expect.objectContaining({
+          metadata_json: expect.stringContaining("synthetic-access-value"),
+        }),
+      );
       expect(
-        fixture.persistence.readAll("SELECT * FROM github_credential_operations"),
-      ).not.toContainEqual(expect.objectContaining({ reason_json: expect.stringContaining("synthetic-access-value") }));
+        fixture.persistence.readAll(
+          "SELECT * FROM github_credential_operations",
+        ),
+      ).not.toContainEqual(
+        expect.objectContaining({
+          reason_json: expect.stringContaining("synthetic-access-value"),
+        }),
+      );
     } finally {
       await fixture.cleanup();
     }
@@ -171,8 +189,12 @@ describe("F05 secure GitHub authentication lifecycle", () => {
       expect(failed.profile.activeRevision).toBe(1);
       expect(failed.profile.candidateRevision).toBe(2);
       const settings = fixture.service.readSettings();
-      expect(settings.operations.some((operation) => operation.phase === "FAILED")).toBe(true);
-      expect(JSON.stringify(settings)).not.toContain("replacement-access-value");
+      expect(
+        settings.operations.some((operation) => operation.phase === "FAILED"),
+      ).toBe(true);
+      expect(JSON.stringify(settings)).not.toContain(
+        "replacement-access-value",
+      );
     } finally {
       await fixture.cleanup();
     }
@@ -199,9 +221,9 @@ describe("F05 secure GitHub authentication lifecycle", () => {
         operationId: "request-unavailable",
       });
       expect(result.profile.status).toBe("SECURE_STORAGE_UNAVAILABLE");
-      expect(JSON.stringify(unavailableFixture.service.readSettings())).not.toContain(
-        "never-plaintext-fallback",
-      );
+      expect(
+        JSON.stringify(unavailableFixture.service.readSettings()),
+      ).not.toContain("never-plaintext-fallback");
     } finally {
       await unavailableFixture.cleanup();
     }

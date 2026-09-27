@@ -50,6 +50,7 @@ export interface F18AIWorkAdapterOptions {
       readonly operationId: string;
       readonly ownerId: string;
       readonly turnId: string;
+      readonly acknowledgeUnattributedChanges?: boolean;
     }) => Promise<F13AiTurnBeforeResult>;
     readonly completeAiTurn?: (input: {
       readonly operationId: string;

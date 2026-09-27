@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   assertAIReviewImplementationDecisionCoverage,
   assertAIReviewProposalEventCoverage,
+  aiReviewImplementationSchema,
   type AIProviderInputSnapshot,
   type AIReviewProposal,
 } from "../shared/ai/provider-contracts";
@@ -46,6 +47,9 @@ import {
   type F18DraftResponseInput,
   type F18FeedbackSnapshot,
   type F18Reason,
+  type F18ProposalInputCommand,
+  type F18ReviewRevisionBeginInput,
+  type F18ReviewRevisionFinalizationInput,
   type F18ReviewBundleReadModel,
   type F18ReviewBundleRecord,
   type F18ReviewInputSnapshot,
@@ -205,6 +209,15 @@ export interface F18AutomaticReviewBoundary {
   readonly saveDraftResponse: (
     input: F18DraftResponseInput,
   ) => F18ReviewBundleReadModel;
+  readonly saveProposalInput?: (
+    input: F18ProposalInputCommand,
+  ) => F18ReviewBundleReadModel;
+  readonly beginReviewRevision?: (
+    input: F18ReviewRevisionBeginInput,
+  ) => F18ReviewBundleReadModel;
+  readonly finalizeReviewRevision?: (
+    input: F18ReviewRevisionFinalizationInput,
+  ) => F18ReviewBundleReadModel;
 }
 
 function now(clock: (() => string) | undefined): string {
@@ -308,12 +321,8 @@ function diffReference(
 function persistedWorktreeCondition(
   condition: NonNullable<F13InspectionResult["condition"]>,
 ): NonNullable<F18WorktreeEvidence["condition"]> {
-  const {
-    dirtySummary,
-    attribution,
-    permittedNextActions,
-    ...identity
-  } = condition;
+  const { dirtySummary, attribution, permittedNextActions, ...identity } =
+    condition;
   const { turnSnapshotIds, ...attributionIdentity } = attribution;
   return {
     ...identity,
@@ -943,6 +952,171 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
         ? {}
         : { expectedVersion: input.expectedVersion }),
       ...(input.actionId === undefined ? {} : { actionId: input.actionId }),
+    });
+    return this.readModel(updated);
+  }
+
+  public saveProposalInput(
+    input: F18ProposalInputCommand,
+  ): F18ReviewBundleReadModel {
+    if (input.text.trim().length === 0 || input.text.length > 64 * 1024)
+      throw new Error("F18_PROPOSAL_INPUT_INVALID");
+    const current = this.requireBundle(input.bundleId);
+    if (current.stage !== "PROPOSAL_REVIEW")
+      throw new Error("F18_PROPOSAL_INPUT_STAGE_INVALID");
+    if (
+      current.state !== "READY_FOR_REVIEW" &&
+      current.state !== "NEEDS_ATTENTION"
+    )
+      throw new Error("F18_PROPOSAL_INPUT_STATE_INVALID");
+    const item = current.items.find(
+      (candidate) => candidate.itemId === input.itemId,
+    );
+    if (item === undefined) throw new Error("F18_ITEM_NOT_FOUND");
+    if (
+      input.kind === "APPLY_QUESTION_ANSWER" &&
+      item.decision.finalDisposition !== "question"
+    )
+      throw new Error("F18_QUESTION_ANSWER_NOT_REQUESTED");
+    const decision = f18ItemDecisionSchema.parse({
+      ...item.decision,
+      ...(input.kind === "APPLY_QUESTION_ANSWER"
+        ? { answer: input.text }
+        : { instruction: input.text }),
+    });
+    const next = cloneRecord(current, {
+      version: current.version + 1,
+      items: current.items.map((candidate) =>
+        candidate.itemId === input.itemId
+          ? { ...candidate, decision }
+          : candidate,
+      ),
+      updatedAt: now(this.options.clock),
+    });
+    const updated = this.options.persistence.update({
+      record: next,
+      expectedBundleVersion: input.expectedVersion ?? current.version,
+    });
+    return this.readModel(updated);
+  }
+
+  public beginReviewRevision(
+    input: F18ReviewRevisionBeginInput,
+  ): F18ReviewBundleReadModel {
+    const current = this.requireBundle(input.bundleId);
+    if (current.phase === "REVIEW_REVISION_STARTED")
+      return this.readModel(current);
+    if (
+      (current.stage !== "PROPOSAL_REVIEW" &&
+        current.stage !== "FINAL_REVIEW") ||
+      (current.state !== "READY_FOR_REVIEW" &&
+        current.state !== "NEEDS_ATTENTION")
+    )
+      throw new Error("F18_REVIEW_REVISION_STAGE_INVALID");
+    if (!reviewBundleDecisionSummary(current.items).complete)
+      throw new Error("F18_REVIEW_DECISIONS_REQUIRED");
+    const updated = this.options.persistence.update({
+      record: cloneRecord(current, {
+        state: "WORKING",
+        phase: "REVIEW_REVISION_STARTED",
+        nextAction: "RUN_REVIEW_REVISION",
+        updatedAt: now(this.options.clock),
+      }),
+      expectedBundleVersion: input.expectedVersion ?? current.version,
+    });
+    return this.readModel(updated);
+  }
+
+  public finalizeReviewRevision(
+    input: F18ReviewRevisionFinalizationInput,
+  ): F18ReviewBundleReadModel {
+    const current = this.requireBundle(input.bundleId);
+    const existing = current.revisionHistory?.find(
+      (revision) => revision.revisionId === input.revisionId,
+    );
+    if (existing !== undefined) return this.readModel(current);
+    if (input.implementation === undefined) {
+      const updated = this.options.persistence.update({
+        record: cloneRecord(current, {
+          state: input.state,
+          stage: "FINAL_REVIEW",
+          phase: "FINAL_RECORDED",
+          ...(input.worktree === undefined ? {} : { worktree: input.worktree }),
+          ...(input.postChangeValidation === undefined
+            ? {}
+            : { postChangeValidation: input.postChangeValidation }),
+          implementationWork: input.implementationWork,
+          reasons: [...input.reasons],
+          nextAction:
+            input.state === "READY_FOR_REVIEW" ? "NONE" : "REVIEW_EVIDENCE",
+          updatedAt: now(this.options.clock),
+        }),
+        expectedBundleVersion: input.expectedVersion ?? current.version,
+      });
+      return this.readModel(updated);
+    }
+    const implementation = aiReviewImplementationSchema.parse(
+      input.implementation,
+    );
+    const historyEntry = {
+      revisionId: input.revisionId,
+      operationId: input.operationId,
+      status: input.state,
+      implementation,
+      changedFiles: [...input.changedFiles].slice(0, 2_000),
+      ...(input.postChangeValidation === undefined
+        ? {}
+        : { validation: input.postChangeValidation }),
+      ...(input.worktree === undefined ? {} : { worktree: input.worktree }),
+      createdAt: now(this.options.clock),
+    };
+    const replyUpdates = implementation.outcomes
+      .filter((outcome) => outcome.proposedReply !== undefined)
+      .map((outcome) => ({
+        eventVersionId: outcome.remoteEventVersionId,
+        text: outcome.proposedReply as string,
+      }));
+    const draftResponses = [
+      ...current.draftResponses.filter(
+        (draft) =>
+          !replyUpdates.some(
+            (update) => update.eventVersionId === draft.eventVersionId,
+          ) || draft.source === "HUMAN_DRAFT",
+      ),
+      ...replyUpdates
+        .filter(
+          (update) =>
+            !current.draftResponses.some(
+              (draft) =>
+                draft.eventVersionId === update.eventVersionId &&
+                draft.source === "HUMAN_DRAFT",
+            ),
+        )
+        .map((update) => ({
+          eventVersionId: update.eventVersionId,
+          text: update.text,
+          source: "MODEL_PROPOSAL" as const,
+        })),
+    ];
+    const next = cloneRecord(current, {
+      state: input.state,
+      stage: "FINAL_REVIEW",
+      phase: "FINAL_RECORDED",
+      worktree: input.worktree,
+      postChangeValidation: input.postChangeValidation,
+      implementationWork: input.implementationWork,
+      revisionHistory: [...(current.revisionHistory ?? []), historyEntry].slice(
+        -64,
+      ),
+      draftResponses,
+      reasons: [...input.reasons],
+      nextAction:
+        input.state === "READY_FOR_REVIEW" ? "NONE" : "REVIEW_EVIDENCE",
+      updatedAt: now(this.options.clock),
+    });
+    const updated = this.options.persistence.update({
+      record: next,
+      expectedBundleVersion: input.expectedVersion ?? current.version,
     });
     return this.readModel(updated);
   }
@@ -1601,6 +1775,9 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
       ...(record.noImplementationChanges === undefined
         ? {}
         : { noImplementationChanges: record.noImplementationChanges }),
+      ...(record.revisionHistory === undefined
+        ? {}
+        : { revisionHistory: record.revisionHistory }),
       decisionSummary: reviewBundleDecisionSummary(record.items),
       capabilities: {
         canPublish: false,

@@ -365,6 +365,9 @@ const reviewFeedbackInputSchema = z
 export const aiProviderInputSnapshotSchema = z
   .object({
     schemaVersion: z.literal(AI_PROVIDER_SCHEMA_VERSION),
+    /** Explicit user text; it is never interpreted as an execution command. */
+    userMessage: z.string().max(AI_MAX_TEXT_LENGTH).optional(),
+    conversationId: identifierSchema.optional(),
     remoteEventVersionIds: z
       .array(identifierSchema)
       .min(0)
@@ -767,8 +770,11 @@ const implementationOutcomeSchema = z
     remoteEventVersionId: identifierSchema,
     decision: z.enum(["fixed", "pushback", "question", "no_change"]),
     outcome: z.enum(["attempted", "skipped", "blocked"]),
+    assessment: z.enum(["actionable", "not_actionable", "unclear"]).optional(),
+    explanation: textSchema.optional(),
     report: textSchema.optional(),
     remainingIssues: z.array(textSchema).max(64).optional(),
+    proposedReply: textSchema.optional(),
     relatedFiles: relatedFilesSchema.optional(),
   })
   .strict();

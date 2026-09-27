@@ -585,7 +585,9 @@ export class ValidationRunService {
     runId: string,
   ): F14ProviderValidationContext | undefined {
     const model = this.readModel(runId);
-    return model === undefined ? undefined : toF14ProviderValidationContext(model);
+    return model === undefined
+      ? undefined
+      : toF14ProviderValidationContext(model);
   }
 
   public list(operationId?: string): readonly F14ValidationReadModel[] {

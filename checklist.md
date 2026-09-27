@@ -167,7 +167,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** The user can inspect every persisted input, output, human decision, actual validation result, and the exact complete diff eligible for publication; UI text never confuses proposal analysis, baseline validation, context diff, and proposed diff.
   - **Primary application criteria:** APP-AC-21, APP-AC-67, APP-AC-71, APP-AC-72, APP-AC-73, APP-AC-75; completes the UI aspects of APP-AC-38, APP-AC-58, and APP-AC-62.
 
-- [ ] **F21 - Read-only conversation and worktree-mutating review revisions**
+- [x] **F21 - Read-only conversation and worktree-mutating review revisions**
   - **Depends on:** F15-F20.
   - **Deliver:** Add proposal-stage per-entry instructions, question-answer textboxes, and chat. Route clarification/brainstorming through the Read-only Conversation profile with enforced read-only policy; route accepted implementation or requested code/test/assessment/reply changes through Review Revision and `AIWorkController`. Persist conversations/turn snapshots, stream safe progress, consume budgets only for mutating turns, then refresh the bundle strictly from actual Git/validation state.
   - **Exit:** The user can converse and revise before publication; read-only turns cannot mutate files; revisions retain manual edits, produce turn reports, and return to `READY_FOR_REVIEW` or `NEEDS_ATTENTION` deterministically.

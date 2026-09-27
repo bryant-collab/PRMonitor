@@ -9,7 +9,10 @@ import {
   type PersistenceStore,
 } from "../src/main/persistence";
 import { ManagedPrService } from "../src/main/managed-pr-service";
-import { LocalGitInspector, type ReadOnlyGitCommandRunner } from "../src/main/local-git-inspector";
+import {
+  LocalGitInspector,
+  type ReadOnlyGitCommandRunner,
+} from "../src/main/local-git-inspector";
 import {
   createRepositoryIdentity,
   remoteServerIdentity,
@@ -21,9 +24,15 @@ import type { GithubServerProfileRecord } from "../src/main/persistence/reposito
 import type { ManagedPrRemoteSnapshot } from "../src/shared/managed-pr";
 
 const FIXED_TIME = "2026-09-21T12:00:00.000Z";
-const fixtures: Array<{ readonly root: string; readonly store: PersistenceStore }> = [];
+const fixtures: Array<{
+  readonly root: string;
+  readonly store: PersistenceStore;
+}> = [];
 
-async function createFixture(): Promise<{ readonly root: string; readonly store: PersistenceStore }> {
+async function createFixture(): Promise<{
+  readonly root: string;
+  readonly store: PersistenceStore;
+}> {
   const root = await mkdtemp(path.join(os.tmpdir(), "prmonitor-f07-"));
   const store = await initializePersistence(
     {
@@ -80,8 +89,16 @@ function metadata(): GithubPullRequestMetadata {
   const normalized = normalizeGithubServerUrl("https://github.com");
   if (!normalized.ok) throw new Error("server fixture failed");
   const server = remoteServerIdentity(normalized.value);
-  const base = createRepositoryIdentity({ server, owner: "owner", name: "base" });
-  const head = createRepositoryIdentity({ server, owner: "contributor", name: "fork" });
+  const base = createRepositoryIdentity({
+    server,
+    owner: "owner",
+    name: "base",
+  });
+  const head = createRepositoryIdentity({
+    server,
+    owner: "contributor",
+    name: "fork",
+  });
   const identity = {
     schemaVersion: 1 as const,
     server,
@@ -120,7 +137,9 @@ function updatedResult(value: GithubPullRequestMetadata) {
   };
 }
 
-function failedResult(value: GithubPullRequestMetadata): GithubRestResult<GithubPullRequestMetadata> {
+function failedResult(
+  value: GithubPullRequestMetadata,
+): GithubRestResult<GithubPullRequestMetadata> {
   return {
     ok: false,
     outcome: "FAILED",
@@ -168,9 +187,17 @@ function remoteSnapshot(): ManagedPrRemoteSnapshot {
 describe("F07 add and manage a pull request", () => {
   it("commits one remote identity and keeps multiline configuration revision history immutable", async () => {
     const fixture = await createFixture();
-    const base = createPersistenceRepositories(fixture.store, { clock: { now: () => FIXED_TIME } });
-    base.putGithubServer({ serverId: "server-1", host: "github.com", apiBaseUrl: "https://api.github.com" });
-    const repositories = createF07PersistenceRepositories(fixture.store, { clock: { now: () => FIXED_TIME } });
+    const base = createPersistenceRepositories(fixture.store, {
+      clock: { now: () => FIXED_TIME },
+    });
+    base.putGithubServer({
+      serverId: "server-1",
+      host: "github.com",
+      apiBaseUrl: "https://api.github.com",
+    });
+    const repositories = createF07PersistenceRepositories(fixture.store, {
+      clock: { now: () => FIXED_TIME },
+    });
     const begun = repositories.beginAddAttempt({
       attemptId: "add-pr-test",
       correlationId: "f07-add-test",
@@ -201,8 +228,12 @@ describe("F07 add and manage a pull request", () => {
       syncSourceBranchOverride: "integration",
     });
     expect(updated.configuration.revision).toBe(2);
-    expect(updated.configuration.context).toBe("new context\nwith a second line");
-    expect(repositories.getManagedPr("managed-pr-test")?.configuration.revision).toBe(2);
+    expect(updated.configuration.context).toBe(
+      "new context\nwith a second line",
+    );
+    expect(
+      repositories.getManagedPr("managed-pr-test")?.configuration.revision,
+    ).toBe(2);
     const restored = repositories.saveConfiguration({
       managedPrId: managed.id,
       expectedVersion: updated.version,
@@ -211,35 +242,53 @@ describe("F07 add and manage a pull request", () => {
     });
     expect(restored.configuration.revision).toBe(3);
     expect(restored.configuration.context).toBe("line one\nline two");
-    expect(fixture.store.read<{ readonly context_text: string }>("SELECT context_text FROM f07_pr_configuration_revisions WHERE managed_pr_id = ? AND revision = 2", managed.id)?.context_text).toBe("new context\nwith a second line");
-    expect(() => repositories.saveConfiguration({
-      managedPrId: managed.id,
-      expectedVersion: managed.version,
-      context: "stale",
-      syncSourceBranchOverride: "main",
-    })).toThrow();
-    expect(repositories.beginAddAttempt({
-      attemptId: "add-pr-test",
-      correlationId: "f07-add-test",
-      idempotencyKey: "f07-add-test",
-      canonicalPrKey: remoteSnapshot().pullRequestKey,
-      serverId: "server-1",
-      profileVersion: 1,
-      normalizedUrl: "https://github.com/owner/base/pull/7",
-      parsedInput: { owner: "owner", repositoryName: "base", number: 7 },
-      context: "ignored",
-      syncSourceBranchOverride: "main",
-    }).shouldFetch).toBe(false);
+    expect(
+      fixture.store.read<{ readonly context_text: string }>(
+        "SELECT context_text FROM f07_pr_configuration_revisions WHERE managed_pr_id = ? AND revision = 2",
+        managed.id,
+      )?.context_text,
+    ).toBe("new context\nwith a second line");
+    expect(() =>
+      repositories.saveConfiguration({
+        managedPrId: managed.id,
+        expectedVersion: managed.version,
+        context: "stale",
+        syncSourceBranchOverride: "main",
+      }),
+    ).toThrow();
+    expect(
+      repositories.beginAddAttempt({
+        attemptId: "add-pr-test",
+        correlationId: "f07-add-test",
+        idempotencyKey: "f07-add-test",
+        canonicalPrKey: remoteSnapshot().pullRequestKey,
+        serverId: "server-1",
+        profileVersion: 1,
+        normalizedUrl: "https://github.com/owner/base/pull/7",
+        parsedInput: { owner: "owner", repositoryName: "base", number: 7 },
+        context: "ignored",
+        syncSourceBranchOverride: "main",
+      }).shouldFetch,
+    ).toBe(false);
   });
 
   it("persists the add intent before F06 and does not duplicate a successful replay", async () => {
     const fixture = await createFixture();
-    const base = createPersistenceRepositories(fixture.store, { clock: { now: () => FIXED_TIME } });
-    base.putGithubServer({ serverId: "server-1", host: "github.com", apiBaseUrl: "https://api.github.com" });
+    const base = createPersistenceRepositories(fixture.store, {
+      clock: { now: () => FIXED_TIME },
+    });
+    base.putGithubServer({
+      serverId: "server-1",
+      host: "github.com",
+      apiBaseUrl: "https://api.github.com",
+    });
     let fetches = 0;
     const service = new ManagedPrService({
-      repositories: createF07PersistenceRepositories(fixture.store, { clock: { now: () => FIXED_TIME } }),
-      profileForServerId: (serverId) => serverId === "server-1" ? profile() : undefined,
+      repositories: createF07PersistenceRepositories(fixture.store, {
+        clock: { now: () => FIXED_TIME },
+      }),
+      profileForServerId: (serverId) =>
+        serverId === "server-1" ? profile() : undefined,
       getPullRequest: async () => {
         fetches += 1;
         return updatedResult(metadata());
@@ -253,23 +302,37 @@ describe("F07 add and manage a pull request", () => {
     expect(first.status).toBe("SUCCEEDED");
     expect(first.managedPr?.headRepository.owner).toBe("contributor");
     expect(first.managedPr?.defaultBranch).toBe("trunk");
-    const second = await service.add({ serverId: "server-1", url: "https://github.com/owner/base/pull/7" });
+    const second = await service.add({
+      serverId: "server-1",
+      url: "https://github.com/owner/base/pull/7",
+    });
     expect(second.status).toBe("SUCCEEDED");
     expect(fetches).toBe(1);
     expect((await service.list()).managedPrs).toHaveLength(1);
-    expect((await service.list()).attempts[0]?.correlationId).toMatch(/^f07-add-/u);
+    expect((await service.list()).attempts[0]?.correlationId).toMatch(
+      /^f07-add-/u,
+    );
     expect("parsedInput" in (await service.list()).attempts[0]!).toBe(false);
   });
 
   it("rejects malformed input before F06 and retains cancelled or failed attempts for recovery", async () => {
     const fixture = await createFixture();
-    const base = createPersistenceRepositories(fixture.store, { clock: { now: () => FIXED_TIME } });
-    base.putGithubServer({ serverId: "server-1", host: "github.com", apiBaseUrl: "https://api.github.com" });
+    const base = createPersistenceRepositories(fixture.store, {
+      clock: { now: () => FIXED_TIME },
+    });
+    base.putGithubServer({
+      serverId: "server-1",
+      host: "github.com",
+      apiBaseUrl: "https://api.github.com",
+    });
     let fetches = 0;
     let failFirst = true;
     const service = new ManagedPrService({
-      repositories: createF07PersistenceRepositories(fixture.store, { clock: { now: () => FIXED_TIME } }),
-      profileForServerId: (serverId) => serverId === "server-1" ? profile() : undefined,
+      repositories: createF07PersistenceRepositories(fixture.store, {
+        clock: { now: () => FIXED_TIME },
+      }),
+      profileForServerId: (serverId) =>
+        serverId === "server-1" ? profile() : undefined,
       getPullRequest: async ({ signal }) => {
         fetches += 1;
         if (signal?.aborted) throw new Error("cancelled by test");
@@ -281,12 +344,18 @@ describe("F07 add and manage a pull request", () => {
       },
     });
 
-    const invalid = await service.add({ serverId: "server-1", url: "not-a-pull-request-url" });
+    const invalid = await service.add({
+      serverId: "server-1",
+      url: "not-a-pull-request-url",
+    });
     expect(invalid.status).toBe("FAILED");
     expect(fetches).toBe(0);
     expect(service.list().attempts).toHaveLength(0);
 
-    const failed = await service.add({ serverId: "server-1", url: "https://github.com/owner/base/pull/7" });
+    const failed = await service.add({
+      serverId: "server-1",
+      url: "https://github.com/owner/base/pull/7",
+    });
     expect(failed.status).toBe("FAILED");
     expect(failed.attempt?.status).toBe("FAILED");
     expect(service.list().managedPrs).toHaveLength(0);
@@ -297,19 +366,33 @@ describe("F07 add and manage a pull request", () => {
     expect(service.list().managedPrs).toHaveLength(1);
 
     const cancellationFixture = await createFixture();
-    const cancellationBase = createPersistenceRepositories(cancellationFixture.store, { clock: { now: () => FIXED_TIME } });
-    cancellationBase.putGithubServer({ serverId: "server-1", host: "github.com", apiBaseUrl: "https://api.github.com" });
+    const cancellationBase = createPersistenceRepositories(
+      cancellationFixture.store,
+      { clock: { now: () => FIXED_TIME } },
+    );
+    cancellationBase.putGithubServer({
+      serverId: "server-1",
+      host: "github.com",
+      apiBaseUrl: "https://api.github.com",
+    });
     const cancellation = new AbortController();
     cancellation.abort();
     const cancelledService = new ManagedPrService({
-      repositories: createF07PersistenceRepositories(cancellationFixture.store, { clock: { now: () => FIXED_TIME } }),
-      profileForServerId: (serverId) => serverId === "server-1" ? profile() : undefined,
+      repositories: createF07PersistenceRepositories(
+        cancellationFixture.store,
+        { clock: { now: () => FIXED_TIME } },
+      ),
+      profileForServerId: (serverId) =>
+        serverId === "server-1" ? profile() : undefined,
       getPullRequest: async ({ signal }) => {
         if (signal?.aborted) throw new Error("cancelled by test");
         return updatedResult(metadata());
       },
     });
-    const cancelled = await cancelledService.add({ serverId: "server-1", url: "https://github.com/owner/base/pull/8" }, cancellation.signal);
+    const cancelled = await cancelledService.add(
+      { serverId: "server-1", url: "https://github.com/owner/base/pull/8" },
+      cancellation.signal,
+    );
     expect(cancelled.status).toBe("CANCELLED");
     expect(cancelled.attempt?.status).toBe("CANCELLED");
     expect(cancelledService.list().managedPrs).toHaveLength(0);
@@ -322,11 +405,16 @@ describe("F07 add and manage a pull request", () => {
       run: async (args) => {
         calls.push([...args]);
         const command = args.join(" ");
-        if (command.includes("--show-toplevel")) return { stdout: root, stderr: "" };
-        if (command.includes("--is-bare-repository")) return { stdout: "false\n", stderr: "" };
-        if (command.endsWith(" remote")) return { stdout: "origin\n", stderr: "" };
-        if (command.includes("remote get-url")) return { stdout: "https://github.com/owner/base.git\n", stderr: "" };
-        if (command.includes("status")) return { stdout: " M src/file.ts\n", stderr: "" };
+        if (command.includes("--show-toplevel"))
+          return { stdout: root, stderr: "" };
+        if (command.includes("--is-bare-repository"))
+          return { stdout: "false\n", stderr: "" };
+        if (command.endsWith(" remote"))
+          return { stdout: "origin\n", stderr: "" };
+        if (command.includes("remote get-url"))
+          return { stdout: "https://github.com/owner/base.git\n", stderr: "" };
+        if (command.includes("status"))
+          return { stdout: " M src/file.ts\n", stderr: "" };
         throw new Error(`unexpected command ${command}`);
       },
     };
@@ -334,14 +422,33 @@ describe("F07 add and manage a pull request", () => {
       const normalized = normalizeGithubServerUrl("https://github.com");
       if (!normalized.ok) throw new Error("server fixture failed");
       const server = remoteServerIdentity(normalized.value);
-      const expectedRepository = createRepositoryIdentity({ server, owner: "owner", name: "base" });
-      const inspected = await new LocalGitInspector({ runner, now: () => FIXED_TIME }).inspect({ path: root, server, expectedRepository });
+      const expectedRepository = createRepositoryIdentity({
+        server,
+        owner: "owner",
+        name: "base",
+      });
+      const inspected = await new LocalGitInspector({
+        runner,
+        now: () => FIXED_TIME,
+      }).inspect({ path: root, server, expectedRepository });
       expect(inspected.ok).toBe(true);
       if (inspected.ok) {
         expect(inspected.status).toBe("DIRTY");
         expect(inspected.cleanState).toBe("DIRTY");
       }
-      expect(calls.every((call) => !["fetch", "checkout", "reset", "clean", "pull", "worktree"].includes(call[call.length - 1] ?? ""))).toBe(true);
+      expect(
+        calls.every(
+          (call) =>
+            ![
+              "fetch",
+              "checkout",
+              "reset",
+              "clean",
+              "pull",
+              "worktree",
+            ].includes(call[call.length - 1] ?? ""),
+        ),
+      ).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

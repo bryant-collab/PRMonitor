@@ -57,6 +57,11 @@ import type {
   F20DiffView,
   F20PathActionResult,
 } from "../shared/f20-workspace";
+import type {
+  F21ProposalEntryInput,
+  F21UserIntent,
+  F21ConversationReadModel,
+} from "../shared/f21-conversation";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -193,9 +198,7 @@ export interface IpcServices {
     managedPrId: string,
     destination: ManagedPrNavigationDestination,
   ) => OpenTarget;
-  readonly readReviewBundle?: (
-    bundleId: string,
-  ) => F20WorkspaceReadModel;
+  readonly readReviewBundle?: (bundleId: string) => F20WorkspaceReadModel;
   readonly readReviewBundleDiff?: (
     input: F20ReadDiffInput,
   ) => Promise<F20DiffView>;
@@ -216,6 +219,32 @@ export interface IpcServices {
   readonly reviewBundlePathAction?: (
     input: F20PathActionInput,
   ) => Promise<F20PathActionResult>;
+  readonly readReviewBundleConversation?: (
+    bundleId: string,
+  ) => F21ConversationReadModel;
+  readonly askReviewBundleConversation?: (
+    input: F21UserIntent,
+  ) => Promise<F21ConversationReadModel>;
+  readonly requestReviewBundleRevision?: (
+    input: F21UserIntent,
+  ) => Promise<F21ConversationReadModel>;
+  readonly startNewReviewBundleOperation?: (
+    input: F21UserIntent,
+  ) => Promise<F21ConversationReadModel>;
+  readonly saveReviewBundleProposalInput?: (
+    input: F21ProposalEntryInput,
+  ) => F21ConversationReadModel;
+  readonly cancelReviewBundleConversation?: (input: {
+    readonly bundleId: string;
+    readonly operationId?: string;
+    readonly turnId?: string;
+  }) => Promise<F21ConversationReadModel>;
+  readonly continueReviewBundleConversation?: (input: {
+    readonly bundleId: string;
+    readonly operationId: string;
+    readonly selectedBudget?: number;
+    readonly expectedBundleVersion?: number;
+  }) => Promise<F21ConversationReadModel>;
   readonly onRendererReady?: (senderId: number, sessionId: string) => void;
 }
 
@@ -871,6 +900,90 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "review-bundle-path-action",
             result: await this.services.reviewBundlePathAction(request.payload),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.conversation.read") {
+        if (this.services.readReviewBundleConversation === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: this.services.readReviewBundleConversation(
+              request.payload.bundleId,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.conversation.ask") {
+        if (this.services.askReviewBundleConversation === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: await this.services.askReviewBundleConversation(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.revision.request") {
+        if (this.services.requestReviewBundleRevision === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: await this.services.requestReviewBundleRevision(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.conversation.start-new-operation") {
+        if (this.services.startNewReviewBundleOperation === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: await this.services.startNewReviewBundleOperation(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.proposal-input.save") {
+        if (this.services.saveReviewBundleProposalInput === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: this.services.saveReviewBundleProposalInput(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.conversation.cancel") {
+        if (this.services.cancelReviewBundleConversation === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: await this.services.cancelReviewBundleConversation(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.conversation.continue") {
+        if (this.services.continueReviewBundleConversation === undefined)
+          throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-conversation",
+            conversation: await this.services.continueReviewBundleConversation(
+              request.payload,
+            ),
           }),
         );
       }

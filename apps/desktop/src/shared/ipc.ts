@@ -74,6 +74,14 @@ import {
   type F20PathActionResult,
   type F20WorkspaceReadModel,
 } from "./f20-workspace";
+import {
+  f21ConversationReadModelSchema,
+  f21ProposalInputSchema,
+  f21UserIntentSchema,
+  type F21ConversationReadModel,
+  type F21ProposalEntryInput,
+  type F21UserIntent,
+} from "./f21-conversation";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -132,7 +140,14 @@ export type IpcRequestType =
   | "review-bundle.decisions.confirm"
   | "review-bundle.draft.save"
   | "review-bundle.worktree.refresh"
-  | "review-bundle.path-action";
+  | "review-bundle.path-action"
+  | "review-bundle.conversation.read"
+  | "review-bundle.conversation.ask"
+  | "review-bundle.revision.request"
+  | "review-bundle.conversation.start-new-operation"
+  | "review-bundle.proposal-input.save"
+  | "review-bundle.conversation.cancel"
+  | "review-bundle.conversation.continue";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -331,6 +346,38 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "review-bundle.path-action";
       readonly payload: F20PathActionInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.conversation.read";
+      readonly payload: { readonly bundleId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        | "review-bundle.conversation.ask"
+        | "review-bundle.revision.request"
+        | "review-bundle.conversation.start-new-operation";
+      readonly payload: F21UserIntent;
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.proposal-input.save";
+      readonly payload: F21ProposalEntryInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.conversation.cancel";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly operationId?: string;
+        readonly turnId?: string;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.conversation.continue";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly operationId: string;
+        readonly selectedBudget?: number;
+        readonly expectedBundleVersion?: number;
+      };
     });
 
 export interface IpcError {
@@ -447,6 +494,10 @@ export type IpcResponseValue =
   | {
       readonly kind: "review-bundle-path-action";
       readonly result: F20PathActionResult;
+    }
+  | {
+      readonly kind: "review-bundle-conversation";
+      readonly conversation: F21ConversationReadModel;
     };
 
 export type IpcResponse =
@@ -782,6 +833,11 @@ function parseResponseValue(value: unknown): boolean {
     return (
       hasExactKeys(value, ["kind", "result"]) &&
       f20PathActionResultSchema.safeParse(value.result).success
+    );
+  if (value.kind === "review-bundle-conversation")
+    return (
+      hasExactKeys(value, ["kind", "conversation"]) &&
+      f21ConversationReadModelSchema.safeParse(value.conversation).success
     );
   return false;
 }
@@ -1427,10 +1483,7 @@ export function parseIpcRequest(
           itemId: value.payload.itemId,
           decision: decision as "accepted" | "overridden",
           finalDisposition: finalDisposition as
-            | "fixed"
-            | "pushback"
-            | "question"
-            | "no_change",
+            "fixed" | "pushback" | "question" | "no_change",
           ...(value.payload.instruction === undefined
             ? {}
             : { instruction: value.payload.instruction }),
@@ -1449,14 +1502,20 @@ export function parseIpcRequest(
   }
   if (value.type === "review-bundle.decisions.confirm") {
     if (
-      !hasExactKeys(value.payload, ["bundleId"], ["expectedVersion", "actionId"]) ||
+      !hasExactKeys(
+        value.payload,
+        ["bundleId"],
+        ["expectedVersion", "actionId"],
+      ) ||
       !safeGithubIdentifier(value.payload.bundleId) ||
       (value.payload.expectedVersion !== undefined &&
         !safeVersion(value.payload.expectedVersion)) ||
       (value.payload.actionId !== undefined &&
         !safeGithubIdentifier(value.payload.actionId))
     )
-      return invalidRequest("The Review Bundle confirmation request is invalid.");
+      return invalidRequest(
+        "The Review Bundle confirmation request is invalid.",
+      );
     return {
       ok: true,
       value: {
@@ -1561,15 +1620,128 @@ export function parseIpcRequest(
         payload: {
           bundleId: value.payload.bundleId,
           action: value.payload.action as
-            | "OPEN_WORKTREE"
-            | "OPEN_FILE"
-            | "REVEAL_FILE",
+            "OPEN_WORKTREE" | "OPEN_FILE" | "REVEAL_FILE",
           ...(value.payload.relativePath === undefined
             ? {}
             : { relativePath: value.payload.relativePath as string }),
           ...(value.payload.expectedVersion === undefined
             ? {}
             : { expectedVersion: value.payload.expectedVersion }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.conversation.read") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId)
+    )
+      return invalidRequest("The Review conversation identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { bundleId: value.payload.bundleId },
+      },
+    };
+  }
+  if (
+    value.type === "review-bundle.conversation.ask" ||
+    value.type === "review-bundle.revision.request" ||
+    value.type === "review-bundle.conversation.start-new-operation"
+  ) {
+    const parsed = f21UserIntentSchema.safeParse(value.payload);
+    if (
+      !parsed.success ||
+      parsed.data.mode !==
+        (value.type === "review-bundle.conversation.ask"
+          ? "READ_ONLY_CONVERSATION"
+          : "REVIEW_REVISION")
+    )
+      return invalidRequest(
+        "The explicit Review conversation intent is invalid.",
+      );
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "review-bundle.proposal-input.save") {
+    const parsed = f21ProposalInputSchema.safeParse(value.payload);
+    if (!parsed.success)
+      return invalidRequest("The proposal entry input is invalid.");
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: parsed.data },
+    };
+  }
+  if (value.type === "review-bundle.conversation.cancel") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"], ["operationId", "turnId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      (value.payload.operationId !== undefined &&
+        !safeGithubIdentifier(value.payload.operationId)) ||
+      (value.payload.turnId !== undefined &&
+        !safeGithubIdentifier(value.payload.turnId))
+    )
+      return invalidRequest(
+        "The conversation cancellation request is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          ...(value.payload.operationId === undefined
+            ? {}
+            : { operationId: value.payload.operationId }),
+          ...(value.payload.turnId === undefined
+            ? {}
+            : { turnId: value.payload.turnId }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.conversation.continue") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["bundleId", "operationId"],
+        ["selectedBudget", "expectedBundleVersion"],
+      ) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      (value.payload.selectedBudget !== undefined &&
+        (typeof value.payload.selectedBudget !== "number" ||
+          !Number.isSafeInteger(value.payload.selectedBudget) ||
+          value.payload.selectedBudget < 1 ||
+          value.payload.selectedBudget > 10)) ||
+      (value.payload.expectedBundleVersion !== undefined &&
+        !safeVersion(value.payload.expectedBundleVersion))
+    )
+      return invalidRequest(
+        "The conversation continuation request is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId as string,
+          operationId: value.payload.operationId as string,
+          ...(value.payload.selectedBudget === undefined
+            ? {}
+            : { selectedBudget: value.payload.selectedBudget as number }),
+          ...(value.payload.expectedBundleVersion === undefined
+            ? {}
+            : {
+                expectedBundleVersion: value.payload
+                  .expectedBundleVersion as number,
+              }),
         },
       },
     };
@@ -1765,6 +1937,32 @@ export interface PrMonitorPreloadApi {
   readonly reviewBundlePathAction: (
     input: F20PathActionInput,
   ) => Promise<IpcResponse>;
+  readonly readReviewBundleConversation: (
+    bundleId: string,
+  ) => Promise<IpcResponse>;
+  readonly askReviewBundleConversation: (
+    input: F21UserIntent,
+  ) => Promise<IpcResponse>;
+  readonly requestReviewBundleRevision: (
+    input: F21UserIntent,
+  ) => Promise<IpcResponse>;
+  readonly startNewReviewBundleOperation: (
+    input: F21UserIntent,
+  ) => Promise<IpcResponse>;
+  readonly saveReviewBundleProposalInput: (
+    input: F21ProposalEntryInput,
+  ) => Promise<IpcResponse>;
+  readonly cancelReviewBundleConversation: (input: {
+    readonly bundleId: string;
+    readonly operationId?: string;
+    readonly turnId?: string;
+  }) => Promise<IpcResponse>;
+  readonly continueReviewBundleConversation: (input: {
+    readonly bundleId: string;
+    readonly operationId: string;
+    readonly selectedBudget?: number;
+    readonly expectedBundleVersion?: number;
+  }) => Promise<IpcResponse>;
   readonly onOpenTarget: (listener: (target: OpenTarget) => void) => () => void;
   readonly onInboxUpdated: (
     listener: (snapshot: ManagedPrInboxReadModel) => void,

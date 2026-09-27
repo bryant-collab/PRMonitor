@@ -1365,6 +1365,77 @@ CREATE INDEX IF NOT EXISTS idx_f19_shutdown_state
 PRAGMA user_version = 14;
 `;
 
+const MIGRATION_15 = `
+/* F21 keeps explicit conversation/revision intent and bounded turn snapshots
+   separate from F17 lifecycle rows.  The payload is provider-neutral JSON;
+   external effects are admitted only after these rows commit. */
+CREATE TABLE IF NOT EXISTS f21_conversations (
+  bundle_id TEXT PRIMARY KEY,
+  version INTEGER NOT NULL CHECK (version >= 0),
+  evidence_revision TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f21_conversation_intents (
+  intent_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL REFERENCES f21_conversations(bundle_id),
+  idempotency_key TEXT NOT NULL UNIQUE,
+  mode TEXT NOT NULL CHECK (mode IN ('READ_ONLY_CONVERSATION', 'REVIEW_REVISION')),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f21_conversation_messages (
+  message_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL REFERENCES f21_conversations(bundle_id),
+  turn_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK (sequence >= 0),
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (bundle_id, turn_id, sequence)
+);
+
+CREATE TABLE IF NOT EXISTS f21_conversation_turns (
+  turn_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL REFERENCES f21_conversations(bundle_id),
+  operation_id TEXT,
+  mode TEXT NOT NULL CHECK (mode IN ('READ_ONLY_CONVERSATION', 'REVIEW_REVISION')),
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f21_proposal_inputs (
+  command_id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('APPLY_QUESTION_ANSWER', 'SAVE_ENTRY_INSTRUCTION')),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (bundle_id, item_id, kind, payload_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_f21_intents_bundle
+  ON f21_conversation_intents(bundle_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_f21_messages_bundle
+  ON f21_conversation_messages(bundle_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_f21_turns_bundle
+  ON f21_conversation_turns(bundle_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_f21_inputs_bundle
+  ON f21_proposal_inputs(bundle_id, created_at);
+
+PRAGMA user_version = 15;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1453,6 +1524,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F19-001-native-surface-intents",
     sql: MIGRATION_14,
     checksum: checksum(MIGRATION_14),
+  },
+  {
+    version: 15,
+    id: "F21-001-explicit-review-conversations-and-revisions",
+    sql: MIGRATION_15,
+    checksum: checksum(MIGRATION_15),
   },
 ];
 

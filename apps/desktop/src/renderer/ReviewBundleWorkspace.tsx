@@ -7,6 +7,10 @@ import type {
   F20WorkspaceItem,
   F20WorkspaceReadModel,
 } from "../shared/f20-workspace";
+import type {
+  F21ConversationMode,
+  F21ConversationReadModel,
+} from "../shared/f21-conversation";
 
 interface ReviewBundleWorkspaceProps {
   readonly bundleId: string;
@@ -314,6 +318,7 @@ export function ReviewBundleWorkspace({
   bundleId,
 }: ReviewBundleWorkspaceProps) {
   const [workspace, setWorkspace] = useState<F20WorkspaceReadModel>();
+  const [conversation, setConversation] = useState<F21ConversationReadModel>();
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [diffMode, setDiffMode] = useState<F20DiffMode>("PROPOSED_WORKTREE");
   const [diff, setDiff] = useState<F20DiffView>();
@@ -327,6 +332,12 @@ export function ReviewBundleWorkspace({
   const [overrideInstruction, setOverrideInstruction] = useState("");
   const [draftText, setDraftText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [conversationMode, setConversationMode] = useState<F21ConversationMode>(
+    "READ_ONLY_CONVERSATION",
+  );
+  const [conversationText, setConversationText] = useState("");
+  const [acknowledgeUnattributed, setAcknowledgeUnattributed] = useState(false);
+  const [newOperationBudget, setNewOperationBudget] = useState(1);
 
   const selectedItem = useMemo(
     () => workspace?.items.find((item) => item.itemId === selectedItemId),
@@ -353,6 +364,13 @@ export function ReviewBundleWorkspace({
           : nextWorkspace.items[0]?.itemId,
       );
       setError(undefined);
+      const conversationResponse =
+        await bridge.readReviewBundleConversation(bundleId);
+      if (
+        conversationResponse.ok &&
+        conversationResponse.value.kind === "review-bundle-conversation"
+      )
+        setConversation(conversationResponse.value.conversation);
     } else {
       setError(responseError(response));
     }
@@ -362,6 +380,7 @@ export function ReviewBundleWorkspace({
   useEffect(() => {
     setDiff(undefined);
     setWorkspace(undefined);
+    setConversation(undefined);
     setSelectedItemId(undefined);
     void readWorkspace();
   }, [readWorkspace]);
@@ -480,6 +499,223 @@ export function ReviewBundleWorkspace({
     }
     setBusy(false);
   }, [busy, draftText, readWorkspace, selectedItem, workspace]);
+
+  const saveProposalInput = useCallback(
+    async (
+      kind: "APPLY_QUESTION_ANSWER" | "SAVE_ENTRY_INSTRUCTION",
+      text: string,
+    ) => {
+      if (workspace === undefined || selectedItem === undefined || busy) return;
+      if (text.trim().length === 0) {
+        setActionMessage("Proposal input cannot be empty.");
+        return;
+      }
+      setBusy(true);
+      const commandId = `renderer-proposal-input-${workspace.bundleId}-${selectedItem.itemId}-${Date.now()}`;
+      const response = await window.prmonitor?.saveReviewBundleProposalInput({
+        schemaVersion: 1,
+        commandId,
+        bundleId: workspace.bundleId,
+        itemId: selectedItem.itemId,
+        kind,
+        text,
+        expectedBundleVersion: workspace.version,
+        actionId: commandId,
+        createdAt: new Date().toISOString(),
+      });
+      if (
+        response?.ok &&
+        response.value.kind === "review-bundle-conversation"
+      ) {
+        setConversation(response.value.conversation);
+        await readWorkspace();
+        setActionMessage(
+          kind === "APPLY_QUESTION_ANSWER"
+            ? "The answer was applied explicitly to this proposal item."
+            : "The entry instruction was saved with the proposal history.",
+        );
+      } else if (response !== undefined) {
+        setActionMessage(responseError(response));
+      }
+      setBusy(false);
+    },
+    [busy, readWorkspace, selectedItem, workspace],
+  );
+
+  const submitConversation = useCallback(async () => {
+    if (workspace === undefined || conversation === undefined || busy) return;
+    const message = conversationText.trim();
+    if (message.length === 0) {
+      setActionMessage(
+        "Enter a question or explicit revision instruction first.",
+      );
+      return;
+    }
+    if (
+      conversationMode === "READ_ONLY_CONVERSATION" &&
+      !conversation.capabilities.canAsk
+    ) {
+      setActionMessage(
+        "The Review Bundle is working; read-only conversation is paused.",
+      );
+      return;
+    }
+    if (
+      conversationMode === "REVIEW_REVISION" &&
+      !conversation.capabilities.canRequestRevision
+    ) {
+      setActionMessage(
+        "Complete every proposal decision and question answer before requesting a revision.",
+      );
+      return;
+    }
+    setBusy(true);
+    const intentId = `renderer-f21-${workspace.bundleId}-${Date.now()}`;
+    const intent = {
+      schemaVersion: 1 as const,
+      intentId,
+      bundleId: workspace.bundleId,
+      mode: conversationMode,
+      message,
+      ...(selectedItem === undefined ? {} : { itemIds: [selectedItem.itemId] }),
+      expectedBundleVersion: workspace.version,
+      ...(conversationMode === "REVIEW_REVISION"
+        ? {
+            expectedEvidenceRevision: conversation.evidenceRevision,
+            acknowledgeUnattributedChanges:
+              acknowledgeUnattributed || undefined,
+          }
+        : {}),
+      idempotencyKey: intentId,
+      actionId: intentId,
+      createdAt: new Date().toISOString(),
+    };
+    const response =
+      conversationMode === "READ_ONLY_CONVERSATION"
+        ? await window.prmonitor?.askReviewBundleConversation(intent)
+        : await window.prmonitor?.requestReviewBundleRevision(intent);
+    if (response?.ok && response.value.kind === "review-bundle-conversation") {
+      setConversation(response.value.conversation);
+      setConversationText("");
+      if (conversationMode === "REVIEW_REVISION") await readWorkspace();
+      setActionMessage(
+        conversationMode === "READ_ONLY_CONVERSATION"
+          ? "Read-only answer recorded; no files or worktree state were changed."
+          : "Revision finished with a deterministic Review Bundle result.",
+      );
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+    }
+    setBusy(false);
+  }, [
+    acknowledgeUnattributed,
+    busy,
+    conversation,
+    conversationMode,
+    conversationText,
+    readWorkspace,
+    selectedItem,
+    workspace,
+  ]);
+
+  const useLatestAnswer = useCallback(() => {
+    const latestAnswer = conversation?.turns.at(-1)?.answer;
+    if (latestAnswer === undefined) {
+      setActionMessage("The latest read-only turn did not return an answer.");
+      return;
+    }
+    setAnswer(latestAnswer);
+    void saveProposalInput("APPLY_QUESTION_ANSWER", latestAnswer);
+  }, [conversation, saveProposalInput]);
+
+  const continueConversation = useCallback(async () => {
+    const active = conversation?.activeOperation;
+    if (workspace === undefined || active === undefined || busy) return;
+    setBusy(true);
+    const response = await window.prmonitor?.continueReviewBundleConversation({
+      bundleId: workspace.bundleId,
+      operationId: active.operationId,
+      expectedBundleVersion: workspace.version,
+    });
+    if (response?.ok && response.value.kind === "review-bundle-conversation") {
+      setConversation(response.value.conversation);
+      await readWorkspace();
+      setActionMessage("The explicitly continued AI turn was recorded.");
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+    }
+    setBusy(false);
+  }, [busy, conversation, readWorkspace, workspace]);
+
+  const cancelConversation = useCallback(async () => {
+    const active = conversation?.activeOperation;
+    if (workspace === undefined || active === undefined || busy) return;
+    setBusy(true);
+    const response = await window.prmonitor?.cancelReviewBundleConversation({
+      bundleId: workspace.bundleId,
+      operationId: active.operationId,
+    });
+    if (response?.ok && response.value.kind === "review-bundle-conversation") {
+      setConversation(response.value.conversation);
+      await readWorkspace();
+      setActionMessage(
+        "The AI turn was cancelled and its evidence was preserved.",
+      );
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+    }
+    setBusy(false);
+  }, [busy, conversation, readWorkspace, workspace]);
+
+  const startNewOperation = useCallback(async () => {
+    const active = conversation?.activeOperation;
+    if (
+      workspace === undefined ||
+      conversation === undefined ||
+      active === undefined ||
+      !conversation.capabilities.canStartNewOperation ||
+      busy
+    )
+      return;
+    setBusy(true);
+    const intentId = `renderer-f21-new-${workspace.bundleId}-${Date.now()}`;
+    const response = await window.prmonitor?.startNewReviewBundleOperation({
+      schemaVersion: 1,
+      intentId,
+      bundleId: workspace.bundleId,
+      mode: "REVIEW_REVISION",
+      message:
+        conversationText.trim() ||
+        "Start a new bounded revision operation using the preserved review scope.",
+      expectedBundleVersion: workspace.version,
+      expectedEvidenceRevision: conversation.evidenceRevision,
+      priorOperationId: active.operationId,
+      selectedBudget: newOperationBudget,
+      ...(acknowledgeUnattributed
+        ? { acknowledgeUnattributedChanges: true }
+        : {}),
+      idempotencyKey: intentId,
+      actionId: intentId,
+      createdAt: new Date().toISOString(),
+    });
+    if (response?.ok && response.value.kind === "review-bundle-conversation") {
+      setConversation(response.value.conversation);
+      setConversationText("");
+      await readWorkspace();
+      setActionMessage("A new explicitly budgeted AI operation was recorded.");
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+    }
+    setBusy(false);
+  }, [
+    acknowledgeUnattributed,
+    busy,
+    conversation,
+    conversationText,
+    newOperationBudget,
+    readWorkspace,
+    workspace,
+  ]);
 
   const loadDiff = useCallback(
     async (mode: F20DiffMode) => {
@@ -926,6 +1162,23 @@ export function ReviewBundleWorkspace({
                         }
                       />
                     </label>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={
+                        !proposal ||
+                        busy ||
+                        overrideInstruction.trim().length === 0
+                      }
+                      onClick={() =>
+                        void saveProposalInput(
+                          "SAVE_ENTRY_INSTRUCTION",
+                          overrideInstruction,
+                        )
+                      }
+                    >
+                      Save entry instruction
+                    </button>
                     {selectedItem.questionAnswerRequired ||
                     overrideDisposition === "question" ? (
                       <label>
@@ -937,6 +1190,24 @@ export function ReviewBundleWorkspace({
                           aria-describedby="review-question-help"
                         />
                       </label>
+                    ) : null}
+                    {selectedItem.questionAnswerRequired ||
+                    overrideDisposition === "question" ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={
+                          !proposal || busy || answer.trim().length === 0
+                        }
+                        onClick={() =>
+                          void saveProposalInput(
+                            "APPLY_QUESTION_ANSWER",
+                            answer,
+                          )
+                        }
+                      >
+                        Save question answer
+                      </button>
                     ) : null}
                     {selectedItem.questionAnswerRequired ||
                     overrideDisposition === "question" ? (
@@ -991,6 +1262,205 @@ export function ReviewBundleWorkspace({
           )}
         </div>
       </div>
+
+      {conversation !== undefined ? (
+        <section
+          className="review-conversation-panel"
+          aria-labelledby="review-conversation-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Explicit AI conversation</p>
+              <h3 id="review-conversation-heading">
+                Ask first, or revise the worktree
+              </h3>
+            </div>
+            <span className="review-authority-label">
+              No publication authority
+            </span>
+          </div>
+          <p className="review-control-help">
+            Ask / clarify is read-only. Revise worktree is a separate, explicit
+            mutating turn gated by the committed decisions and fresh F13
+            evidence.
+          </p>
+          <fieldset className="review-conversation-modes">
+            <legend>Conversation mode</legend>
+            <label>
+              <input
+                type="radio"
+                name={`f21-mode-${workspace.bundleId}`}
+                value="READ_ONLY_CONVERSATION"
+                checked={conversationMode === "READ_ONLY_CONVERSATION"}
+                onChange={() => setConversationMode("READ_ONLY_CONVERSATION")}
+              />
+              Ask / clarify (read-only)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name={`f21-mode-${workspace.bundleId}`}
+                value="REVIEW_REVISION"
+                checked={conversationMode === "REVIEW_REVISION"}
+                onChange={() => setConversationMode("REVIEW_REVISION")}
+              />
+              Revise worktree (explicit code/test/reply change)
+            </label>
+          </fieldset>
+          {conversationMode === "REVIEW_REVISION" &&
+          condition?.classification === "UNATTRIBUTED_CHANGES" ? (
+            <label className="review-acknowledgement">
+              <input
+                type="checkbox"
+                checked={acknowledgeUnattributed}
+                onChange={(event) =>
+                  setAcknowledgeUnattributed(event.target.checked)
+                }
+              />
+              I acknowledge the unattributed worktree changes and want F21 to
+              revalidate this exact worktree.
+            </label>
+          ) : null}
+          <label>
+            {conversationMode === "READ_ONLY_CONVERSATION"
+              ? "Question or clarification"
+              : "Explicit revision instruction"}
+            <textarea
+              value={conversationText}
+              maxLength={64 * 1024}
+              disabled={busy}
+              onChange={(event) => setConversationText(event.target.value)}
+              aria-describedby="review-conversation-help"
+            />
+          </label>
+          <p id="review-conversation-help" className="field-help">
+            Conversation text is stored with the immutable task snapshot. It
+            never changes mode implicitly.
+          </p>
+          <div className="review-button-row">
+            <button
+              type="button"
+              disabled={
+                busy ||
+                (conversationMode === "READ_ONLY_CONVERSATION"
+                  ? !conversation.capabilities.canAsk
+                  : !conversation.capabilities.canRequestRevision)
+              }
+              onClick={() => void submitConversation()}
+            >
+              {conversationMode === "READ_ONLY_CONVERSATION"
+                ? "Ask read-only question"
+                : "Request explicit revision"}
+            </button>
+            {conversation.activeOperation?.permittedNextAction ===
+            "CONTINUE_AI_WORK" ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => void continueConversation()}
+              >
+                Continue AI Work
+              </button>
+            ) : null}
+            {conversation.capabilities.canCancel ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => void cancelConversation()}
+              >
+                Cancel AI Work
+              </button>
+            ) : null}
+            {conversation.capabilities.canStartNewOperation ? (
+              <>
+                <label className="review-budget-field">
+                  New turn budget
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={newOperationBudget}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setNewOperationBudget(
+                        Math.max(
+                          1,
+                          Math.min(10, Number(event.target.value) || 1),
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void startNewOperation()}
+                >
+                  Start new AI Work budget
+                </button>
+              </>
+            ) : null}
+          </div>
+          {conversation.turns.at(-1)?.progress.length ? (
+            <ol
+              className="review-conversation-progress"
+              aria-label="Safe AI progress"
+            >
+              {conversation.turns.at(-1)?.progress.map((event) => (
+                <li key={`${event.sequence}-${event.occurredAt}`}>
+                  {event.summary}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {conversation.lastRevision?.status === "NEEDS_ATTENTION" ? (
+            <p className="review-conversation-attention" role="alert">
+              Revision needs attention:{" "}
+              {conversation.lastRevision.reasons.join(" ")}
+            </p>
+          ) : null}
+          <div
+            className="review-conversation-transcript"
+            aria-live="polite"
+            aria-label="Conversation transcript"
+          >
+            {conversation.messages.length === 0 ? (
+              <p className="review-empty">
+                No conversation turns have been recorded.
+              </p>
+            ) : (
+              conversation.messages.map((message) => (
+                <article
+                  className={`review-conversation-message review-conversation-${message.role}`}
+                  key={message.messageId}
+                >
+                  <strong>{message.role === "user" ? "You" : "AI"}</strong>
+                  <p>{message.text}</p>
+                </article>
+              ))
+            )}
+          </div>
+          {conversation.turns.at(-1)?.answer !== undefined ? (
+            <div className="review-conversation-answer">
+              <h4>Latest read-only answer</h4>
+              <p>{conversation.turns.at(-1)?.answer}</p>
+              {selectedItem?.questionAnswerRequired ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={useLatestAnswer}
+                >
+                  Use as answer
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section
         className="review-evidence-section"

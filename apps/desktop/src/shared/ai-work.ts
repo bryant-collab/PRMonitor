@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   aiJsonValueSchema,
+  aiProviderConversationReferenceSchema,
   aiProviderInteractionModeSchema,
   aiProviderTaskTypeSchema,
   type AIJsonValue,
@@ -446,6 +447,7 @@ export const aiWorkTurnReportSchema = z
     startedAt: z.string().min(1).max(128),
     completedAt: z.string().min(1).max(128),
     providerStatus: z.string().min(1).max(64),
+    conversationReference: aiProviderConversationReferenceSchema.optional(),
     modelClaims: aiWorkModelClaimsSchema,
     actualChangedFiles: z.array(aiWorkFileEvidenceSchema).max(2_000),
     actualCommands: boundedTextArraySchema,
@@ -1060,6 +1062,52 @@ function implementationPredicate(
   };
 }
 
+function readOnlyConversationPredicate(
+  context: AIWorkPredicateContext,
+): AIWorkPredicateResult {
+  const structured = resultRecord(context.providerResult.structuredResult);
+  const completed =
+    context.providerResult.status === "completed" &&
+    structured?.interaction === "read_only" &&
+    typeof structured.answer === "string" &&
+    structured.answer.trim().length > 0;
+  const providerAttemptedMutation = context.providerResult.events.some(
+    (event) => event.kind === "file_change" || event.kind === "command",
+  );
+  const unchanged =
+    context.evidence.worktree.complete &&
+    !context.evidence.worktree.forbiddenMutation &&
+    context.evidence.worktree.files.length === 0 &&
+    !providerAttemptedMutation;
+  const valid = completed && unchanged;
+  return {
+    valid,
+    complete: valid,
+    materialProgress: false,
+    reason: !completed
+      ? "The read-only conversation did not return a bounded answer."
+      : !unchanged
+        ? providerAttemptedMutation
+          ? "The read-only conversation attempted file or command activity."
+          : "The read-only conversation produced unexpected worktree mutation evidence."
+        : "The read-only conversation completed without mutation.",
+    remainingProblems: [
+      ...(!completed ? ["read-only-answer-missing"] : []),
+      ...(!unchanged
+        ? [
+            providerAttemptedMutation
+              ? "read-only-provider-mutation"
+              : "read-only-worktree-mutated",
+          ]
+        : []),
+    ],
+    semanticResultIdentity:
+      structured === undefined
+        ? undefined
+        : aiWorkStableDigest(canonicalizeAIWorkValue(structured)),
+  };
+}
+
 function conflictPredicate(
   context: AIWorkPredicateContext,
 ): AIWorkPredicateResult {
@@ -1127,6 +1175,14 @@ export function createDefaultAIWorkPredicateRegistry(): AIWorkPredicateRegistry 
     registry.register({ id, version: 1, evaluate: proposalPredicate });
   for (const id of ["REVIEW_IMPLEMENTATION", "review-implementation"])
     registry.register({ id, version: 1, evaluate: implementationPredicate });
+  for (const id of ["REVIEW_REVISION", "review-revision"])
+    registry.register({ id, version: 1, evaluate: implementationPredicate });
+  for (const id of ["READ_ONLY_CONVERSATION", "read-only-conversation"])
+    registry.register({
+      id,
+      version: 1,
+      evaluate: readOnlyConversationPredicate,
+    });
   for (const id of ["MERGE_CONFLICT_RESOLUTION", "merge-conflict-resolution"])
     registry.register({ id, version: 1, evaluate: conflictPredicate });
   return registry;

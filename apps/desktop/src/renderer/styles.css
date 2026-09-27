@@ -886,6 +886,7 @@ h1 {
 .review-action-message,
 .review-error,
 .review-detail-card,
+.review-conversation-panel,
 .review-evidence-section,
 .review-worktree-panel,
 .review-diff-panel,
@@ -906,6 +907,7 @@ h1 {
 }
 
 .review-bundle-header h2,
+.review-conversation-panel h3,
 .review-evidence-section h3,
 .review-worktree-panel h3,
 .review-diff-panel h3,
@@ -1047,6 +1049,100 @@ h1 {
 .review-detail-card {
   display: grid;
   gap: 0.8rem;
+}
+
+.review-conversation-panel {
+  display: grid;
+  min-width: 0;
+  gap: 0.8rem;
+  border-left: 0.35rem solid #5e4aa8;
+}
+
+.review-conversation-modes {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.45rem;
+  background: #f8fbff;
+}
+
+.review-conversation-modes legend {
+  padding: 0 0.25rem;
+  color: #29435e;
+  font-weight: 700;
+}
+
+.review-acknowledgement {
+  padding: 0.65rem;
+  border-left: 0.3rem solid #b66a00;
+  background: #fff7e8;
+  color: #684000;
+}
+
+.review-conversation-transcript {
+  display: grid;
+  min-width: 0;
+  max-height: 24rem;
+  gap: 0.55rem;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.45rem;
+  background: #f4f7fb;
+}
+
+.review-conversation-progress {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.65rem 0.65rem 0.65rem 2rem;
+  border-left: 0.3rem solid #5e4aa8;
+  background: #f4f0ff;
+  color: #3d2d72;
+}
+
+.review-conversation-attention {
+  margin: 0;
+  padding: 0.7rem;
+  border-left: 0.3rem solid #b66a00;
+  background: #fff7e8;
+  color: #684000;
+}
+
+.review-budget-field {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.review-budget-field input {
+  width: 4.5rem;
+}
+
+.review-conversation-message,
+.review-conversation-answer {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.4rem;
+  background: #fff;
+}
+
+.review-conversation-message p,
+.review-conversation-answer p {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-conversation-user {
+  border-left: 0.25rem solid #2066b1;
+}
+
+.review-conversation-assistant {
+  border-left: 0.25rem solid #5e4aa8;
 }
 
 .review-authority-label,
@@ -1406,6 +1502,13 @@ h1 {
   .review-bundle-header,
   .review-guidance,
   .review-detail-card,
+  .review-conversation-panel,
+  .review-conversation-modes,
+  .review-conversation-transcript,
+  .review-conversation-message,
+  .review-conversation-answer,
+  .review-conversation-progress,
+  .review-conversation-attention,
   .review-evidence-section,
   .review-evidence-panel,
   .review-worktree-panel,

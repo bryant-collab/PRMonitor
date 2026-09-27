@@ -6,11 +6,7 @@ import {
   assertBoundedText,
 } from "./codecs";
 import { PersistenceError } from "./types";
-import type {
-  PersistenceClock,
-  PersistenceTransaction,
-  SqlRow,
-} from "./types";
+import type { PersistenceClock, PersistenceTransaction, SqlRow } from "./types";
 import type { PersistenceStore } from "./database";
 import type {
   AddPrAttemptView,
@@ -134,12 +130,21 @@ function safeMultilineText(value: string, label: string): void {
     throw new Error(`${label} exceeds the F07 context limit.`);
   for (const character of value) {
     const codePoint = character.codePointAt(0) ?? 0;
-    if ((codePoint <= 31 && codePoint !== 9 && codePoint !== 10 && codePoint !== 13) || codePoint === 127)
+    if (
+      (codePoint <= 31 &&
+        codePoint !== 9 &&
+        codePoint !== 10 &&
+        codePoint !== 13) ||
+      codePoint === 127
+    )
       throw new Error(`${label} contains an unsafe control character.`);
   }
 }
 
-function hashJson(value: unknown): { readonly json: string; readonly hash: string } {
+function hashJson(value: unknown): {
+  readonly json: string;
+  readonly hash: string;
+} {
   const encoded = encodeSnapshot(value, F07_RECORD_SCHEMA_VERSION);
   return { json: encoded.payload, hash: encoded.payloadHash };
 }
@@ -174,7 +179,10 @@ function repositoryIdForKey(key: string): string {
   return `github-repository-${createHash("sha256").update(key, "utf8").digest("hex").slice(0, 32)}`;
 }
 
-function configurationRevisionId(managedPrId: string, revision: number): string {
+function configurationRevisionId(
+  managedPrId: string,
+  revision: number,
+): string {
   return `managed-pr-config-${createHash("sha256").update(`${managedPrId}:${revision}`, "utf8").digest("hex").slice(0, 32)}`;
 }
 
@@ -184,13 +192,21 @@ function associationId(managedPrId: string): string {
 
 function contentHash(context: string | null, override: string | null): string {
   return createHash("sha256")
-    .update(JSON.stringify({ context, syncSourceBranchOverride: override }), "utf8")
+    .update(
+      JSON.stringify({ context, syncSourceBranchOverride: override }),
+      "utf8",
+    )
     .digest("hex");
 }
 
 function repositoryError(
   store: PersistenceStore,
-  code: "CONFLICT" | "NOT_FOUND" | "INVALID_RECORD" | "DUPLICATE" | "SECURITY_VIOLATION",
+  code:
+    | "CONFLICT"
+    | "NOT_FOUND"
+    | "INVALID_RECORD"
+    | "DUPLICATE"
+    | "SECURITY_VIOLATION",
   what: string,
 ): PersistenceError {
   return new PersistenceError({
@@ -210,7 +226,8 @@ function readReason(row: SqlRow, key: string): ManagedPrReason | undefined {
   if (value === undefined || value === "") return undefined;
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return undefined;
     return parsed as ManagedPrReason;
   } catch {
     return undefined;
@@ -222,29 +239,55 @@ function reasonJson(reason: ManagedPrReason | undefined): string | null {
 }
 
 function attemptStatus(value: string): AddPrAttemptStatus {
-  if (["PENDING", "SUCCEEDED", "CANCELLED", "FAILED", "RECOVERY_REQUIRED"].includes(value))
+  if (
+    [
+      "PENDING",
+      "SUCCEEDED",
+      "CANCELLED",
+      "FAILED",
+      "RECOVERY_REQUIRED",
+    ].includes(value)
+  )
     return value as AddPrAttemptStatus;
   throw new Error("F07_INVALID_ATTEMPT_STATUS");
 }
 
 function setupStatus(value: string): ManagedPrLocalSetupStatus {
-  if (["LOCAL_CLONE_REQUIRED", "VALID", "DIRTY", "MISSING", "INVALID", "UNKNOWN"].includes(value))
+  if (
+    [
+      "LOCAL_CLONE_REQUIRED",
+      "VALID",
+      "DIRTY",
+      "MISSING",
+      "INVALID",
+      "UNKNOWN",
+    ].includes(value)
+  )
     return value as ManagedPrLocalSetupStatus;
   throw new Error("F07_INVALID_SETUP_STATUS");
 }
 
 function cleanState(value: string): ManagedPrLocalCleanState {
-  if (["CLEAN", "DIRTY", "UNKNOWN"].includes(value)) return value as ManagedPrLocalCleanState;
+  if (["CLEAN", "DIRTY", "UNKNOWN"].includes(value))
+    return value as ManagedPrLocalCleanState;
   throw new Error("F07_INVALID_CLEAN_STATE");
 }
 
 function localCloneFromRow(row: SqlRow): ManagedPrLocalCloneView {
-  const repository = parseUnhashedJson<ManagedPrLocalCloneView["repository"]>(row, "repository_json");
-  const snapshot = parseUnhashedJson<ManagedPrLocalCloneView["validationSnapshot"]>(row, "validation_snapshot_json");
+  const repository = parseUnhashedJson<ManagedPrLocalCloneView["repository"]>(
+    row,
+    "repository_json",
+  );
+  const snapshot = parseUnhashedJson<
+    ManagedPrLocalCloneView["validationSnapshot"]
+  >(row, "validation_snapshot_json");
   const lastValidatedAt = rowString(row, "validated_at");
   return {
     associationId: rowString(row, "association_id"),
-    status: setupStatus(rowString(row, "status")) as Exclude<ManagedPrLocalSetupStatus, "LOCAL_CLONE_REQUIRED">,
+    status: setupStatus(rowString(row, "status")) as Exclude<
+      ManagedPrLocalSetupStatus,
+      "LOCAL_CLONE_REQUIRED"
+    >,
     cleanState: cleanState(rowString(row, "clean_state")),
     canonicalRoot: rowString(row, "canonical_root"),
     repository,
@@ -255,8 +298,12 @@ function localCloneFromRow(row: SqlRow): ManagedPrLocalCloneView {
 }
 
 function configurationFromRow(row: SqlRow): ManagedPrConfigurationView {
-  const context = rowBoolean(row, "context_present") ? rowString(row, "context_text") : null;
-  const override = rowBoolean(row, "override_present") ? rowString(row, "override_text") : null;
+  const context = rowBoolean(row, "context_present")
+    ? rowString(row, "context_text")
+    : null;
+  const override = rowBoolean(row, "override_present")
+    ? rowString(row, "override_text")
+    : null;
   return {
     revisionId: rowString(row, "revision_id"),
     revision: rowNumber(row, "revision"),
@@ -284,13 +331,19 @@ export class F07PersistenceRepositories {
       [input.correlationId, "add correlation identifier"],
       [input.idempotencyKey, "add idempotency key"],
       [input.serverId, "server identifier"],
-    ] as const) safeId(value, label);
+    ] as const)
+      safeId(value, label);
     safeText(input.canonicalPrKey, "canonical pull-request key");
     if (!Number.isSafeInteger(input.profileVersion) || input.profileVersion < 1)
-      throw repositoryError(this.store, "INVALID_RECORD", "The GitHub profile version is invalid.");
+      throw repositoryError(
+        this.store,
+        "INVALID_RECORD",
+        "The GitHub profile version is invalid.",
+      );
     safeText(input.normalizedUrl, "normalized pull-request URL");
     const parsed = hashJson(input.parsedInput);
-    if (input.context !== null) safeMultilineText(input.context, "PR Intent / Context");
+    if (input.context !== null)
+      safeMultilineText(input.context, "PR Intent / Context");
     if (input.syncSourceBranchOverride !== null)
       safeText(input.syncSourceBranchOverride, "synchronization source branch");
     const createdAt = timestamp(this.clock);
@@ -320,7 +373,10 @@ export class F07PersistenceRepositories {
           rowString(existing, "attempt_id"),
           rowNumber(existing, "version"),
         );
-        const row = transaction.get("SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?", rowString(existing, "attempt_id"));
+        const row = transaction.get(
+          "SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?",
+          rowString(existing, "attempt_id"),
+        );
         if (row === undefined) throw new Error("F07_ATTEMPT_NOT_READABLE");
         return { attempt: this.attemptFromRow(row), shouldFetch: true };
       }
@@ -342,7 +398,10 @@ export class F07PersistenceRepositories {
         createdAt,
         createdAt,
       );
-      const row = transaction.get("SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?", input.attemptId);
+      const row = transaction.get(
+        "SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?",
+        input.attemptId,
+      );
       if (row === undefined) throw new Error("F07_ATTEMPT_NOT_READABLE");
       return { attempt: this.attemptFromRow(row), shouldFetch: true };
     });
@@ -358,14 +417,30 @@ export class F07PersistenceRepositories {
     },
   ): F07AddAttemptRecord {
     safeId(attemptId, "add attempt identifier");
-    if (input.managedPrId !== undefined && input.managedPrId !== null) safeId(input.managedPrId, "managed PR identifier");
+    if (input.managedPrId !== undefined && input.managedPrId !== null)
+      safeId(input.managedPrId, "managed PR identifier");
     const changedAt = timestamp(this.clock);
     return this.store.transaction((transaction) => {
-      const current = transaction.get("SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?", attemptId);
-      if (current === undefined) throw repositoryError(this.store, "NOT_FOUND", "The add attempt no longer exists.");
+      const current = transaction.get(
+        "SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?",
+        attemptId,
+      );
+      if (current === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The add attempt no longer exists.",
+        );
       const currentVersion = rowNumber(current, "version");
-      if (input.expectedVersion !== undefined && input.expectedVersion !== currentVersion)
-        throw repositoryError(this.store, "CONFLICT", "The add attempt changed before its outcome was recorded.");
+      if (
+        input.expectedVersion !== undefined &&
+        input.expectedVersion !== currentVersion
+      )
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The add attempt changed before its outcome was recorded.",
+        );
       transaction.run(
         "UPDATE f07_add_pr_attempts SET status = ?, managed_pr_id = ?, reason_json = ?, version = version + 1, updated_at = ? WHERE attempt_id = ? AND version = ?",
         input.status,
@@ -375,7 +450,10 @@ export class F07PersistenceRepositories {
         attemptId,
         currentVersion,
       );
-      const row = transaction.get("SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?", attemptId);
+      const row = transaction.get(
+        "SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?",
+        attemptId,
+      );
       if (row === undefined) throw new Error("F07_ATTEMPT_NOT_READABLE");
       return this.attemptFromRow(row);
     });
@@ -386,29 +464,68 @@ export class F07PersistenceRepositories {
     safeId(input.managedPrId, "managed PR identifier");
     safeId(input.remote.serverId, "server identifier");
     const remote = hashJson(input.remote);
-    const configHash = contentHash(input.context, input.syncSourceBranchOverride);
+    const configHash = contentHash(
+      input.context,
+      input.syncSourceBranchOverride,
+    );
     const configId = configurationRevisionId(input.managedPrId, 1);
     const association = input.localClone;
     const changedAt = timestamp(this.clock);
     return this.store.transaction((transaction) => {
-      const attempt = transaction.get("SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?", input.attemptId);
-      if (attempt === undefined) throw repositoryError(this.store, "NOT_FOUND", "The add intent no longer exists.");
-      const existing = transaction.get("SELECT managed_pr_id FROM f07_managed_prs WHERE server_id = ? AND canonical_pr_key = ?", input.remote.serverId, input.remote.pullRequestKey);
+      const attempt = transaction.get(
+        "SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?",
+        input.attemptId,
+      );
+      if (attempt === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The add intent no longer exists.",
+        );
+      const existing = transaction.get(
+        "SELECT managed_pr_id FROM f07_managed_prs WHERE server_id = ? AND canonical_pr_key = ?",
+        input.remote.serverId,
+        input.remote.pullRequestKey,
+      );
       if (existing !== undefined) {
         const existingId = rowString(existing, "managed_pr_id");
-        transaction.run("UPDATE f07_add_pr_attempts SET status = 'SUCCEEDED', managed_pr_id = ?, reason_json = NULL, version = version + 1, updated_at = ? WHERE attempt_id = ?", existingId, changedAt, input.attemptId);
-        const row = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", existingId);
+        transaction.run(
+          "UPDATE f07_add_pr_attempts SET status = 'SUCCEEDED', managed_pr_id = ?, reason_json = NULL, version = version + 1, updated_at = ? WHERE attempt_id = ?",
+          existingId,
+          changedAt,
+          input.attemptId,
+        );
+        const row = transaction.get(
+          "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+          existingId,
+        );
         if (row === undefined) throw new Error("F07_MANAGED_PR_NOT_READABLE");
         return this.readManagedPrInTransaction(transaction, row);
       }
 
-      const baseRepositoryId = repositoryIdForKey(input.remote.baseRepository.key);
+      const baseRepositoryId = repositoryIdForKey(
+        input.remote.baseRepository.key,
+      );
       const headRepositoryId = input.remote.headRepository.available
         ? repositoryIdForKey(input.remote.headRepository.key)
         : baseRepositoryId;
-      this.ensureRepository(transaction, input.remote.serverId, input.remote.baseRepository, baseRepositoryId, input.remote.defaultBranch, changedAt);
+      this.ensureRepository(
+        transaction,
+        input.remote.serverId,
+        input.remote.baseRepository,
+        baseRepositoryId,
+        input.remote.defaultBranch,
+        changedAt,
+      );
       if (input.remote.headRepository.available)
-        this.ensureRepository(transaction, input.remote.serverId, input.remote.headRepository, headRepositoryId, undefined, changedAt);
+        this.ensureRepository(
+          transaction,
+          input.remote.serverId,
+          input.remote.headRepository,
+          headRepositoryId,
+          undefined,
+          changedAt,
+        );
       transaction.run(
         "INSERT INTO managed_prs (managed_pr_id, server_id, base_repository_id, head_repository_id, number, base_branch, head_branch, base_sha, head_sha, sync_source_branch_override, state, version, intent_json, metadata_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
         input.managedPrId,
@@ -423,7 +540,10 @@ export class F07PersistenceRepositories {
         input.syncSourceBranchOverride,
         input.primaryState,
         encodeSnapshot({ configurationRevisionId: configId }).payload,
-        encodeSnapshot({ canonicalUrl: input.remote.canonicalUrl, remoteSnapshotHash: remote.hash }).payload,
+        encodeSnapshot({
+          canonicalUrl: input.remote.canonicalUrl,
+          remoteSnapshotHash: remote.hash,
+        }).payload,
         changedAt,
         changedAt,
       );
@@ -464,14 +584,23 @@ export class F07PersistenceRepositories {
         changedAt,
         changedAt,
       );
-      if (association !== undefined) this.insertAssociation(transaction, input.managedPrId, association, changedAt);
+      if (association !== undefined)
+        this.insertAssociation(
+          transaction,
+          input.managedPrId,
+          association,
+          changedAt,
+        );
       transaction.run(
         "UPDATE f07_add_pr_attempts SET status = 'SUCCEEDED', managed_pr_id = ?, reason_json = NULL, version = version + 1, updated_at = ? WHERE attempt_id = ?",
         input.managedPrId,
         changedAt,
         input.attemptId,
       );
-      const row = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
+      const row = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
       if (row === undefined) throw new Error("F07_MANAGED_PR_NOT_READABLE");
       return this.readManagedPrInTransaction(transaction, row);
     });
@@ -479,28 +608,44 @@ export class F07PersistenceRepositories {
 
   public getManagedPr(managedPrId: string): ManagedPrReadModel | undefined {
     safeId(managedPrId, "managed PR identifier");
-    const row = this.store.read("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", managedPrId);
+    const row = this.store.read(
+      "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+      managedPrId,
+    );
     return row === undefined ? undefined : this.readManagedPr(row);
   }
 
   public listManagedPrs(): readonly ManagedPrReadModel[] {
-    return this.store.readAll("SELECT * FROM f07_managed_prs ORDER BY updated_at DESC, managed_pr_id ASC").map((row) => this.readManagedPr(row));
+    return this.store
+      .readAll(
+        "SELECT * FROM f07_managed_prs ORDER BY updated_at DESC, managed_pr_id ASC",
+      )
+      .map((row) => this.readManagedPr(row));
   }
 
   public getAddAttempt(attemptId: string): F07AddAttemptRecord | undefined {
     safeId(attemptId, "add attempt identifier");
-    const row = this.store.read("SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?", attemptId);
+    const row = this.store.read(
+      "SELECT * FROM f07_add_pr_attempts WHERE attempt_id = ?",
+      attemptId,
+    );
     return row === undefined ? undefined : this.attemptFromRow(row);
   }
 
   public listAddAttempts(): readonly F07AddAttemptRecord[] {
-    return this.store.readAll("SELECT * FROM f07_add_pr_attempts ORDER BY updated_at DESC, attempt_id ASC").map((row) => this.attemptFromRow(row));
+    return this.store
+      .readAll(
+        "SELECT * FROM f07_add_pr_attempts ORDER BY updated_at DESC, attempt_id ASC",
+      )
+      .map((row) => this.attemptFromRow(row));
   }
 
   public reconcileStartup(reason: ManagedPrReason): void {
     const changedAt = timestamp(this.clock);
     this.store.transaction((transaction) => {
-      const pending = transaction.all("SELECT attempt_id, version FROM f07_add_pr_attempts WHERE status = 'PENDING'");
+      const pending = transaction.all(
+        "SELECT attempt_id, version FROM f07_add_pr_attempts WHERE status = 'PENDING'",
+      );
       for (const row of pending)
         transaction.run(
           "UPDATE f07_add_pr_attempts SET status = 'RECOVERY_REQUIRED', reason_json = ?, version = version + 1, updated_at = ? WHERE attempt_id = ? AND version = ?",
@@ -512,23 +657,58 @@ export class F07PersistenceRepositories {
     });
   }
 
-  public saveConfiguration(input: F07SaveConfigurationInput): ManagedPrReadModel {
+  public saveConfiguration(
+    input: F07SaveConfigurationInput,
+  ): ManagedPrReadModel {
     safeId(input.managedPrId, "managed PR identifier");
-    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
-      throw repositoryError(this.store, "INVALID_RECORD", "The managed PR version is invalid.");
-    if (input.context !== null) safeMultilineText(input.context, "PR Intent / Context");
-    if (input.syncSourceBranchOverride !== null) safeText(input.syncSourceBranchOverride, "synchronization source branch");
+    if (
+      !Number.isSafeInteger(input.expectedVersion) ||
+      input.expectedVersion < 1
+    )
+      throw repositoryError(
+        this.store,
+        "INVALID_RECORD",
+        "The managed PR version is invalid.",
+      );
+    if (input.context !== null)
+      safeMultilineText(input.context, "PR Intent / Context");
+    if (input.syncSourceBranchOverride !== null)
+      safeText(input.syncSourceBranchOverride, "synchronization source branch");
     const changedAt = timestamp(this.clock);
     return this.store.transaction((transaction) => {
-      const managed = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
-      if (managed === undefined) throw repositoryError(this.store, "NOT_FOUND", "The managed PR no longer exists.");
+      const managed = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
+      if (managed === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The managed PR no longer exists.",
+        );
       const currentVersion = rowNumber(managed, "version");
-      if (currentVersion !== input.expectedVersion) throw repositoryError(this.store, "CONFLICT", "The managed PR changed before this configuration edit was committed.");
-      const current = transaction.get("SELECT * FROM f07_pr_configuration_revisions WHERE revision_id = ?", rowString(managed, "current_configuration_revision_id"));
-      if (current === undefined) throw new Error("F07_CURRENT_CONFIGURATION_NOT_READABLE");
-      const currentContext = rowBoolean(current, "context_present") ? rowString(current, "context_text") : null;
-      const currentOverride = rowBoolean(current, "override_present") ? rowString(current, "override_text") : null;
-      if (currentContext === input.context && currentOverride === input.syncSourceBranchOverride)
+      if (currentVersion !== input.expectedVersion)
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The managed PR changed before this configuration edit was committed.",
+        );
+      const current = transaction.get(
+        "SELECT * FROM f07_pr_configuration_revisions WHERE revision_id = ?",
+        rowString(managed, "current_configuration_revision_id"),
+      );
+      if (current === undefined)
+        throw new Error("F07_CURRENT_CONFIGURATION_NOT_READABLE");
+      const currentContext = rowBoolean(current, "context_present")
+        ? rowString(current, "context_text")
+        : null;
+      const currentOverride = rowBoolean(current, "override_present")
+        ? rowString(current, "override_text")
+        : null;
+      if (
+        currentContext === input.context &&
+        currentOverride === input.syncSourceBranchOverride
+      )
         return this.readManagedPrInTransaction(transaction, managed);
       const revision = rowNumber(managed, "current_configuration_revision") + 1;
       const revisionId = configurationRevisionId(input.managedPrId, revision);
@@ -559,7 +739,10 @@ export class F07PersistenceRepositories {
         changedAt,
         input.managedPrId,
       );
-      const row = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
+      const row = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
       if (row === undefined) throw new Error("F07_MANAGED_PR_NOT_READABLE");
       return this.readManagedPrInTransaction(transaction, row);
     });
@@ -569,49 +752,139 @@ export class F07PersistenceRepositories {
     safeId(input.managedPrId, "managed PR identifier");
     const changedAt = timestamp(this.clock);
     return this.store.transaction((transaction) => {
-      const managed = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
-      if (managed === undefined) throw repositoryError(this.store, "NOT_FOUND", "The managed PR no longer exists.");
+      const managed = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
+      if (managed === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The managed PR no longer exists.",
+        );
       const version = rowNumber(managed, "version");
-      if (version !== input.expectedVersion) throw repositoryError(this.store, "CONFLICT", "The managed PR changed before the local clone was attached.");
-      transaction.run("DELETE FROM f07_local_clone_associations WHERE managed_pr_id = ?", input.managedPrId);
-      this.insertAssociation(transaction, input.managedPrId, input.localClone, changedAt);
-      transaction.run("UPDATE f07_managed_prs SET local_setup_status = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ? AND version = ?", input.localClone.status, changedAt, input.managedPrId, version);
-      const row = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
+      if (version !== input.expectedVersion)
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The managed PR changed before the local clone was attached.",
+        );
+      transaction.run(
+        "DELETE FROM f07_local_clone_associations WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
+      this.insertAssociation(
+        transaction,
+        input.managedPrId,
+        input.localClone,
+        changedAt,
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET local_setup_status = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ? AND version = ?",
+        input.localClone.status,
+        changedAt,
+        input.managedPrId,
+        version,
+      );
+      const row = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
       if (row === undefined) throw new Error("F07_MANAGED_PR_NOT_READABLE");
       return this.readManagedPrInTransaction(transaction, row);
     });
   }
 
-  public clearClone(managedPrId: string, expectedVersion: number): ManagedPrReadModel {
+  public clearClone(
+    managedPrId: string,
+    expectedVersion: number,
+  ): ManagedPrReadModel {
     safeId(managedPrId, "managed PR identifier");
     const changedAt = timestamp(this.clock);
     return this.store.transaction((transaction) => {
-      const managed = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", managedPrId);
-      if (managed === undefined) throw repositoryError(this.store, "NOT_FOUND", "The managed PR no longer exists.");
+      const managed = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        managedPrId,
+      );
+      if (managed === undefined)
+        throw repositoryError(
+          this.store,
+          "NOT_FOUND",
+          "The managed PR no longer exists.",
+        );
       const version = rowNumber(managed, "version");
-      if (version !== expectedVersion) throw repositoryError(this.store, "CONFLICT", "The managed PR changed before the local clone was cleared.");
-      transaction.run("DELETE FROM f07_local_clone_associations WHERE managed_pr_id = ?", managedPrId);
-      transaction.run("UPDATE f07_managed_prs SET local_setup_status = 'LOCAL_CLONE_REQUIRED', version = version + 1, updated_at = ? WHERE managed_pr_id = ? AND version = ?", changedAt, managedPrId, version);
-      const row = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", managedPrId);
+      if (version !== expectedVersion)
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The managed PR changed before the local clone was cleared.",
+        );
+      transaction.run(
+        "DELETE FROM f07_local_clone_associations WHERE managed_pr_id = ?",
+        managedPrId,
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET local_setup_status = 'LOCAL_CLONE_REQUIRED', version = version + 1, updated_at = ? WHERE managed_pr_id = ? AND version = ?",
+        changedAt,
+        managedPrId,
+        version,
+      );
+      const row = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        managedPrId,
+      );
       if (row === undefined) throw new Error("F07_MANAGED_PR_NOT_READABLE");
       return this.readManagedPrInTransaction(transaction, row);
     });
   }
 
-  public updateCloneStatus(input: { readonly managedPrId: string; readonly status: Exclude<ManagedPrLocalSetupStatus, "LOCAL_CLONE_REQUIRED">; readonly cleanState: ManagedPrLocalCleanState; readonly validationSnapshot: ManagedPrLocalCloneView["validationSnapshot"]; readonly reason?: ManagedPrReason; }): ManagedPrReadModel | undefined {
+  public updateCloneStatus(input: {
+    readonly managedPrId: string;
+    readonly status: Exclude<ManagedPrLocalSetupStatus, "LOCAL_CLONE_REQUIRED">;
+    readonly cleanState: ManagedPrLocalCleanState;
+    readonly validationSnapshot: ManagedPrLocalCloneView["validationSnapshot"];
+    readonly reason?: ManagedPrReason;
+  }): ManagedPrReadModel | undefined {
     const changedAt = timestamp(this.clock);
     return this.store.transaction((transaction) => {
-      const managed = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
-      const association = transaction.get("SELECT * FROM f07_local_clone_associations WHERE managed_pr_id = ?", input.managedPrId);
+      const managed = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
+      const association = transaction.get(
+        "SELECT * FROM f07_local_clone_associations WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
       if (managed === undefined || association === undefined) return undefined;
-      transaction.run("UPDATE f07_local_clone_associations SET status = ?, clean_state = ?, validation_snapshot_json = ?, validated_at = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ?", input.status, input.cleanState, JSON.stringify(input.validationSnapshot), input.validationSnapshot.validatedAt, changedAt, input.managedPrId);
-      transaction.run("UPDATE f07_managed_prs SET local_setup_status = ?, last_operation_reason_json = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ?", input.status, reasonJson(input.reason), changedAt, input.managedPrId);
-      const row = transaction.get("SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?", input.managedPrId);
-      return row === undefined ? undefined : this.readManagedPrInTransaction(transaction, row);
+      transaction.run(
+        "UPDATE f07_local_clone_associations SET status = ?, clean_state = ?, validation_snapshot_json = ?, validated_at = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ?",
+        input.status,
+        input.cleanState,
+        JSON.stringify(input.validationSnapshot),
+        input.validationSnapshot.validatedAt,
+        changedAt,
+        input.managedPrId,
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET local_setup_status = ?, last_operation_reason_json = ?, version = version + 1, updated_at = ? WHERE managed_pr_id = ?",
+        input.status,
+        reasonJson(input.reason),
+        changedAt,
+        input.managedPrId,
+      );
+      const row = transaction.get(
+        "SELECT * FROM f07_managed_prs WHERE managed_pr_id = ?",
+        input.managedPrId,
+      );
+      return row === undefined
+        ? undefined
+        : this.readManagedPrInTransaction(transaction, row);
     });
   }
 
-  public listCandidates(baseRepositoryKey: string): readonly F07CandidateRecord[] {
+  public listCandidates(
+    baseRepositoryKey: string,
+  ): readonly F07CandidateRecord[] {
     safeText(baseRepositoryKey, "base repository key");
     const rows = this.store.readAll(
       "SELECT l.*, m.local_setup_status FROM f07_local_clone_associations l JOIN f07_managed_prs m ON m.managed_pr_id = l.managed_pr_id WHERE m.base_repository_key = ? ORDER BY l.updated_at DESC",
@@ -637,7 +910,10 @@ export class F07PersistenceRepositories {
 
   public getClone(managedPrId: string): ManagedPrLocalCloneView | undefined {
     safeId(managedPrId, "managed PR identifier");
-    const row = this.store.read("SELECT * FROM f07_local_clone_associations WHERE managed_pr_id = ?", managedPrId);
+    const row = this.store.read(
+      "SELECT * FROM f07_local_clone_associations WHERE managed_pr_id = ?",
+      managedPrId,
+    );
     return row === undefined ? undefined : localCloneFromRow(row);
   }
 
@@ -658,24 +934,45 @@ export class F07PersistenceRepositories {
       version: rowNumber(row, "version"),
       createdAt: rowString(row, "created_at"),
       updatedAt: rowString(row, "updated_at"),
-      context: rowBoolean(row, "context_present") ? rowString(row, "context_text") : null,
-      syncSourceBranchOverride: rowBoolean(row, "override_present") ? rowString(row, "override_text") : null,
+      context: rowBoolean(row, "context_present")
+        ? rowString(row, "context_text")
+        : null,
+      syncSourceBranchOverride: rowBoolean(row, "override_present")
+        ? rowString(row, "override_text")
+        : null,
       parsedInput: decodeJson(row, "parsed_input_json", "parsed_input_hash"),
       profileVersion: rowNumber(row, "profile_version"),
     };
   }
 
   private readManagedPr(row: SqlRow): ManagedPrReadModel {
-    return this.store.transaction((transaction) => this.readManagedPrInTransaction(transaction, row));
+    return this.store.transaction((transaction) =>
+      this.readManagedPrInTransaction(transaction, row),
+    );
   }
 
-  private readManagedPrInTransaction(transaction: PersistenceTransaction, row: SqlRow): ManagedPrReadModel {
+  private readManagedPrInTransaction(
+    transaction: PersistenceTransaction,
+    row: SqlRow,
+  ): ManagedPrReadModel {
     const managedPrId = rowString(row, "managed_pr_id");
-    const configuration = transaction.get("SELECT * FROM f07_pr_configuration_revisions WHERE revision_id = ?", rowString(row, "current_configuration_revision_id"));
-    if (configuration === undefined) throw new Error("F07_CONFIGURATION_NOT_READABLE");
-    const association = transaction.get("SELECT * FROM f07_local_clone_associations WHERE managed_pr_id = ?", managedPrId);
-    const remote = decodeJson<ManagedPrRemoteSnapshot>(row, "remote_snapshot_json", "remote_snapshot_hash");
-    const localClone = association === undefined ? undefined : localCloneFromRow(association);
+    const configuration = transaction.get(
+      "SELECT * FROM f07_pr_configuration_revisions WHERE revision_id = ?",
+      rowString(row, "current_configuration_revision_id"),
+    );
+    if (configuration === undefined)
+      throw new Error("F07_CONFIGURATION_NOT_READABLE");
+    const association = transaction.get(
+      "SELECT * FROM f07_local_clone_associations WHERE managed_pr_id = ?",
+      managedPrId,
+    );
+    const remote = decodeJson<ManagedPrRemoteSnapshot>(
+      row,
+      "remote_snapshot_json",
+      "remote_snapshot_hash",
+    );
+    const localClone =
+      association === undefined ? undefined : localCloneFromRow(association);
     const title = remote.title;
     return {
       schemaVersion: 1,
@@ -695,12 +992,21 @@ export class F07PersistenceRepositories {
       prHeadBranch: rowString(row, "head_branch"),
       prBaseSha: rowString(row, "base_sha"),
       prHeadSha: rowString(row, "head_sha"),
-      ...(rowOptionalString(row, "default_branch") === undefined ? {} : { defaultBranch: rowOptionalString(row, "default_branch") }),
-      primaryState: rowString(row, "primary_state") as ManagedPrReadModel["primaryState"],
+      ...(rowOptionalString(row, "default_branch") === undefined
+        ? {}
+        : { defaultBranch: rowOptionalString(row, "default_branch") }),
+      primaryState: rowString(
+        row,
+        "primary_state",
+      ) as ManagedPrReadModel["primaryState"],
       localSetupStatus: setupStatus(rowString(row, "local_setup_status")),
       ...(localClone === undefined ? {} : { localClone }),
       configuration: configurationFromRow(configuration),
-      ...(readReason(row, "last_operation_reason_json") === undefined ? {} : { lastOperationReason: readReason(row, "last_operation_reason_json") }),
+      ...(readReason(row, "last_operation_reason_json") === undefined
+        ? {}
+        : {
+            lastOperationReason: readReason(row, "last_operation_reason_json"),
+          }),
       version: rowNumber(row, "version"),
       createdAt: rowString(row, "created_at"),
       updatedAt: rowString(row, "updated_at"),
@@ -710,12 +1016,17 @@ export class F07PersistenceRepositories {
   private ensureRepository(
     transaction: PersistenceTransaction,
     serverId: string,
-    repository: Extract<ManagedPrRemoteSnapshot["baseRepository"], { readonly available: true }>,
+    repository: Extract<
+      ManagedPrRemoteSnapshot["baseRepository"],
+      { readonly available: true }
+    >,
     repositoryId: string,
     defaultBranch: string | undefined,
     changedAt: string,
   ): void {
-    const metadata = encodeSnapshot({ providerId: repository.providerId ?? null }).payload;
+    const metadata = encodeSnapshot({
+      providerId: repository.providerId ?? null,
+    }).payload;
     transaction.run(
       "INSERT OR IGNORE INTO repositories (repository_id, server_id, owner, name, default_branch, metadata_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
       repositoryId,
@@ -727,7 +1038,10 @@ export class F07PersistenceRepositories {
       changedAt,
       changedAt,
     );
-    const server = transaction.get("SELECT server_id FROM github_servers WHERE server_id = ?", serverId);
+    const server = transaction.get(
+      "SELECT server_id FROM github_servers WHERE server_id = ?",
+      serverId,
+    );
     if (server === undefined) {
       throw new Error("F07_SERVER_FOREIGN_KEY_MISSING");
     }

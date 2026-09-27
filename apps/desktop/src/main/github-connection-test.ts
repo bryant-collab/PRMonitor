@@ -4,7 +4,10 @@ import type {
   GithubReasonNextAction,
   GithubSafeReason,
 } from "../shared/github-server";
-import type { GithubCredentialBroker, GithubRequestCapability } from "./github-credential-broker";
+import type {
+  GithubCredentialBroker,
+  GithubRequestCapability,
+} from "./github-credential-broker";
 import type {
   GithubCredentialOperationRecord,
   GithubServerProfileRecord,
@@ -91,7 +94,9 @@ async function readBoundedBody(response: Response): Promise<string> {
 }
 
 export class FetchGithubHttpTransport implements GithubHttpTransport {
-  public async request(request: GithubHttpRequest): Promise<GithubHttpResponse> {
+  public async request(
+    request: GithubHttpRequest,
+  ): Promise<GithubHttpResponse> {
     if (request.method !== "GET")
       throw new GithubHttpTransportError(
         "RESPONSE_TOO_LARGE",
@@ -131,8 +136,7 @@ export interface GithubConnectionTestFailure {
 }
 
 export type GithubConnectionTestResult =
-  | GithubConnectionTestSuccess
-  | GithubConnectionTestFailure;
+  GithubConnectionTestSuccess | GithubConnectionTestFailure;
 
 export interface GithubConnectionTestClock {
   now(): string;
@@ -151,7 +155,13 @@ function reason(
 function endpointFor(apiBaseUrl: string): string | undefined {
   try {
     const base = new URL(apiBaseUrl);
-    if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash)
+    if (
+      base.protocol !== "https:" ||
+      base.username ||
+      base.password ||
+      base.search ||
+      base.hash
+    )
       return undefined;
     const endpoint = new URL("user", `${base.toString().replace(/\/$/u, "")}/`);
     if (endpoint.origin !== base.origin) return undefined;
@@ -334,7 +344,10 @@ function classifyTransportFailure(
         correlationId,
       ),
     };
-  if (error instanceof GithubHttpTransportError && error.code === "RESPONSE_TOO_LARGE")
+  if (
+    error instanceof GithubHttpTransportError &&
+    error.code === "RESPONSE_TOO_LARGE"
+  )
     return {
       ok: false,
       endpoint,
@@ -398,15 +411,23 @@ export async function testGithubConnection(input: {
     };
   const controller = new AbortController();
   let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, Math.max(1_000, Math.min(input.timeoutMs ?? DEFAULT_GITHUB_CONNECTION_TIMEOUT_MS, 60_000)));
+  const timeout = setTimeout(
+    () => {
+      timedOut = true;
+      controller.abort();
+    },
+    Math.max(
+      1_000,
+      Math.min(input.timeoutMs ?? DEFAULT_GITHUB_CONNECTION_TIMEOUT_MS, 60_000),
+    ),
+  );
   const abort = () => controller.abort();
   input.signal?.addEventListener("abort", abort, { once: true });
   if (input.signal?.aborted) controller.abort();
 
-  const send = async (capability: GithubRequestCapability): Promise<GithubConnectionTestResult> => {
+  const send = async (
+    capability: GithubRequestCapability,
+  ): Promise<GithubConnectionTestResult> => {
     const headers: Record<string, string> = {
       accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28",

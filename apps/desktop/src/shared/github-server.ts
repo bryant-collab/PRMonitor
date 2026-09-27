@@ -24,10 +24,7 @@ export type GithubServerStatus =
   | "REMOVED";
 
 export type GithubSecureStoreState =
-  | "AVAILABLE"
-  | "UNAVAILABLE"
-  | "WEAK"
-  | "NOT_READY";
+  "AVAILABLE" | "UNAVAILABLE" | "WEAK" | "NOT_READY";
 
 export type GithubReasonCategory =
   | "VALIDATION"
@@ -173,10 +170,7 @@ function hasControlCharacter(value: string): boolean {
   });
 }
 
-function validBoundedText(
-  value: string,
-  maximum: number,
-): boolean {
+function validBoundedText(value: string, maximum: number): boolean {
   return (
     value.length > 0 &&
     byteLength(value) <= maximum &&
@@ -211,7 +205,8 @@ export function normalizeGithubServerUrl(
       ok: false,
       error: {
         code: "INVALID_SERVER_URL",
-        message: "Enter an HTTPS GitHub.com or GitHub Enterprise Server origin.",
+        message:
+          "Enter an HTTPS GitHub.com or GitHub Enterprise Server origin.",
         nextAction: "FIX_INPUT",
       },
     };
@@ -288,7 +283,13 @@ export function normalizeGithubServerUrl(
 export function validateGithubServerProfileInput(
   input: GithubServerProfileInput,
 ):
-  | { readonly ok: true; readonly value: { readonly displayName: string; readonly identity: GithubServerIdentity } }
+  | {
+      readonly ok: true;
+      readonly value: {
+        readonly displayName: string;
+        readonly identity: GithubServerIdentity;
+      };
+    }
   | { readonly ok: false; readonly error: GithubServerValidationFailure } {
   const displayName = input.displayName.trim();
   const displayNameError = validateGithubDisplayName(displayName);
@@ -431,7 +432,10 @@ export function isGithubServerProfileView(
     typeof candidate.createdAt !== "string" ||
     typeof candidate.updatedAt !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.id) ||
-    !validBoundedText(candidate.displayName, MAX_GITHUB_SERVER_DISPLAY_NAME_BYTES) ||
+    !validBoundedText(
+      candidate.displayName,
+      MAX_GITHUB_SERVER_DISPLAY_NAME_BYTES,
+    ) ||
     !validBoundedText(candidate.webOrigin, MAX_GITHUB_SERVER_URL_BYTES) ||
     !validBoundedText(candidate.apiBaseUrl, MAX_GITHUB_SERVER_URL_BYTES) ||
     !validBoundedText(candidate.host, MAX_GITHUB_SERVER_URL_BYTES)
@@ -495,7 +499,9 @@ export function isGithubCredentialOperationView(
     /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.id) &&
     typeof candidate.profileId === "string" &&
     /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.profileId) &&
-    ["SAVE_AND_TEST", "TEST_CONNECTION", "REMOVE"].includes(String(candidate.kind)) &&
+    ["SAVE_AND_TEST", "TEST_CONNECTION", "REMOVE"].includes(
+      String(candidate.kind),
+    ) &&
     [
       "INTENT",
       "CANDIDATE_STORED",

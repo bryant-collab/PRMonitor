@@ -2,6 +2,7 @@ import { z } from "zod";
 import { aiWorkUsageSchema } from "./ai-work";
 import {
   aiJsonValueSchema,
+  aiReviewImplementationSchema,
   aiReviewProposalItemSchema,
   type AIReviewImplementation,
   type AIReviewProposal,
@@ -58,6 +59,7 @@ export const f18WorkflowPhaseSchema = z.enum([
   "PROPOSAL_RECORDED",
   "DECISIONS_CONFIRMED",
   "IMPLEMENTATION_RECORDED",
+  "REVIEW_REVISION_STARTED",
   "FINAL_RECORDED",
 ]);
 export type F18WorkflowPhase = z.infer<typeof f18WorkflowPhaseSchema>;
@@ -222,9 +224,7 @@ export const f18WorktreeConditionSchema = z
     permittedNextActions: z.array(f18WorktreeConditionActionSchema).max(32),
   })
   .strict();
-export type F18WorktreeCondition = z.infer<
-  typeof f18WorktreeConditionSchema
->;
+export type F18WorktreeCondition = z.infer<typeof f18WorktreeConditionSchema>;
 
 export const f18WorktreeEvidenceSchema = z
   .object({
@@ -404,6 +404,22 @@ export const f18DraftResponseSchema = z
   .strict();
 export type F18DraftResponse = z.infer<typeof f18DraftResponseSchema>;
 
+export const f18RevisionHistoryEntrySchema = z
+  .object({
+    revisionId: identifierSchema,
+    operationId: identifierSchema,
+    status: z.enum(["READY_FOR_REVIEW", "NEEDS_ATTENTION"]),
+    implementation: aiReviewImplementationSchema,
+    changedFiles: z.array(relativePathSchema).max(2_000),
+    validation: f18ValidationEvidenceSchema.optional(),
+    worktree: f18WorktreeEvidenceSchema.optional(),
+    createdAt: z.string().min(1).max(128),
+  })
+  .strict();
+export type F18RevisionHistoryEntry = z.infer<
+  typeof f18RevisionHistoryEntrySchema
+>;
+
 export const f18ReviewBundleRecordSchema = z
   .object({
     schemaVersion: z.literal(F18_SCHEMA_VERSION),
@@ -429,6 +445,7 @@ export const f18ReviewBundleRecordSchema = z
     proposalWork: f18AiWorkSummarySchema.optional(),
     implementationWork: f18AiWorkSummarySchema.optional(),
     draftResponses: z.array(f18DraftResponseSchema).max(F18_MAX_EVENTS),
+    revisionHistory: z.array(f18RevisionHistoryEntrySchema).max(64).optional(),
     reasons: z.array(f18ReasonSchema).max(64),
     nextAction: identifierSchema,
     noImplementationChanges: z.boolean().optional(),
@@ -456,6 +473,7 @@ export const f18ReviewBundleReadModelSchema = z
     proposalWork: f18AiWorkSummarySchema.optional(),
     implementationWork: f18AiWorkSummarySchema.optional(),
     draftResponses: z.array(f18DraftResponseSchema).max(F18_MAX_EVENTS),
+    revisionHistory: z.array(f18RevisionHistoryEntrySchema).max(64).optional(),
     reasons: z.array(f18ReasonSchema).max(64),
     nextAction: identifierSchema,
     noImplementationChanges: z.boolean().optional(),
@@ -523,6 +541,36 @@ export interface F18DraftResponseInput {
   readonly bundleId: string;
   readonly eventVersionId: string;
   readonly text: string;
+  readonly expectedVersion?: number;
+  readonly actionId?: string;
+}
+
+export interface F18ProposalInputCommand {
+  readonly bundleId: string;
+  readonly itemId: string;
+  readonly kind: "APPLY_QUESTION_ANSWER" | "SAVE_ENTRY_INSTRUCTION";
+  readonly text: string;
+  readonly expectedVersion?: number;
+  readonly actionId?: string;
+}
+
+export interface F18ReviewRevisionBeginInput {
+  readonly bundleId: string;
+  readonly expectedVersion?: number;
+  readonly actionId?: string;
+}
+
+export interface F18ReviewRevisionFinalizationInput {
+  readonly bundleId: string;
+  readonly revisionId: string;
+  readonly operationId: string;
+  readonly implementation?: AIReviewImplementation;
+  readonly implementationWork: F18AiWorkSummary;
+  readonly worktree?: F18WorktreeEvidence;
+  readonly postChangeValidation?: F18ValidationEvidence;
+  readonly changedFiles: readonly string[];
+  readonly state: "READY_FOR_REVIEW" | "NEEDS_ATTENTION";
+  readonly reasons: readonly F18Reason[];
   readonly expectedVersion?: number;
   readonly actionId?: string;
 }

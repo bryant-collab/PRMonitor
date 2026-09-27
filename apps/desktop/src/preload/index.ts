@@ -31,6 +31,10 @@ import type {
   F20DraftCommandInput,
   F20PathActionInput,
 } from "../shared/f20-workspace";
+import type {
+  F21ProposalEntryInput,
+  F21UserIntent,
+} from "../shared/f21-conversation";
 
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
@@ -89,7 +93,20 @@ function invoke(
         readonly bundleId: string;
         readonly expectedVersion?: number;
       }
-    | F20PathActionInput,
+    | F20PathActionInput
+    | F21UserIntent
+    | F21ProposalEntryInput
+    | {
+        readonly bundleId: string;
+        readonly operationId?: string;
+        readonly turnId?: string;
+      }
+    | {
+        readonly bundleId: string;
+        readonly operationId: string;
+        readonly selectedBudget?: number;
+        readonly expectedBundleVersion?: number;
+      },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -181,15 +198,27 @@ const api: PrMonitorPreloadApi = {
       ...(expectedVersion === undefined ? {} : { expectedVersion }),
       ...(actionId === undefined ? {} : { actionId }),
     }),
-  saveReviewBundleDraft: (input) =>
-    invoke("review-bundle.draft.save", input),
+  saveReviewBundleDraft: (input) => invoke("review-bundle.draft.save", input),
   refreshReviewBundleWorktree: (bundleId, expectedVersion) =>
     invoke("review-bundle.worktree.refresh", {
       bundleId,
       ...(expectedVersion === undefined ? {} : { expectedVersion }),
     }),
-  reviewBundlePathAction: (input) =>
-    invoke("review-bundle.path-action", input),
+  reviewBundlePathAction: (input) => invoke("review-bundle.path-action", input),
+  readReviewBundleConversation: (bundleId) =>
+    invoke("review-bundle.conversation.read", { bundleId }),
+  askReviewBundleConversation: (input) =>
+    invoke("review-bundle.conversation.ask", input),
+  requestReviewBundleRevision: (input) =>
+    invoke("review-bundle.revision.request", input),
+  startNewReviewBundleOperation: (input) =>
+    invoke("review-bundle.conversation.start-new-operation", input),
+  saveReviewBundleProposalInput: (input) =>
+    invoke("review-bundle.proposal-input.save", input),
+  cancelReviewBundleConversation: (input) =>
+    invoke("review-bundle.conversation.cancel", input),
+  continueReviewBundleConversation: (input) =>
+    invoke("review-bundle.conversation.continue", input),
   onOpenTarget: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (!parseIpcOpenTargetEvent(payload)) return;

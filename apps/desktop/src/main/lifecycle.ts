@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PersistenceRepositories } from "./persistence/repositories";
-import { activityReasonForLifecycle, type ActivityWriter } from "./activity-service";
+import {
+  activityReasonForLifecycle,
+  type ActivityWriter,
+} from "./activity-service";
 import type { IpcError, LifecyclePhase, LifecycleStatus } from "../shared/ipc";
 
 export const LIFECYCLE_SETTING_KEY = "f04.lifecycle";
@@ -347,7 +350,9 @@ export function createPersistenceLifecyclePersistence(
         occurrenceAt: status.updatedAt,
         severity: status.phase === "RECOVERY_REQUIRED" ? "ERROR" : "INFO",
         reason: {
-          code: reasonCode as Parameters<ActivityWriter["append"]>[0]["reason"]["code"],
+          code: reasonCode as Parameters<
+            ActivityWriter["append"]
+          >[0]["reason"]["code"],
           ...reason,
         },
         summary: reasonCode,
@@ -367,7 +372,10 @@ export function createPersistenceLifecyclePersistence(
           ownerId: status.sessionId,
           severity: status.phase === "RECOVERY_REQUIRED" ? "ERROR" : "INFO",
           reasonCode: "PROGRESS",
-          payload: { phase: status.phase, incompleteHandoff: status.incompleteHandoff },
+          payload: {
+            phase: status.phase,
+            incompleteHandoff: status.incompleteHandoff,
+          },
         });
       }
     },

@@ -2636,6 +2636,7 @@ export class F13WorktreeService {
     readonly operationId: string;
     readonly ownerId: string;
     readonly turnId: string;
+    readonly acknowledgeUnattributedChanges?: boolean;
   }): Promise<F13AiTurnBeforeResult> {
     const intent = this.options.repositories.getOperation(input.operationId);
     if (intent === undefined)
@@ -2685,7 +2686,13 @@ export class F13WorktreeService {
     );
     if (!inspection.ok || inspection.snapshot === undefined)
       return { ok: false, reason: inspection.reason };
-    if (!inspection.condition.permittedNextActions.includes("CONTINUE_AI_WORK"))
+    const explicitlyAcknowledgedUnattributed =
+      inspection.condition.classification === "UNATTRIBUTED_CHANGES" &&
+      input.acknowledgeUnattributedChanges === true;
+    if (
+      !inspection.condition.permittedNextActions.includes("CONTINUE_AI_WORK") &&
+      !explicitlyAcknowledgedUnattributed
+    )
       return {
         ok: false,
         reason: safeReason(

@@ -420,9 +420,10 @@ describe("F03 SQLite persistence", () => {
       { clock: { now: () => FIXED_TIME }, applicationBuild: "f03-reopen" },
     );
     try {
-      const afterRestart = createPersistenceRepositories(reopened).getReviewBundle(
-        "bundle-proposal-1",
-      );
+      const afterRestart =
+        createPersistenceRepositories(reopened).getReviewBundle(
+          "bundle-proposal-1",
+        );
       expect(afterRestart?.stage).toBe("PROPOSAL_REVIEW");
       expect(afterRestart?.items[0]?.decision.decision).toBe("accepted");
       expect(afterRestart?.items[0]?.decisionHistory).toHaveLength(2);
@@ -739,7 +740,10 @@ describe("F03 SQLite persistence", () => {
       modelId: "gpt-5-codex",
       taskType: "AUTOMATIC_REVIEW",
       profileRevision: 1,
-      executionPolicySnapshot: { schemaVersion: 1, snapshotHash: "policy-hash-1" },
+      executionPolicySnapshot: {
+        schemaVersion: 1,
+        snapshotHash: "policy-hash-1",
+      },
       startedAt: FIXED_TIME,
       completedAt: FIXED_TIME,
       status: "completed" as const,
@@ -781,7 +785,9 @@ describe("F03 SQLite persistence", () => {
       completedAt: FIXED_TIME,
     });
     expect(replay.inserted).toBe(false);
-    expect(repositories.getAiWorkOperation("provider-op-1")?.consumedTurnCount).toBe(1);
+    expect(
+      repositories.getAiWorkOperation("provider-op-1")?.consumedTurnCount,
+    ).toBe(1);
     expect(() =>
       repositories.recordAiProviderTurn({
         result: { ...result, structuredResult: { summary: "rewritten" } },
@@ -843,9 +849,12 @@ describe("F03 SQLite persistence", () => {
       },
     });
     const afterRestart = createPersistenceRepositories(reopened);
-    expect(afterRestart.getAiProviderTurn("provider-turn-1")?.result).toEqual(result);
+    expect(afterRestart.getAiProviderTurn("provider-turn-1")?.result).toEqual(
+      result,
+    );
     expect(
-      afterRestart.getAiProviderConversation("provider-conversation-1")?.reference,
+      afterRestart.getAiProviderConversation("provider-conversation-1")
+        ?.reference,
     ).toEqual(conversation.reference);
   });
 
