@@ -15,6 +15,7 @@ import type { F13PathActionResult } from "../shared/f13-contracts";
 import type { ManagedPrInboxReadModel } from "../shared/inbox";
 import type { OpenTarget } from "../shared/routing";
 import type { LifecycleStatus } from "../shared/ipc";
+import type { F22ActionGate } from "../shared/f22-discard-reevaluation";
 import {
   buildF19TrayMenu,
   classifyF19Notification,
@@ -364,6 +365,32 @@ export class TrayNotificationCoordinator {
     return this.notifyOutcome(
       f19ReviewOutcomeFromReadModel(readModel, displayReference),
     );
+  }
+
+  /**
+   * F22 owns freshness and action authority, but F19 owns user-facing
+   * attention delivery.  Preserve that boundary by translating only the
+   * bounded read model plus gate reason into a notification outcome.
+   */
+  public async handleF22Gate(
+    readModel: Parameters<typeof f19ReviewOutcomeFromReadModel>[0],
+    gate: F22ActionGate,
+  ): Promise<F19NotificationResult> {
+    if (
+      gate.status !== "STALE" &&
+      gate.status !== "INVALIDATED" &&
+      gate.status !== "ATTENTION"
+    )
+      return { outcome: "SUPPRESSED", reasonCode: "F22_NOT_ATTENTION" };
+    const base = f19ReviewOutcomeFromReadModel(readModel);
+    const outcome = parseF19OutcomeSnapshot({
+      ...base,
+      revision: Math.max(base.revision, gate.gateRevision),
+      state: "NEEDS_ATTENTION",
+      nextAction: "F22_REEVALUATE_INPUT",
+      reasonCode: gate.reason?.code ?? "F22_ATTENTION",
+    });
+    return this.notifyOutcome(outcome);
   }
 
   public async notifyOutcome(

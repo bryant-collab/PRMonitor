@@ -683,6 +683,41 @@ describe("F18 automatic review vertical slice", () => {
     expect(final.capabilities.canPublish).toBe(false);
   });
 
+  it("uses the authorized F16 PR Intent / Context snapshot for a successor bundle", async () => {
+    const fixture = makeCoordinator({ fixed: false });
+    const authorizedSnapshot = {
+      ...taskSnapshot("AUTOMATIC_REVIEW_REEVALUATION"),
+      prIntentContext: {
+        text: "Authorized successor context.",
+        contentHash: "3".repeat(64),
+      },
+    };
+
+    await expect(
+      fixture.coordinator.startAutomaticReview({
+        batchId: "batch-successor",
+        managedPrId: "pr-1",
+        eventVersionIds: ["event-1"],
+        operationId: "operation-1",
+        bundleId: "bundle-1",
+        claimId: "claim-1",
+        holdId: "hold-1",
+        schedulerRevision: 3,
+        correlationId: "correlation-successor",
+        explicitHumanAuthorization: true,
+        parentBundleId: "bundle-old",
+        reevaluationAuthorizationId: "f22-action-successor",
+        currentTaskSnapshot: authorizedSnapshot,
+      }),
+    ).resolves.toMatchObject({ outcome: "ACCEPTED" });
+
+    const record = fixture.persistence.records.get("bundle-1");
+    expect(record?.input.contextText).toBe("Authorized successor context.");
+    expect(record?.input.taskSnapshot?.prIntentContextHash).toBe(
+      "3".repeat(64),
+    );
+  });
+
   it("requires a matching F11 claim and hold before creating durable F18 intent", async () => {
     const fixture = makeCoordinator({ fixed: false });
     await expect(

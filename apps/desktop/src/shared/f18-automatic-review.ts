@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { aiWorkUsageSchema } from "./ai-work";
+import type { F16EffectiveAITaskSnapshot } from "./f16-preferences";
 import {
   aiJsonValueSchema,
   aiReviewImplementationSchema,
@@ -146,6 +147,10 @@ export const f18TaskSnapshotRefSchema = z
     approvalPolicy: identifierSchema,
     networkAccess: identifierSchema,
     commonInstructionIds: z.array(identifierSchema).max(32),
+    prIntentContextHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
     validationStatus: identifierSchema.optional(),
     validationBoundsRevision: identifierSchema.optional(),
     operationWorktree: z
@@ -345,6 +350,8 @@ export const f18ReviewInputSnapshotSchema = z
     managedPrId: identifierSchema,
     claimId: identifierSchema,
     holdId: identifierSchema.optional(),
+    parentBundleId: identifierSchema.optional(),
+    reevaluationAuthorizationId: identifierSchema.optional(),
     correlationId: identifierSchema,
     schedulerRevision: z.number().int().nonnegative(),
     remoteEventVersionIds: z.array(identifierSchema).min(1).max(F18_MAX_EVENTS),
@@ -516,6 +523,15 @@ export interface F18AutomaticReviewHandoff {
   readonly bundleId: string;
   readonly claimId: string;
   readonly holdId?: string;
+  /** Re-evaluation may supply a freshly verified remote snapshot. */
+  readonly currentBaseSha?: string;
+  readonly currentHeadSha?: string;
+  /** Explicit human re-evaluation may proceed while ordinary scheduling is paused. */
+  readonly explicitHumanAuthorization?: boolean;
+  readonly parentBundleId?: string;
+  readonly reevaluationAuthorizationId?: string;
+  /** F22's post-authorization F16 snapshot; F18 must use this exact value. */
+  readonly currentTaskSnapshot?: F16EffectiveAITaskSnapshot;
   readonly schedulerRevision: number;
   readonly correlationId: string;
 }

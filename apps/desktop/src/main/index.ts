@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { mkdir } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -30,6 +30,7 @@ import {
   F18PersistenceRepositories,
   F19PersistenceRepositories,
   F21PersistenceRepositories,
+  F22PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -85,6 +86,7 @@ import { F18AIWorkAdapter } from "./automatic-review-ai-adapter";
 import { F21AIWorkAdapter } from "./f21-ai-work-adapter";
 import { F21ConversationService } from "./f21-conversation-service";
 import { F20WorkspaceService } from "./f20-workspace-service";
+import { F22Coordinator } from "./f22-coordinator";
 import { TrayNotificationCoordinator } from "./f19-coordinator";
 import { ElectronF19NativeSurfaceAdapter } from "./f19-native-adapter";
 import { createF19EffectiveBounds } from "../shared/f19-native-surfaces";
@@ -149,6 +151,7 @@ let f13WorktreeService: F13WorktreeService | undefined;
 let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
 let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
+let f22Coordinator: F22Coordinator | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
 let f21AiWorkAdapter: F21AIWorkAdapter | undefined;
 let f21ConversationService: F21ConversationService | undefined;
@@ -624,6 +627,255 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedAutomaticReviewCoordinator = automaticReviewCoordinator;
   if (initializedAutomaticReviewCoordinator === undefined)
     throw new Error("PRMONITOR_F18_COORDINATOR_NOT_READY");
+  f22Coordinator = new F22Coordinator({
+    persistence: new F22PersistenceRepositories(persistenceStore),
+    bundles: initializedAutomaticReviewCoordinator,
+    remote: {
+      readCurrentHead: async (managedPrId) => {
+        const managed = f07Repositories.getManagedPr(managedPrId);
+        const fallbackIdentity = {
+          serverId: managed?.serverId ?? "unknown-server",
+          repositoryKey: managed?.baseRepository.key ?? "unknown-repository",
+          ...(managed?.pullRequestKey === undefined
+            ? {}
+            : { pullRequestKey: managed.pullRequestKey }),
+        };
+        const unavailable = (what: string, why: string) => ({
+          outcome: "UNAVAILABLE" as const,
+          identity: fallbackIdentity,
+          observationRevision:
+            f10Persistence.getCurrentMetadata(managedPrId)?.version ?? 0,
+          observedAt:
+            f10Persistence.getCurrentMetadata(managedPrId)?.observedAt ??
+            new Date(0).toISOString(),
+          reason: {
+            code: "REMOTE_HEAD_CHECK_UNAVAILABLE",
+            what,
+            why,
+            nextAction: "RETRY",
+            details: {},
+          },
+        });
+        if (prWatcher === undefined)
+          return unavailable(
+            "The F10 remote-head reader is not ready.",
+            "F22 cannot authorize an action without the authoritative polling boundary.",
+          );
+        let poll: F10PollRunResult;
+        try {
+          poll = await prWatcher.runForManagedPrs([managedPrId]);
+        } catch {
+          return unavailable(
+            "The current pull-request head could not be verified.",
+            "F10 did not complete an action-time remote observation.",
+          );
+        }
+        const pullRequest = poll.resources.find(
+          (resource) => resource.resource === "pull_request",
+        );
+        if (
+          pullRequest === undefined ||
+          (pullRequest.status !== "COMPLETED" &&
+            pullRequest.status !== "NOT_MODIFIED")
+        )
+          return unavailable(
+            "The current pull-request head could not be verified.",
+            "F10 returned no completed action-time pull-request observation.",
+          );
+        const current = f10Persistence.getCurrentMetadata(managedPrId);
+        if (current === undefined)
+          return unavailable(
+            "No current F10 pull-request metadata is available.",
+            "F22 cannot classify a Review Bundle from an absent remote observation.",
+          );
+        return {
+          outcome: "CURRENT" as const,
+          identity: {
+            serverId: current.metadata.identity.server.serverKey,
+            repositoryKey: current.metadata.identity.repository.key,
+            pullRequestKey: current.metadata.identity.key,
+          },
+          baseSha: current.metadata.baseSha,
+          headSha: current.metadata.headSha,
+          baseRepository: {
+            serverId: current.metadata.baseRepository.server.serverKey,
+            owner: current.metadata.baseRepository.owner,
+            name: current.metadata.baseRepository.name,
+            key: current.metadata.baseRepository.key,
+          },
+          ...(current.metadata.headRepository.available
+            ? {
+                headRepository: {
+                  serverId: current.metadata.headRepository.server.serverKey,
+                  owner: current.metadata.headRepository.owner,
+                  name: current.metadata.headRepository.name,
+                  key: current.metadata.headRepository.key,
+                },
+              }
+            : {}),
+          baseBranch: current.metadata.baseBranch,
+          headBranch: current.metadata.headBranch,
+          observationRevision: current.version,
+          observedAt: poll.completedAt,
+          attemptId: pullRequest.attemptId,
+        };
+      },
+    },
+    f13: initializedF13WorktreeService,
+    f11: {
+      getClaim: (claimId) =>
+        initializedF11EligibilityService.persistence.getClaim(claimId),
+      getHold: (holdId) =>
+        initializedF11EligibilityService.persistence.getHold(holdId),
+      getActiveClaim: (managedPrId) =>
+        initializedF11EligibilityService.persistence.getActiveClaim(
+          managedPrId,
+        ),
+      getActiveHold: (managedPrId) =>
+        initializedF11EligibilityService.persistence.getActiveHold(managedPrId),
+      listRetainedVersionIds: (managedPrId) =>
+        initializedF11EligibilityService.listRetainedVersionIds(managedPrId),
+      completeDiscard: (input) =>
+        initializedF11EligibilityService.completeDiscard(input),
+      transferForReevaluation: (input) =>
+        initializedF11EligibilityService.transferForReevaluation(input),
+      rollbackForReevaluation: (input) =>
+        initializedF11EligibilityService.rollbackForReevaluation(input),
+    },
+    managedPr: {
+      readIdentity: (managedPrId) => {
+        const managed = f07Repositories.getManagedPr(managedPrId);
+        return managed === undefined
+          ? undefined
+          : {
+              serverId: managed.serverId,
+              repositoryKey: managed.baseRepository.key,
+              pullRequestKey: managed.pullRequestKey,
+            };
+      },
+    },
+    primaryReview: {
+      read: (managedPrId) =>
+        f07Repositories.getManagedPr(managedPrId)?.primaryState,
+    },
+    synchronization: {
+      read: (managedPrId) => {
+        const safeIdentifier = /^[A-Za-z0-9][A-Za-z0-9_.:/#-]*$/u;
+        const result = f03Repositories
+          .listSynchronizationResults()
+          .filter((candidate) => candidate.managedPrId === managedPrId)
+          .sort(
+            (left, right) =>
+              right.updatedAt.localeCompare(left.updatedAt) ||
+              right.version - left.version ||
+              right.id.localeCompare(left.id),
+          )[0];
+        if (result === undefined) return undefined;
+        const status = safeIdentifier.test(result.status)
+          ? result.status
+          : "UNKNOWN";
+        const reasonValue = result.reason;
+        const reasonCode =
+          typeof reasonValue === "object" &&
+          reasonValue !== null &&
+          !Array.isArray(reasonValue) &&
+          "code" in reasonValue &&
+          typeof reasonValue.code === "string" &&
+          safeIdentifier.test(reasonValue.code)
+            ? reasonValue.code
+            : undefined;
+        return {
+          status,
+          ...(reasonCode === undefined ? {} : { reasonCode }),
+        };
+      },
+    },
+    activeOperation: {
+      read: (bundleId) => {
+        if (f21ConversationService === undefined)
+          return {
+            operationId: "f21-conversation-unavailable",
+            status: "UNCERTAIN",
+          };
+        try {
+          const active = f21ConversationService.read(bundleId).activeOperation;
+          return active === undefined
+            ? undefined
+            : {
+                operationId: active.operationId,
+                status: active.status,
+              };
+        } catch {
+          return {
+            operationId: "f21-conversation-read-failed",
+            status: "UNCERTAIN",
+          };
+        }
+      },
+    },
+    tasks: {
+      readCurrentSummary: ({ managedPrId, repository }) => {
+        const preferences = initializedF16PreferencesService.readPreferences();
+        const profile = preferences.taskProfiles.find(
+          (candidate) => candidate.taskType === "AUTOMATIC_REVIEW_REEVALUATION",
+        );
+        if (profile === undefined) throw new Error("F16_PROFILE_UNAVAILABLE");
+        const repositorySettings = preferences.repositories.find(
+          (candidate) => candidate.repository.key === repository.key,
+        );
+        const managed = f07Repositories.getManagedPr(managedPrId);
+        const context = managed?.configuration.context;
+        return {
+          taskType: profile.taskType,
+          profileId: profile.profileId,
+          profileRevision: profile.revision,
+          providerId: profile.providerId,
+          modelId: profile.modelId,
+          policyId: preferences.policy.policyId,
+          policyRevision: preferences.policy.revision,
+          effectivePreset: preferences.policy.preset,
+          commonInstructionIds: preferences.selectedCommonInstructionIds,
+          ...(repositorySettings?.validationSummary === undefined
+            ? {}
+            : {
+                buildValidationStatus:
+                  repositorySettings.validationSummary.status,
+              }),
+          ...(context === undefined || context === null || context.length === 0
+            ? {}
+            : {
+                prIntentContextHash: createHash("sha256")
+                  .update(context, "utf8")
+                  .digest("hex"),
+              }),
+        };
+      },
+      resolveCurrent: async ({ managedPrId, operationId, repository }) => {
+        const managed = f07Repositories.getManagedPr(managedPrId);
+        const currentContext = managed?.configuration.context;
+        const task = await initializedF16PreferencesService.resolveTask({
+          taskType: "AUTOMATIC_REVIEW_REEVALUATION",
+          phase: "REVIEW_PROPOSAL",
+          repository: {
+            serverId: repository.serverId,
+            owner: repository.owner,
+            name: repository.name,
+            key: repository.key,
+          },
+          operationId,
+          ...(typeof currentContext !== "string" || currentContext.length === 0
+            ? {}
+            : { prIntentContext: currentContext }),
+        });
+        return task;
+      },
+    },
+    schedulerRevision: () => reviewScheduler?.read().schedulerRevision ?? 0,
+  });
+  await f22Coordinator.reconcileStartup();
+  const initializedF22Coordinator = f22Coordinator;
+  if (initializedF22Coordinator === undefined)
+    throw new Error("PRMONITOR_F22_COORDINATOR_NOT_READY");
   f21AiWorkAdapter = new F21AIWorkAdapter({
     persistence: f17Persistence,
     provider: f15ProviderRegistry,
@@ -682,6 +934,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
     f13: initializedF13WorktreeService,
     f16: initializedF16PreferencesService,
     aiWork: initializedF21AiWorkAdapter,
+    f22: initializedF22Coordinator,
   });
   if (f21ConversationService === undefined)
     throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
@@ -692,10 +945,39 @@ async function initializeMainProcessPersistence(): Promise<void> {
     },
     persistence: new F12PersistenceRepositories(persistenceStore),
     poller: {
-      poll: ({ managedPrIds, signal }) => {
+      poll: async ({ managedPrIds, signal }) => {
         if (prWatcher === undefined)
-          return Promise.reject(new Error("PRMONITOR_PR_WATCHER_NOT_READY"));
-        return prWatcher.runForManagedPrs(managedPrIds, signal);
+          throw new Error("PRMONITOR_PR_WATCHER_NOT_READY");
+        const result = await prWatcher.runForManagedPrs(managedPrIds, signal);
+        const observedIds =
+          managedPrIds ??
+          f07Repositories.listManagedPrs().map((managedPr) => managedPr.id);
+        for (const managedPrId of observedIds) {
+          try {
+            const gates =
+              await initializedF22Coordinator.observeManagedPr(managedPrId);
+            for (const gate of gates) {
+              if (
+                gate.status !== "STALE" &&
+                gate.status !== "INVALIDATED" &&
+                gate.status !== "ATTENTION"
+              )
+                continue;
+              const readModel =
+                initializedAutomaticReviewCoordinator.getReadModel?.(
+                  gate.bundleId,
+                );
+              if (readModel !== undefined)
+                void f19Coordinator
+                  ?.handleF22Gate(readModel, gate)
+                  .catch(() => undefined);
+            }
+          } catch {
+            // A missing or malformed Review Bundle is surfaced by its own
+            // durable state; polling remains authoritative for F10/F11.
+          }
+        }
+        return result;
       },
     },
     eligibility: f11EligibilityService,
@@ -822,6 +1104,12 @@ async function startMainProcess(): Promise<void> {
     bundles: automaticReviewCoordinator,
     worktrees: f13WorktreeService,
     validation: f14ValidationService,
+    f22: f22Coordinator,
+    f19: {
+      handleF22Gate: (readModel, gate) =>
+        f19Coordinator?.handleF22Gate(readModel, gate) ??
+        Promise.resolve({ outcome: "SUPPRESSED" }),
+    },
   });
 
   ipcRouter = new IpcRouter(ipcMain, {
@@ -1108,6 +1396,11 @@ async function startMainProcess(): Promise<void> {
         throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
       return f20WorkspaceService.read(bundleId);
     },
+    reconcileReviewBundleF22: async (bundleId) => {
+      if (f20WorkspaceService === undefined)
+        throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
+      return f20WorkspaceService.reconcileF22(bundleId);
+    },
     readReviewBundleDiff: (input) => {
       if (f20WorkspaceService === undefined)
         return Promise.reject(
@@ -1138,6 +1431,34 @@ async function startMainProcess(): Promise<void> {
           new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
         );
       return f20WorkspaceService.refreshWorktree(input);
+    },
+    previewReviewBundleDiscard: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.beginDiscard(input);
+    },
+    confirmReviewBundleDiscard: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.confirmDiscard(input);
+    },
+    previewReviewBundleReevaluation: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.beginReevaluation(input);
+    },
+    confirmReviewBundleReevaluation: (input) => {
+      if (f20WorkspaceService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY"),
+        );
+      return f20WorkspaceService.confirmReevaluation(input);
     },
     reviewBundlePathAction: (input) => {
       if (f20WorkspaceService === undefined)

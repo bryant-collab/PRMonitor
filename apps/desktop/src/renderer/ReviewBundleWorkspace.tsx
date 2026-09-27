@@ -11,6 +11,11 @@ import type {
   F21ConversationMode,
   F21ConversationReadModel,
 } from "../shared/f21-conversation";
+import type {
+  F22DiscardPreview,
+  F22ReevaluationPreview,
+} from "../shared/f22-discard-reevaluation";
+import { F22ChoiceControls } from "./F22ChoiceControls";
 
 interface ReviewBundleWorkspaceProps {
   readonly bundleId: string;
@@ -338,6 +343,18 @@ export function ReviewBundleWorkspace({
   const [conversationText, setConversationText] = useState("");
   const [acknowledgeUnattributed, setAcknowledgeUnattributed] = useState(false);
   const [newOperationBudget, setNewOperationBudget] = useState(1);
+  const [f22Preview, setF22Preview] = useState<
+    F22DiscardPreview | F22ReevaluationPreview | undefined
+  >();
+  const [f22Choice, setF22Choice] = useState<
+    "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL"
+  >("NO_CHANGES");
+  const [f22Confirmed, setF22Confirmed] = useState(false);
+  const [f22ActionId, setF22ActionId] = useState<string>();
+  const [
+    f22SelectedRetainedEventVersionIds,
+    setF22SelectedRetainedEventVersionIds,
+  ] = useState<string[]>([]);
 
   const selectedItem = useMemo(
     () => workspace?.items.find((item) => item.itemId === selectedItemId),
@@ -358,6 +375,30 @@ export function ReviewBundleWorkspace({
     if (response.ok && response.value.kind === "review-bundle-workspace") {
       const nextWorkspace = response.value.workspace;
       setWorkspace(nextWorkspace);
+      const pendingF22 = nextWorkspace.f22PendingAction;
+      if (
+        pendingF22?.status === "PENDING" &&
+        pendingF22.phase === "PREVIEW_READY" &&
+        pendingF22.preview !== undefined
+      ) {
+        setF22ActionId(pendingF22.actionId);
+        setF22Preview(pendingF22.preview);
+        setF22Choice(pendingF22.preview.requiredChoice);
+        setF22SelectedRetainedEventVersionIds(
+          pendingF22.preview.kind === "F22_REEVALUATION_PREVIEW"
+            ? [...pendingF22.preview.selectedRetainedEventVersionIds]
+            : [],
+        );
+        setF22Confirmed(false);
+      } else if (pendingF22?.status === "PENDING") {
+        setF22ActionId(pendingF22.actionId);
+        setF22Preview(undefined);
+        setF22SelectedRetainedEventVersionIds([]);
+      } else {
+        setF22ActionId(undefined);
+        setF22Preview(undefined);
+        setF22SelectedRetainedEventVersionIds([]);
+      }
       setSelectedItemId((current) =>
         nextWorkspace.items.some((item) => item.itemId === current)
           ? current
@@ -759,6 +800,179 @@ export function ReviewBundleWorkspace({
     setBusy(false);
   }, [busy, readWorkspace, workspace]);
 
+  const beginF22 = useCallback(
+    async (kind: "DISCARD" | "REEVALUATE") => {
+      if (workspace === undefined || busy) return;
+      setBusy(true);
+      const idempotencyKey = `renderer-f22-${kind.toLowerCase()}-${workspace.bundleId}-${Date.now()}`;
+      const response =
+        kind === "DISCARD"
+          ? await window.prmonitor?.previewReviewBundleDiscard({
+              bundleId: workspace.bundleId,
+              idempotencyKey,
+              expectedGateRevision: workspace.f22?.gateRevision,
+            })
+          : await window.prmonitor?.previewReviewBundleReevaluation({
+              bundleId: workspace.bundleId,
+              idempotencyKey,
+              ...(f22SelectedRetainedEventVersionIds.length === 0
+                ? {}
+                : {
+                    selectedRetainedEventVersionIds:
+                      f22SelectedRetainedEventVersionIds,
+                  }),
+              expectedGateRevision: workspace.f22?.gateRevision,
+            });
+      if (response?.ok && response.value.kind === "review-bundle-f22") {
+        setWorkspace(response.value.workspace);
+        setF22Preview(response.value.preview);
+        setF22ActionId(response.value.actionId);
+        if (response.value.preview !== undefined)
+          setF22Choice(response.value.preview.requiredChoice);
+        setF22SelectedRetainedEventVersionIds(
+          response.value.preview?.kind === "F22_REEVALUATION_PREVIEW"
+            ? [...response.value.preview.selectedRetainedEventVersionIds]
+            : [],
+        );
+        setF22Confirmed(false);
+        setActionMessage(
+          kind === "DISCARD"
+            ? "Review the discard choice. No worktree changes have been made."
+            : "Review the fresh-head re-evaluation preview. No new worktree or AI operation has started.",
+        );
+      } else if (response !== undefined) {
+        setActionMessage(responseError(response));
+      }
+      setBusy(false);
+    },
+    [busy, f22SelectedRetainedEventVersionIds, workspace],
+  );
+
+  const confirmF22 = useCallback(async () => {
+    if (
+      workspace === undefined ||
+      f22Preview === undefined ||
+      f22ActionId === undefined ||
+      busy
+    )
+      return;
+    setBusy(true);
+    const input = {
+      actionId: f22ActionId,
+      bundleId: workspace.bundleId,
+      choice: f22Choice,
+      ...(f22Confirmed ? { confirmed: true } : {}),
+      expectedActionVersion: f22Preview.actionRevision,
+      expectedGateRevision: workspace.f22?.gateRevision,
+    } as const;
+    const response =
+      f22Preview.kind === "F22_DISCARD_PREVIEW"
+        ? await window.prmonitor?.confirmReviewBundleDiscard(input)
+        : await window.prmonitor?.confirmReviewBundleReevaluation(input);
+    if (response?.ok && response.value.kind === "review-bundle-f22") {
+      setWorkspace(response.value.workspace);
+      if (
+        response.value.outcome === "COMPLETED" ||
+        response.value.outcome === "CANCELLED"
+      ) {
+        setF22Preview(undefined);
+        setF22ActionId(undefined);
+        setF22SelectedRetainedEventVersionIds([]);
+      }
+      setActionMessage(
+        response.value.outcome === "COMPLETED"
+          ? "The explicit F22 action completed and its durable evidence is available."
+          : response.value.outcome === "CANCELLED"
+            ? "The operation worktree was kept and the F22 action was cancelled."
+            : "The F22 action remains gated; inspect the deterministic reason below.",
+      );
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+      await readWorkspace();
+    }
+    setBusy(false);
+  }, [
+    busy,
+    f22ActionId,
+    f22Choice,
+    f22Confirmed,
+    f22Preview,
+    readWorkspace,
+    workspace,
+  ]);
+
+  const cancelF22Preview = useCallback(async () => {
+    const pendingF22 = workspace?.f22PendingAction;
+    const actionKind =
+      f22Preview?.kind === "F22_DISCARD_PREVIEW" ||
+      pendingF22?.action === "DISCARD"
+        ? "DISCARD"
+        : "REEVALUATE";
+    const expectedActionVersion =
+      f22Preview?.actionRevision ?? pendingF22?.version;
+    if (
+      workspace === undefined ||
+      f22ActionId === undefined ||
+      expectedActionVersion === undefined ||
+      busy
+    )
+      return;
+    setBusy(true);
+    const input = {
+      actionId: f22ActionId,
+      bundleId: workspace.bundleId,
+      choice: "KEEP_AND_CANCEL" as const,
+      expectedActionVersion,
+      expectedGateRevision: workspace.f22?.gateRevision,
+    };
+    const response =
+      actionKind === "DISCARD"
+        ? await window.prmonitor?.confirmReviewBundleDiscard(input)
+        : await window.prmonitor?.confirmReviewBundleReevaluation(input);
+    if (response?.ok && response.value.kind === "review-bundle-f22") {
+      setWorkspace(response.value.workspace);
+      if (
+        response.value.outcome === "COMPLETED" ||
+        response.value.outcome === "CANCELLED"
+      ) {
+        setF22Preview(undefined);
+        setF22ActionId(undefined);
+        setF22SelectedRetainedEventVersionIds([]);
+      }
+      setActionMessage(
+        response.value.outcome === "CANCELLED"
+          ? "The preview was closed; the worktree was kept and the F22 action was cancelled."
+          : "The F22 preview remains gated; inspect the deterministic reason below.",
+      );
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+      await readWorkspace();
+    }
+    setBusy(false);
+  }, [busy, f22ActionId, f22Preview, readWorkspace, workspace]);
+
+  const reconcileF22 = useCallback(async () => {
+    if (workspace === undefined || busy) return;
+    setBusy(true);
+    const response = await window.prmonitor?.reconcileReviewBundleF22(
+      workspace.bundleId,
+    );
+    if (response?.ok && response.value.kind === "review-bundle-workspace") {
+      setWorkspace(response.value.workspace);
+      setF22ActionId(undefined);
+      setF22Preview(undefined);
+      setF22SelectedRetainedEventVersionIds([]);
+      setActionMessage(
+        response.value.workspace.f22PendingAction?.status === "UNKNOWN"
+          ? "F22 still needs deterministic reconciliation; no effect was retried."
+          : "F22 durable action reconciliation completed.",
+      );
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+    }
+    setBusy(false);
+  }, [busy, workspace]);
+
   const pathAction = useCallback(
     async (
       requestedAction: "OPEN_WORKTREE" | "OPEN_FILE" | "REVEAL_FILE",
@@ -815,6 +1029,10 @@ export function ReviewBundleWorkspace({
       );
     }
   }, [diff]);
+
+  const f22Condition = f22Preview?.worktreeCondition;
+  const f22ReevaluationPreview =
+    f22Preview?.kind === "F22_REEVALUATION_PREVIEW" ? f22Preview : undefined;
 
   if (loading) {
     return (
@@ -899,6 +1117,395 @@ export function ReviewBundleWorkspace({
           <span key={evidence}>{evidence}</span>
         ))}
       </div>
+
+      {workspace.f22 !== undefined ? (
+        <section
+          className="review-f22-panel"
+          aria-labelledby="review-f22-heading"
+          role={workspace.f22.status === "CURRENT" ? "region" : "alert"}
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">F22 deterministic action gate</p>
+              <h3 id="review-f22-heading">{readable(workspace.f22.status)}</h3>
+            </div>
+            <span className="review-authority-label">
+              Remote head {workspace.f22.remote.expectedHeadSha}
+              {workspace.f22.remote.observedHeadSha === undefined
+                ? " · not observed"
+                : ` · observed ${workspace.f22.remote.observedHeadSha}`}
+            </span>
+          </div>
+          {workspace.f22.reason !== undefined ? (
+            <p className="review-evidence-note">
+              {workspace.f22.reason.what} {workspace.f22.reason.why}
+            </p>
+          ) : null}
+          {workspace.f22PendingAction?.status === "UNKNOWN" ? (
+            <>
+              <p className="review-evidence-note" role="alert">
+                F22 stopped during a delegated effect. The worktree, hold, and
+                evidence remain preserved until the main process reconciles the
+                durable action.
+              </p>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => void reconcileF22()}
+              >
+                Reconcile F22 action
+              </button>
+            </>
+          ) : null}
+          {workspace.f22.retainedCandidateEventVersionIds !== undefined &&
+          workspace.f22.retainedCandidateEventVersionIds.length > 0 ? (
+            <fieldset className="review-f22-scope">
+              <legend>Retain feedback for re-evaluation (optional)</legend>
+              <p className="review-evidence-note">
+                Select retained event versions before opening the re-evaluation
+                preview. The original bundle feedback is always included.
+              </p>
+              {workspace.f22.retainedCandidateEventVersionIds.map(
+                (eventVersionId) => (
+                  <label key={eventVersionId} className="review-checkbox">
+                    <input
+                      type="checkbox"
+                      disabled={busy || f22Preview !== undefined}
+                      checked={f22SelectedRetainedEventVersionIds.includes(
+                        eventVersionId,
+                      )}
+                      onChange={(event) =>
+                        setF22SelectedRetainedEventVersionIds((current) =>
+                          event.target.checked
+                            ? [...new Set([...current, eventVersionId])]
+                            : current.filter(
+                                (value) => value !== eventVersionId,
+                              ),
+                        )
+                      }
+                    />
+                    {eventVersionId}
+                  </label>
+                ),
+              )}
+            </fieldset>
+          ) : null}
+          <div className="review-f22-actions">
+            {workspace.f22PendingAction?.status === "PENDING" &&
+            f22Preview === undefined ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => void cancelF22Preview()}
+              >
+                Cancel pending F22 action
+              </button>
+            ) : null}
+            {workspace.f22.actions.discard &&
+            workspace.f22PendingAction === undefined ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => void beginF22("DISCARD")}
+              >
+                Discard Review Bundle
+              </button>
+            ) : null}
+            {workspace.f22.actions.reevaluate &&
+            workspace.f22PendingAction === undefined ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => void beginF22("REEVALUATE")}
+              >
+                Re-evaluate at current head
+              </button>
+            ) : null}
+          </div>
+          {f22Preview !== undefined && f22ActionId !== undefined ? (
+            <div className="review-f22-choice" aria-live="polite">
+              <p>{f22Preview.confirmationText}</p>
+              <section
+                className="review-f22-evidence"
+                aria-labelledby="review-f22-evidence-heading"
+              >
+                <h4 id="review-f22-evidence-heading">F22 evidence</h4>
+                {f22Condition !== undefined ? (
+                  <>
+                    <dl className="review-evidence-grid">
+                      <div>
+                        <dt>Worktree condition</dt>
+                        <dd>{readable(f22Condition.classification)}</dd>
+                      </div>
+                      <div>
+                        <dt>Fingerprint</dt>
+                        <dd>{f22Condition.currentFingerprint}</dd>
+                      </div>
+                      <div>
+                        <dt>Observed revision</dt>
+                        <dd>{f22Condition.observedRevision}</dd>
+                      </div>
+                      <div>
+                        <dt>Expected revision</dt>
+                        <dd>{f22Condition.expectedRevision}</dd>
+                      </div>
+                      <div>
+                        <dt>Changed paths</dt>
+                        <dd>{f22Condition.dirtySummary.changedPaths.length}</dd>
+                      </div>
+                      <div>
+                        <dt>Tracked / staged</dt>
+                        <dd>
+                          {f22Condition.dirtySummary.trackedPaths.length} /{" "}
+                          {f22Condition.dirtySummary.stagedPaths.length}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Untracked / ignored</dt>
+                        <dd>
+                          {f22Condition.dirtySummary.untrackedPaths.length} /{" "}
+                          {f22Condition.dirtySummary.ignoredPaths.length}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Attribution</dt>
+                        <dd>
+                          {f22Condition.attribution.complete
+                            ? "Complete"
+                            : "Incomplete"}
+                        </dd>
+                      </div>
+                    </dl>
+                    {f22Condition.dirtySummary.changedPaths.length > 0 ? (
+                      <ul className="review-evidence-list">
+                        {f22Condition.dirtySummary.changedPaths.map((path) => (
+                          <li key={path}>{path}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <p className="review-evidence-note">
+                      AI-attributed:{" "}
+                      {f22Condition.attribution.aiAttributedPaths.length};
+                      developer/unattributed:{" "}
+                      {f22Condition.attribution.unAttributedPaths.length};
+                      overlap: {f22Condition.attribution.overlapPaths.length}.
+                    </p>
+                  </>
+                ) : (
+                  <p className="review-evidence-note">
+                    No worktree condition was recorded; F22 will not infer a
+                    safe clear choice.
+                  </p>
+                )}
+                {f22ReevaluationPreview !== undefined ? (
+                  <>
+                    <dl className="review-evidence-grid">
+                      <div>
+                        <dt>Remote server / repository</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.identity.serverId} /{" "}
+                          {f22ReevaluationPreview.remote.identity.repositoryKey}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Expected base / head</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.expectedBaseSha ??
+                            "Not recorded"}{" "}
+                          / {f22ReevaluationPreview.remote.expectedHeadSha}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Expected base repository / branch</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.expectedBaseRepository
+                            ? f22ReevaluationPreview.remote
+                                .expectedBaseRepository.owner +
+                              "/" +
+                              f22ReevaluationPreview.remote
+                                .expectedBaseRepository.name
+                            : "Not recorded"}{" "}
+                          /{" "}
+                          {f22ReevaluationPreview.remote.expectedBaseBranch ??
+                            "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Expected head repository / branch</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.expectedHeadRepository
+                            ? f22ReevaluationPreview.remote
+                                .expectedHeadRepository.owner +
+                              "/" +
+                              f22ReevaluationPreview.remote
+                                .expectedHeadRepository.name
+                            : "Not recorded"}{" "}
+                          /{" "}
+                          {f22ReevaluationPreview.remote.expectedHeadBranch ??
+                            "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Observed base / head</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.observedBaseSha ??
+                            "Not observed"}{" "}
+                          /{" "}
+                          {f22ReevaluationPreview.remote.observedHeadSha ??
+                            "Not observed"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Observed base repository / branch</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.observedBaseRepository
+                            ? f22ReevaluationPreview.remote
+                                .observedBaseRepository.owner +
+                              "/" +
+                              f22ReevaluationPreview.remote
+                                .observedBaseRepository.name
+                            : "Not observed"}{" "}
+                          /{" "}
+                          {f22ReevaluationPreview.remote.observedBaseBranch ??
+                            "Not observed"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Observed head repository / branch</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.observedHeadRepository
+                            ? f22ReevaluationPreview.remote
+                                .observedHeadRepository.owner +
+                              "/" +
+                              f22ReevaluationPreview.remote
+                                .observedHeadRepository.name
+                            : "Not observed"}{" "}
+                          /{" "}
+                          {f22ReevaluationPreview.remote.observedHeadBranch ??
+                            "Not observed"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Observation revision</dt>
+                        <dd>
+                          {f22ReevaluationPreview.remote.observationRevision}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Hold</dt>
+                        <dd>
+                          {f22ReevaluationPreview.holdRemainsActive
+                            ? "Remains active"
+                            : "Not active"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Publication</dt>
+                        <dd>
+                          {f22ReevaluationPreview.publicationAuthorized
+                            ? "Authorized"
+                            : "Not authorized"}
+                        </dd>
+                      </div>
+                    </dl>
+                    <p className="review-evidence-note">
+                      Original feedback event versions:{" "}
+                      {f22ReevaluationPreview.originalEventVersionIds.join(
+                        ", ",
+                      )}
+                    </p>
+                    <p className="review-evidence-note">
+                      Retained event versions selected:{" "}
+                      {f22ReevaluationPreview.selectedRetainedEventVersionIds
+                        .length === 0
+                        ? "None"
+                        : f22ReevaluationPreview.selectedRetainedEventVersionIds.join(
+                            ", ",
+                          )}
+                    </p>
+                    <dl className="review-evidence-grid">
+                      <div>
+                        <dt>Task type</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration.taskType ??
+                            "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Profile</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration.profileId ??
+                            "Not recorded"}{" "}
+                          (revision{" "}
+                          {f22ReevaluationPreview.configuration
+                            .profileRevision ?? "not recorded"}
+                          )
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Provider / model</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration.providerId ??
+                            "Not recorded"}{" "}
+                          /{" "}
+                          {f22ReevaluationPreview.configuration.modelId ??
+                            "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Policy</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration.policyId ??
+                            "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Common Instructions</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration
+                            .commonInstructionIds.length === 0
+                            ? "None recorded"
+                            : f22ReevaluationPreview.configuration.commonInstructionIds.join(
+                                ", ",
+                              )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Build &amp; Validation</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration
+                            .buildValidationStatus ?? "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>PR Intent / Context</dt>
+                        <dd>
+                          {f22ReevaluationPreview.configuration
+                            .prIntentContextHash ?? "Not recorded"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </>
+                ) : null}
+              </section>
+              <F22ChoiceControls
+                requiredChoice={f22Preview.requiredChoice}
+                choice={f22Choice}
+                confirmed={f22Confirmed}
+                busy={busy}
+                onChoiceChange={setF22Choice}
+                onConfirmedChange={setF22Confirmed}
+                onConfirm={() => void confirmF22()}
+                onClose={() => void cancelF22Preview()}
+              />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {actionMessage !== "" ? (
         <p className="review-action-message" role="status" aria-live="polite">

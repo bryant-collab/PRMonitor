@@ -12,7 +12,10 @@ import {
   initializePersistence,
   type PersistenceStore,
 } from "../src/main/persistence";
-import { F11PersistenceRepositories } from "../src/main/persistence/f11-repositories";
+import {
+  F11PersistenceRepositories,
+  f11ReevaluationAuthorizationToken,
+} from "../src/main/persistence/f11-repositories";
 import { F11EligibilityService } from "../src/main/f11-eligibility-service";
 
 const TIME = "2026-09-21T12:00:00.000Z";
@@ -355,6 +358,114 @@ describe("F11 deterministic eligibility", () => {
     expect(reevaluated.result.outcome).toBe("CLAIMED");
     expect(persistence.getAssociation("managed-pr-1", "event-2")?.state).toBe(
       "ASSIGNED_TO_ACTIVE_BUNDLE",
+    );
+  });
+
+  it("restores the old hold and retained association states when F18 rejects a transfer", async () => {
+    const { store } = await fixture();
+    addEvent(
+      store,
+      "event-1",
+      "comment-1",
+      feedbackPayload({ id: "1", body: "Fix this." }),
+    );
+    addEvent(
+      store,
+      "event-2",
+      "comment-2",
+      feedbackPayload({ id: "2", body: "Also fix this." }),
+    );
+    const persistence = new F11PersistenceRepositories(store, {
+      clock: { now: () => TIME },
+    });
+    const service = new F11EligibilityService(persistence, {
+      clock: { now: () => TIME },
+    });
+    service.evaluateObservedVersion({
+      managedPrId: "managed-pr-1",
+      eventVersionId: "event-1",
+      serverId: "server-1",
+      currentPrState: "OPEN",
+      primaryState: "WATCHING",
+      configuration: CONFIG,
+    });
+    const claim = service.claimAutomatic({
+      managedPrId: "managed-pr-1",
+      operationId: "operation-1",
+      bundleId: "bundle-1",
+      configuration: CONFIG,
+      currentPrState: "OPEN",
+      primaryState: "WATCHING",
+    });
+    service.evaluateObservedVersion({
+      managedPrId: "managed-pr-1",
+      eventVersionId: "event-2",
+      serverId: "server-1",
+      currentPrState: "OPEN",
+      primaryState: "WORKING",
+      configuration: CONFIG,
+    });
+    const oldHold = persistence.getActiveHold("managed-pr-1");
+    const transferred = service.transferForReevaluation({
+      managedPrId: "managed-pr-1",
+      oldClaimId: claim.claim?.claimId ?? "missing",
+      oldHoldId: oldHold?.holdId ?? "missing",
+      oldOperationId: "operation-1",
+      oldBundleId: "bundle-1",
+      newClaimId: "claim-2",
+      newHoldId: "hold-2",
+      newOperationId: "operation-2",
+      newBundleId: "bundle-2",
+      eventVersionIds: ["event-1", "event-2"],
+      configurationSnapshot:
+        claim.claim?.configurationSnapshot ?? ({} as never),
+      correlationId: "reevaluation-transfer",
+      authorizationId: "f22-action-authorization",
+      authorizationToken: f11ReevaluationAuthorizationToken({
+        managedPrId: "managed-pr-1",
+        oldClaimId: claim.claim?.claimId ?? "missing",
+        oldHoldId: oldHold?.holdId ?? "missing",
+        oldOperationId: "operation-1",
+        oldBundleId: "bundle-1",
+        newClaimId: "claim-2",
+        newHoldId: "hold-2",
+        newOperationId: "operation-2",
+        newBundleId: "bundle-2",
+        eventVersionIds: ["event-1", "event-2"],
+        authorizationId: "f22-action-authorization",
+        expectedOldClaimVersion: claim.claim?.version ?? 0,
+        expectedOldHoldVersion: oldHold?.version ?? 0,
+      }),
+      expectedOldClaimVersion: claim.claim?.version ?? 0,
+      expectedOldHoldVersion: oldHold?.version ?? 0,
+    });
+    expect(transferred.outcome).toBe("TRANSFERRED");
+
+    const rolledBack = service.rollbackForReevaluation({
+      managedPrId: "managed-pr-1",
+      oldClaimId: claim.claim?.claimId ?? "missing",
+      oldHoldId: oldHold?.holdId ?? "missing",
+      oldOperationId: "operation-1",
+      oldBundleId: "bundle-1",
+      newClaimId: "claim-2",
+      newHoldId: "hold-2",
+      newOperationId: "operation-2",
+      newBundleId: "bundle-2",
+      originalEventVersionIds: ["event-1"],
+      retainedEventVersionIds: ["event-2"],
+    });
+    expect(rolledBack.outcome).toBe("ROLLED_BACK");
+    expect(persistence.getActiveClaim("managed-pr-1")?.bundleId).toBe(
+      "bundle-1",
+    );
+    expect(persistence.getActiveHold("managed-pr-1")?.bundleId).toBe(
+      "bundle-1",
+    );
+    expect(persistence.getAssociation("managed-pr-1", "event-1")?.state).toBe(
+      "ASSIGNED_TO_ACTIVE_BUNDLE",
+    );
+    expect(persistence.getAssociation("managed-pr-1", "event-2")?.state).toBe(
+      "RETAINED_DURING_HOLD",
     );
   });
 });

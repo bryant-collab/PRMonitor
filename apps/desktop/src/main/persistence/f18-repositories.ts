@@ -24,6 +24,9 @@ export interface F18PersistUpdateInput {
 
 export interface F18BundlePersistencePort {
   readonly get: (bundleId: string) => F18ReviewBundleRecord | undefined;
+  readonly listForManagedPr?: (
+    managedPrId: string,
+  ) => readonly F18ReviewBundleRecord[];
   readonly persistIntent: (
     input: F18PersistIntentInput,
   ) => F18ReviewBundleRecord;
@@ -118,6 +121,14 @@ export class F18PersistenceRepositories implements F18BundlePersistencePort {
   public get(bundleId: string): F18ReviewBundleRecord | undefined {
     const persisted = this.repositories.getReviewBundle(bundleId);
     return persisted === undefined ? undefined : fromPersistence(persisted);
+  }
+
+  public listForManagedPr(
+    managedPrId: string,
+  ): readonly F18ReviewBundleRecord[] {
+    return this.repositories
+      .listReviewBundles(managedPrId)
+      .map(fromPersistence);
   }
 
   public persistIntent(input: F18PersistIntentInput): F18ReviewBundleRecord {

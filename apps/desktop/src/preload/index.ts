@@ -185,6 +185,8 @@ const api: PrMonitorPreloadApi = {
   navigateManagedPr: (managedPrId, destination) =>
     invoke("inbox.navigate", { managedPrId, destination }),
   readReviewBundle: (bundleId) => invoke("review-bundle.read", { bundleId }),
+  reconcileReviewBundleF22: (bundleId) =>
+    invoke("review-bundle.f22.reconcile", { bundleId }),
   readReviewBundleDiff: (bundleId, mode, itemId) =>
     invoke(
       "review-bundle.diff.read",
@@ -204,6 +206,14 @@ const api: PrMonitorPreloadApi = {
       bundleId,
       ...(expectedVersion === undefined ? {} : { expectedVersion }),
     }),
+  previewReviewBundleDiscard: (input) =>
+    invoke("review-bundle.discard.preview", input),
+  confirmReviewBundleDiscard: (input) =>
+    invoke("review-bundle.discard.confirm", input),
+  previewReviewBundleReevaluation: (input) =>
+    invoke("review-bundle.reevaluate.preview", input),
+  confirmReviewBundleReevaluation: (input) =>
+    invoke("review-bundle.reevaluate.confirm", input),
   reviewBundlePathAction: (input) => invoke("review-bundle.path-action", input),
   readReviewBundleConversation: (bundleId) =>
     invoke("review-bundle.conversation.read", { bundleId }),

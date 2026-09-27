@@ -6,9 +6,10 @@ import {
   type AIProviderInputSnapshot,
   type AIReviewProposal,
 } from "../shared/ai/provider-contracts";
-import type {
-  F16EffectiveAITaskSnapshot,
-  F16RepositoryIdentity,
+import {
+  f16EffectiveAITaskSnapshotSchema,
+  type F16EffectiveAITaskSnapshot,
+  type F16RepositoryIdentity,
 } from "../shared/f16-preferences";
 import type { F16ResolveTaskInput } from "./f16-preferences-service";
 import type {
@@ -193,11 +194,16 @@ export interface F18AutomaticReviewBoundary {
     readonly outcome:
       "ACCEPTED" | "ALREADY_ACCEPTED" | "REJECTED" | "UNCERTAIN";
     readonly reason?: F18Reason;
+    /** True only when F18 rejected before any durable downstream effect. */
+    readonly rollbackSafe?: boolean;
   }>;
   /** Read-only downstream handoff for F19/F20; it grants no workflow effect. */
   readonly getReadModel?: (
     bundleId: string,
   ) => F18ReviewBundleReadModel | undefined;
+  readonly listReadModels?: (
+    managedPrId: string,
+  ) => readonly F18ReviewBundleReadModel[];
   readonly recordDecision: (
     input: F18DecisionInput,
   ) => F18ReviewBundleReadModel;
@@ -284,6 +290,9 @@ function taskSnapshotRef(
     commonInstructionIds: snapshot.commonInstructions.map(
       (instruction) => instruction.profileId,
     ),
+    ...(snapshot.prIntentContext === undefined
+      ? {}
+      : { prIntentContextHash: snapshot.prIntentContext.contentHash }),
     ...(snapshot.buildValidation === undefined
       ? {}
       : {
@@ -473,9 +482,9 @@ function providerInput(
         ? {}
         : { diffHunk: feedback.diffHunk }),
     })),
-    ...(input.contextText === undefined
+    ...(task.prIntentContext === undefined
       ? {}
-      : { prIntentContext: input.contextText }),
+      : { prIntentContext: task.prIntentContext.text }),
     ...(decisions === undefined
       ? {}
       : {
@@ -612,6 +621,12 @@ function initialRecord(
       managedPrId: input.managedPrId,
       claimId: input.claimId,
       ...(input.holdId === undefined ? {} : { holdId: input.holdId }),
+      ...(input.parentBundleId === undefined
+        ? {}
+        : { parentBundleId: input.parentBundleId }),
+      ...(input.reevaluationAuthorizationId === undefined
+        ? {}
+        : { reevaluationAuthorizationId: input.reevaluationAuthorizationId }),
       correlationId: input.correlationId,
       schedulerRevision: input.schedulerRevision,
       remoteEventVersionIds: [...input.eventVersionIds],
@@ -667,10 +682,19 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
     return record === undefined ? undefined : this.readModel(record);
   }
 
+  public listReadModels(
+    managedPrId: string,
+  ): readonly F18ReviewBundleReadModel[] {
+    return (this.options.persistence.listForManagedPr?.(managedPrId) ?? []).map(
+      (record) => this.readModel(record),
+    );
+  }
+
   public async startAutomaticReview(input: F18AutomaticReviewHandoff): Promise<{
     readonly outcome:
       "ACCEPTED" | "ALREADY_ACCEPTED" | "REJECTED" | "UNCERTAIN";
     readonly reason?: F18Reason;
+    readonly rollbackSafe?: boolean;
   }> {
     const existing = this.options.persistence.get(input.bundleId);
     if (existing !== undefined) {
@@ -700,11 +724,19 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
     }
     const admitted = this.admit(input);
     if (admitted.reason !== undefined)
-      return { outcome: "REJECTED", reason: admitted.reason };
+      return {
+        outcome: "REJECTED",
+        reason: admitted.reason,
+        rollbackSafe: true,
+      };
     const events = admitted.events;
     let record = initialRecord(input, this.options.clock);
     try {
       const managedPr = admitted.managedPr;
+      const authoritativeContext =
+        input.currentTaskSnapshot === undefined
+          ? managedPr.configuration.context
+          : input.currentTaskSnapshot.prIntentContext?.text;
       record = cloneRecord(record, {
         input: f18ReviewInputSnapshotSchema.parse({
           ...record.input,
@@ -713,16 +745,16 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
             headRepository: repositoryIdentity(managedPr.headRepository),
             baseBranch: managedPr.prBaseBranch,
             headBranch: managedPr.prHeadBranch,
-            baseSha: managedPr.prBaseSha,
-            headSha: managedPr.prHeadSha,
+            baseSha: input.currentBaseSha ?? managedPr.prBaseSha,
+            headSha: input.currentHeadSha ?? managedPr.prHeadSha,
             ...(managedPr.title === undefined
               ? {}
               : { title: managedPr.title }),
           },
           feedback: events.map(feedbackSnapshot),
-          ...(typeof managedPr.configuration.context === "string" &&
-          managedPr.configuration.context.length > 0
-            ? { contextText: managedPr.configuration.context }
+          ...(typeof authoritativeContext === "string" &&
+          authoritativeContext.length > 0
+            ? { contextText: authoritativeContext }
             : {}),
         }),
         updatedAt: now(this.options.clock),
@@ -765,8 +797,8 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
           headRepository: f13RepositoryIdentity(managedPr.headRepository),
           baseBranch: managedPr.prBaseBranch,
           headBranch: managedPr.prHeadBranch,
-          prBaseSha: managedPr.prBaseSha,
-          prHeadSha: managedPr.prHeadSha,
+          prBaseSha: input.currentBaseSha ?? managedPr.prBaseSha,
+          prHeadSha: input.currentHeadSha ?? managedPr.prHeadSha,
         },
       });
       if (!preparation.ok || preparation.inspection === undefined)
@@ -775,20 +807,29 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
           preparation.reason?.code ?? "WORKTREE_PREPARATION_FAILED",
         );
       const preparedWorktree = worktreeEvidence(preparation.inspection);
-      const task = await this.options.f16.resolveTask({
-        taskType: "AUTOMATIC_REVIEW_REEVALUATION",
-        phase: "REVIEW_PROPOSAL",
-        repository: repositoryIdentity(managedPr.baseRepository),
-        operationId: input.operationId,
-        operationWorktree: {
-          operationId: preparation.worktree?.operationId ?? input.operationId,
-          canonicalPath: preparedWorktree.canonicalPath,
-          rootRevision: preparedWorktree.rootRevision,
-        },
-        ...(record.input.contextText === undefined
-          ? {}
-          : { prIntentContext: record.input.contextText }),
-      });
+      const task =
+        input.currentTaskSnapshot === undefined
+          ? await this.options.f16.resolveTask({
+              taskType: "AUTOMATIC_REVIEW_REEVALUATION",
+              phase: "REVIEW_PROPOSAL",
+              repository: repositoryIdentity(managedPr.baseRepository),
+              operationId: input.operationId,
+              operationWorktree: {
+                operationId:
+                  preparation.worktree?.operationId ?? input.operationId,
+                canonicalPath: preparedWorktree.canonicalPath,
+                rootRevision: preparedWorktree.rootRevision,
+              },
+              ...(record.input.contextText === undefined
+                ? {}
+                : { prIntentContext: record.input.contextText }),
+            })
+          : f16EffectiveAITaskSnapshotSchema.parse(input.currentTaskSnapshot);
+      if (
+        task.taskType !== "AUTOMATIC_REVIEW_REEVALUATION" ||
+        task.phase !== "REVIEW_PROPOSAL"
+      )
+        throw new Error("F16_REEVALUATION_TASK_SNAPSHOT_INVALID");
       record = this.options.persistence.update({
         record: cloneRecord(record, {
           phase: "WORKTREE_PREPARED",
@@ -914,7 +955,7 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
           return { outcome: "UNCERTAIN", reason: errorReason(error) };
         }
       }
-      return { outcome: "REJECTED", reason: errorReason(error) };
+      return { outcome: "UNCERTAIN", reason: errorReason(error) };
     }
   }
 
@@ -1570,8 +1611,28 @@ export class AutomaticReviewCoordinator implements F18AutomaticReviewBoundary {
     readonly managedPr: ManagedPrReadModel;
     readonly events: readonly F18EventVersion[];
   } {
+    if (input.parentBundleId !== undefined) {
+      if (input.reevaluationAuthorizationId === undefined)
+        return {
+          reason: reason(
+            "F18_REEVALUATION_AUTHORIZATION_MISSING",
+            "The re-evaluation handoff is missing its explicit authorization identity.",
+            "F18 will not admit a successor bundle from a parent bundle without F22's durable authorization boundary.",
+            "RECONCILE",
+          ),
+        } as never;
+      if (input.currentTaskSnapshot === undefined)
+        return {
+          reason: reason(
+            "F16_REEVALUATION_SNAPSHOT_MISSING",
+            "The re-evaluation handoff is missing the authorized F16 task snapshot.",
+            "F18 must use the exact post-authorization configuration that F22 presented before creating a successor bundle.",
+            "RECONCILE",
+          ),
+        } as never;
+    }
     const scheduler = this.options.scheduler.read();
-    if (scheduler.pause.paused)
+    if (scheduler.pause.paused && input.explicitHumanAuthorization !== true)
       return {
         reason: reason(
           "SCHEDULER_PAUSED",
@@ -1825,6 +1886,17 @@ function inputToHandoff(
     bundleId: record.bundleId,
     claimId: record.claimId,
     ...(record.holdId === undefined ? {} : { holdId: record.holdId }),
+    ...(record.input.parentBundleId === undefined
+      ? {}
+      : { explicitHumanAuthorization: true }),
+    ...(record.input.parentBundleId === undefined
+      ? {}
+      : { parentBundleId: record.input.parentBundleId }),
+    ...(record.input.reevaluationAuthorizationId === undefined
+      ? {}
+      : {
+          reevaluationAuthorizationId: record.input.reevaluationAuthorizationId,
+        }),
     schedulerRevision: record.schedulerRevision,
     correlationId: record.correlationId,
   };

@@ -58,6 +58,8 @@ import {
 } from "../src/main/persistence";
 import type { F13PathActionResult } from "../src/shared/f13-contracts";
 import type { WindowOpenResult } from "../src/main/window-manager";
+import type { F22ActionGate } from "../src/shared/f22-discard-reevaluation";
+import type { F18ReviewBundleReadModel } from "../src/shared/f18-automatic-review";
 
 const TIME = "2026-09-25T12:00:00.000Z";
 const bounds = createF19EffectiveBounds({
@@ -574,6 +576,62 @@ afterEach(async () => {
 });
 
 describe("F19 native-surface contracts", () => {
+  it("delivers action-time F22 attention through the native notification boundary", async () => {
+    const fixture = coordinatorFixture();
+    await fixture.coordinator.start();
+    const readModel = {
+      bundleId: "bundle-f22",
+      managedPrId: "pr-f22",
+      operationId: "operation-f22",
+      version: 4,
+      state: "NEEDS_ATTENTION",
+      stage: "FINAL_REVIEW",
+      nextAction: "REVIEW_EVIDENCE",
+      reasons: [
+        {
+          code: "REMOTE_HEAD_MOVED",
+          what: "The pull-request head moved.",
+          why: "The prior review evidence is no longer current.",
+          nextAction: "RE_EVALUATE",
+        },
+      ],
+      decisionSummary: {
+        total: 0,
+        decided: 0,
+        questionsNeedingAnswer: 0,
+        complete: true,
+      },
+      input: {
+        correlationId: "correlation-f22",
+        pullRequest: {
+          baseRepository: {
+            serverId: "github.example.invalid",
+            owner: "owner",
+            name: "repo",
+            key: "github.example.invalid/owner/repo",
+          },
+        },
+      },
+    } as unknown as F18ReviewBundleReadModel;
+    const gate = {
+      status: "ATTENTION",
+      gateRevision: 9,
+      reason: {
+        code: "REMOTE_HEAD_MOVED",
+        what: "The pull-request head moved.",
+        why: "The prior review evidence is no longer current.",
+        nextAction: "RE_EVALUATE",
+        details: {},
+      },
+    } as F22ActionGate;
+
+    const result = await fixture.coordinator.handleF22Gate(readModel, gate);
+    expect(result.outcome).toBe("DELIVERED");
+    expect(fixture.surface.requests).toHaveLength(1);
+    expect(fixture.surface.requests[0]?.title).toBe("Developer input required");
+    expect(fixture.surface.requests[0]?.body).toContain("pr-f22");
+  });
+
   it("builds allowlisted targets and rejects path, URL, command, and secret-shaped input", () => {
     expect(buildF19HomeTarget().target).toEqual({
       schemaVersion: 1,
@@ -754,7 +812,7 @@ describe("F19 persistence and coordinator", () => {
       { clock: { now: () => TIME }, applicationBuild: "f19-test" },
     );
     stores.push(store);
-    expect(store.health.schemaVersion).toBe(15);
+    expect(store.health.schemaVersion).toBe(16);
     const first = new F19PersistenceRepositories(store, {
       clock: { now: () => TIME },
     });

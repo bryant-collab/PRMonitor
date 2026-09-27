@@ -1436,6 +1436,50 @@ CREATE INDEX IF NOT EXISTS idx_f21_inputs_bundle
 PRAGMA user_version = 15;
 `;
 
+const MIGRATION_16 = `
+/* F22 owns durable stale/discard/re-evaluation intent separately from the
+   immutable F18 Review Bundle.  These records contain only bounded,
+   provider-neutral projections and action state. */
+CREATE TABLE IF NOT EXISTS f22_bundle_states (
+  bundle_id TEXT PRIMARY KEY,
+  managed_pr_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('CURRENT', 'INVALIDATED', 'STALE', 'ATTENTION', 'DISCARDED', 'SUPERSEDED')),
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  bundle_revision INTEGER NOT NULL CHECK (bundle_revision >= 0),
+  payload_schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f22_bundle_states_managed_pr
+  ON f22_bundle_states(managed_pr_id, updated_at, bundle_id);
+
+CREATE TABLE IF NOT EXISTS f22_action_intents (
+  action_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  bundle_id TEXT NOT NULL,
+  managed_pr_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('DISCARD', 'REEVALUATE')),
+  phase TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED', 'CANCELLED', 'FAILED', 'UNKNOWN')),
+  version INTEGER NOT NULL CHECK (version >= 0),
+  payload_schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f22_action_intents_bundle
+  ON f22_action_intents(bundle_id, updated_at, action_id);
+CREATE INDEX IF NOT EXISTS idx_f22_action_intents_recovery
+  ON f22_action_intents(status, updated_at, action_id);
+
+PRAGMA user_version = 16;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1530,6 +1574,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F21-001-explicit-review-conversations-and-revisions",
     sql: MIGRATION_15,
     checksum: checksum(MIGRATION_15),
+  },
+  {
+    version: 16,
+    id: "F22-001-stale-discard-and-reevaluation-ledger",
+    sql: MIGRATION_16,
+    checksum: checksum(MIGRATION_16),
   },
 ];
 

@@ -8,6 +8,7 @@ import {
   MAX_PERSISTED_TEXT_BYTES,
   MIGRATIONS,
   PERSISTENCE_SCHEMA_VERSION,
+  F22PersistenceRepositories,
   PersistenceError,
   createPersistenceRepositories,
   decodeSnapshot,
@@ -16,6 +17,7 @@ import {
   tryInitializePersistence,
   type PersistenceStore,
 } from "../src/main/persistence";
+import { f22ActionIntentSchema } from "../src/shared/f22-discard-reevaluation";
 
 const FIXED_TIME = "2026-09-20T12:00:00.000Z";
 
@@ -949,5 +951,43 @@ describe("F03 SQLite persistence", () => {
       repositories.putSetting("unsafe", { access_token: "must-not-persist" }),
     ).toThrow(PersistenceError);
     await removeFixtureRoot(root);
+  });
+
+  it("keeps the durable F22 action version aligned with its payload version", async () => {
+    const fixture = await createFixture();
+    const repository = new F22PersistenceRepositories(fixture.store);
+    const initial = f22ActionIntentSchema.parse({
+      schemaVersion: 1,
+      actionId: "f22-action-persistence-1",
+      idempotencyKey: "f22-idempotency-persistence-1",
+      action: "DISCARD",
+      phase: "ADMITTED",
+      status: "PENDING",
+      version: 0,
+      bundleId: "bundle-persistence-1",
+      managedPrId: "managed-pr-persistence-1",
+      expectedBundleVersion: 1,
+      expectedGateRevision: 0,
+      confirmed: false,
+      originalEventVersionIds: [],
+      retainedEventVersionIds: [],
+      createdAt: FIXED_TIME,
+      updatedAt: FIXED_TIME,
+    });
+    repository.persistActionIntent(initial);
+    const next = f22ActionIntentSchema.parse({
+      ...initial,
+      phase: "PREVIEW_READY",
+      version: 1,
+      result: { outcome: "PREVIEW_RECORDED" },
+      updatedAt: "2026-09-20T12:00:01.000Z",
+    });
+    expect(
+      repository.updateAction({ action: next, expectedVersion: 0 }),
+    ).toMatchObject({ version: 1, phase: "PREVIEW_READY" });
+    expect(repository.getAction(initial.actionId)).toMatchObject({
+      version: 1,
+      phase: "PREVIEW_READY",
+    });
   });
 });

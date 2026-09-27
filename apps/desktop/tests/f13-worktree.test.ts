@@ -561,6 +561,7 @@ describe("F13 operation-owned worktrees and change attribution", () => {
       operationId: request.operationId,
       ownerId: request.ownerId,
       choice: "CLEAR_ALL",
+      actionId: "f13-clear-test-action",
     });
     expect(blocked.ok).toBe(false);
     expect(blocked.reason?.code).toBe("DESTRUCTIVE_CONFIRMATION_REQUIRED");
@@ -572,6 +573,7 @@ describe("F13 operation-owned worktrees and change attribution", () => {
       operationId: request.operationId,
       ownerId: request.ownerId,
       choice: "CLEAR_ALL",
+      actionId: "f13-clear-test-action",
       confirmed: true,
     });
     expect(cleared.ok).toBe(true);
@@ -586,6 +588,20 @@ describe("F13 operation-owned worktrees and change attribution", () => {
     expect(await readNormalized(path.join(worktree, "tracked.txt"))).toBe(
       "feature\n",
     );
+    expect(
+      fixture.service.readClearAction({
+        actionId: "f13-clear-test-action",
+        operationId: request.operationId,
+        ownerId: request.ownerId,
+        choice: "CLEAR_ALL",
+      }),
+    ).toMatchObject({
+      actionId: "f13-clear-test-action",
+      operationId: request.operationId,
+      choice: "CLEAR_ALL",
+      status: "COMPLETED",
+      afterSnapshotId: expect.any(String),
+    });
   });
 
   it("blocks destructive clearing after the operation HEAD moves", async () => {

@@ -20,6 +20,10 @@ import type {
   F11EligibilityDecisionRecord,
   F11EventAssociationRecord,
   F11HoldRecord,
+  F11ReevaluationTransferInput,
+  F11ReevaluationTransferResult,
+  F11ReevaluationRollbackInput,
+  F11ReevaluationRollbackResult,
 } from "./persistence/f11-repositories";
 import type { PersistenceClock } from "./persistence/types";
 import type { ActivityWriter } from "./activity-service";
@@ -401,6 +405,32 @@ export class F11EligibilityService {
       summary: "Automatic review hold completion evaluated",
     });
     return result;
+  }
+
+  /** F22-only ownership transfer; it never marks the selected versions handled. */
+  public transferForReevaluation(
+    input: F11ReevaluationTransferInput,
+  ): F11ReevaluationTransferResult {
+    return this.persistence.transferForReevaluation(input);
+  }
+
+  public rollbackForReevaluation(
+    input: F11ReevaluationRollbackInput,
+  ): F11ReevaluationRollbackResult {
+    return this.persistence.rollbackForReevaluation(input);
+  }
+
+  public completeDiscard(input: {
+    readonly managedPrId: string;
+    readonly claimId: string;
+    readonly operationId: string;
+    readonly bundleId: string;
+  }): F11CompletionResult {
+    return this.completeAutomaticReview({
+      ...input,
+      outcome: "DISCARDED",
+      worktreeHandled: true,
+    });
   }
 
   public reconcileStartup(): readonly F11AutomaticClaimRecord[] {

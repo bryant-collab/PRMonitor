@@ -14,6 +14,7 @@ import {
   type F18BundleItem,
   type F18ReviewBundleReadModel,
 } from "./f18-automatic-review";
+import { f22ActionGateSchema } from "./f22-discard-reevaluation";
 
 /**
  * F21 is the explicit, provider-neutral conversation boundary for a Review
@@ -207,6 +208,7 @@ export const f21ConversationReadModelSchema = z
       })
       .strict()
       .optional(),
+    f22: f22ActionGateSchema.optional(),
     lastRevision: f21RevisionOutcomeSchema.optional(),
     worktreeCondition: f18WorktreeConditionSchema.optional(),
     capabilities: z
@@ -270,6 +272,7 @@ export function f21ReadModelFromBundle(
       | "turns"
       | "proposalInputs"
       | "activeOperation"
+      | "f22"
       | "lastRevision"
       | "selectedMode"
     >
@@ -278,8 +281,14 @@ export function f21ReadModelFromBundle(
   const evidenceRevision =
     bundle.worktree?.snapshotId ?? `bundle-${bundle.version}`;
   const canAsk = bundle.state !== "WORKING";
+  const f22Current =
+    input.f22 === undefined ||
+    (input.f22.status === "CURRENT" &&
+      input.f22.remote.observationRevision !== undefined);
+  const f22CanContinue =
+    input.f22 === undefined || input.f22.actions.continueOldWork;
   const canRequestRevision =
-    bundle.decisionSummary.complete && bundle.state !== "WORKING";
+    bundle.decisionSummary.complete && bundle.state !== "WORKING" && f22Current;
   return f21ConversationReadModelSchema.parse({
     schemaVersion: F21_SCHEMA_VERSION,
     kind: "REVIEW_CONVERSATION_READ_MODEL",
@@ -298,18 +307,22 @@ export function f21ReadModelFromBundle(
       canSaveProposalInput: bundle.stage === "PROPOSAL_REVIEW",
       canCancel: input.activeOperation?.status === "WORKING",
       canContinue:
-        input.activeOperation?.permittedNextAction === "CONTINUE_AI_WORK",
+        input.activeOperation?.permittedNextAction === "CONTINUE_AI_WORK" &&
+        f22CanContinue,
       canStartNewOperation:
-        input.activeOperation?.permittedNextAction === "START_NEW_OPERATION",
+        input.activeOperation?.permittedNextAction === "START_NEW_OPERATION" &&
+        f22Current,
     },
     nextActions: [
       ...(canAsk ? ["ASK_CLARIFY"] : []),
       ...(canRequestRevision ? ["REQUEST_REVISION"] : []),
       ...(bundle.stage === "PROPOSAL_REVIEW" ? ["SAVE_PROPOSAL_INPUT"] : []),
-      ...(input.activeOperation?.permittedNextAction === "CONTINUE_AI_WORK"
+      ...(input.activeOperation?.permittedNextAction === "CONTINUE_AI_WORK" &&
+      f22CanContinue
         ? ["CONTINUE_AI_WORK"]
         : []),
-      ...(input.activeOperation?.permittedNextAction === "START_NEW_OPERATION"
+      ...(input.activeOperation?.permittedNextAction ===
+        "START_NEW_OPERATION" && f22Current
         ? ["START_NEW_OPERATION"]
         : []),
     ],

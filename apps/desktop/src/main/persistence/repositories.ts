@@ -2334,6 +2334,20 @@ export class PersistenceRepositories {
         );
   }
 
+  public listReviewBundles(managedPrId: string): readonly ReviewBundleRecord[] {
+    id(managedPrId, "managed PR identifier");
+    return this.store
+      .readAll(
+        "SELECT bundle_id FROM review_bundles WHERE managed_pr_id = ? ORDER BY created_at, bundle_id",
+        managedPrId,
+      )
+      .flatMap((row) => {
+        const bundleId = rowString(row, "bundle_id");
+        const record = this.getReviewBundle(bundleId);
+        return record === undefined ? [] : [record];
+      });
+  }
+
   public recordReviewBundleItemDecision(input: {
     readonly bundleId: string;
     readonly itemId: string;

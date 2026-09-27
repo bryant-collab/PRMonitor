@@ -44,6 +44,8 @@ import type {
   F21NewAIWorkInput,
   F21AIWorkResult,
 } from "./f21-ai-work-adapter";
+import type { F22ActionGate } from "../shared/f22-discard-reevaluation";
+import type { F22GateReadOptions } from "./f22-coordinator";
 
 export interface F21ConversationAIWorkPort {
   readonly run: (input: F21AIWorkInput) => Promise<F21AIWorkResult>;
@@ -97,6 +99,16 @@ export interface F21ConversationServiceOptions {
   readonly f13: F18F13Port;
   readonly f16: F18F16Port;
   readonly aiWork: F21ConversationAIWorkPort;
+  readonly f22?: {
+    readonly readGate: (
+      bundleId: string,
+      options?: F22GateReadOptions,
+    ) => F22ActionGate;
+    readonly observeRemoteHead?: (
+      bundleId: string,
+      options?: F22GateReadOptions,
+    ) => Promise<F22ActionGate>;
+  };
   readonly clock?: () => string;
 }
 
@@ -393,11 +405,13 @@ export class F21ConversationService implements F21ConversationBoundary {
           operation.operation.status !== "CANCELLED"
         )
           activeOperation = activeFromAI(latest.mode, operation);
+        else activeOperation = undefined;
       } catch {
         // F17's durable record remains authoritative; the saved projection is
         // retained when a runtime adapter cannot rehydrate a provider context.
       }
     }
+    const f22Gate = this.readF22Gate(bundleId, activeOperation);
     const projected = f21ReadModelFromBundle(bundle, {
       messages: [...messages],
       turns: [...turns],
@@ -409,6 +423,7 @@ export class F21ConversationService implements F21ConversationBoundary {
       ...(stored.selectedMode === undefined
         ? {}
         : { selectedMode: stored.selectedMode }),
+      ...(f22Gate === undefined ? {} : { f22: f22Gate }),
     });
     if (projected.bundleVersion !== stored.bundleVersion) {
       try {
@@ -516,6 +531,9 @@ export class F21ConversationService implements F21ConversationBoundary {
       .reverse()
       .find((turn) => turn.operationId === input.operationId);
     if (latest === undefined) throw new Error("F21_OPERATION_NOT_FOUND");
+    await this.assertF22MutationAllowed(input.bundleId, {
+      continuation: true,
+    });
     const continuationIntent =
       latest.mode === "REVIEW_REVISION"
         ? this.continuationIntent(bundle, latest.turnId, latest.userMessage)
@@ -619,6 +637,7 @@ export class F21ConversationService implements F21ConversationBoundary {
     let bundle = this.requireBundle(parsed.bundleId);
     this.ensureReadModel(bundle);
     this.assertBundleVersion(bundle, parsed);
+    await this.assertF22MutationAllowed(parsed.bundleId);
     if (!bundle.decisionSummary.complete)
       throw new Error("F21_REVIEW_DECISIONS_REQUIRED");
     const priorTurn = [...this.options.persistence.listTurns(parsed.bundleId)]
@@ -900,6 +919,7 @@ export class F21ConversationService implements F21ConversationBoundary {
     let bundle = this.requireBundle(input.bundleId);
     this.ensureReadModel(bundle);
     this.assertBundleVersion(bundle, input);
+    await this.assertF22MutationAllowed(input.bundleId);
     if (!bundle.decisionSummary.complete)
       throw new Error("F21_REVIEW_DECISIONS_REQUIRED");
     const operationId = `f21-revision-${input.intentId}`;
@@ -1446,6 +1466,46 @@ export class F21ConversationService implements F21ConversationBoundary {
     if (existing !== undefined) return existing;
     const model = f21ReadModelFromBundle(bundle);
     return this.options.persistence.saveReadModel({ readModel: model });
+  }
+
+  private readF22Gate(
+    bundleId: string,
+    activeOperation?: ActiveOperationProjection,
+  ): F22ActionGate | undefined {
+    return this.options.f22?.readGate(bundleId, {
+      skipActiveOperation: true,
+      ...(activeOperation === undefined
+        ? {}
+        : {
+            activeOperationOverride: {
+              operationId: activeOperation.operationId,
+              status: activeOperation.status,
+            },
+          }),
+    });
+  }
+
+  private async assertF22MutationAllowed(
+    bundleId: string,
+    options: { readonly continuation?: boolean } = {},
+  ): Promise<F22ActionGate | undefined> {
+    if (this.options.f22 === undefined) return undefined;
+    const gate =
+      this.options.f22.observeRemoteHead === undefined
+        ? this.readF22Gate(bundleId)
+        : await this.options.f22.observeRemoteHead(bundleId, {
+            skipActiveOperation: true,
+          });
+    if (gate === undefined) return undefined;
+    const current =
+      gate.status === "CURRENT" &&
+      gate.remote.observationRevision !== undefined;
+    if (
+      !current ||
+      (options.continuation === true && !gate.actions.continueOldWork)
+    )
+      throw new Error("F22_ACTION_GATED");
+    return gate;
   }
 
   private requireBundle(bundleId: string): F18ReviewBundleReadModel {

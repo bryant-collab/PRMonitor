@@ -139,6 +139,56 @@ export interface F11CompletionResult {
   readonly reason: F11Reason;
 }
 
+export interface F11ReevaluationTransferInput {
+  readonly managedPrId: string;
+  readonly oldClaimId: string;
+  readonly oldHoldId: string;
+  readonly oldOperationId: string;
+  readonly oldBundleId: string;
+  readonly newClaimId: string;
+  readonly newHoldId: string;
+  readonly newOperationId: string;
+  readonly newBundleId: string;
+  readonly eventVersionIds: readonly string[];
+  readonly configurationSnapshot: F11ConfigurationSnapshot;
+  readonly correlationId: string;
+  /** Human authorization is bound to the exact old/new owner identities. */
+  readonly authorizationId: string;
+  readonly authorizationToken: string;
+  readonly expectedOldClaimVersion: number;
+  readonly expectedOldHoldVersion: number;
+  readonly transferredAt?: string;
+}
+
+export interface F11ReevaluationTransferResult {
+  readonly outcome: "TRANSFERRED" | "REPLAYED" | "CONFLICT";
+  readonly claim?: F11AutomaticClaimRecord;
+  readonly hold?: F11HoldRecord;
+  readonly reason: F11Reason;
+}
+
+export interface F11ReevaluationRollbackInput {
+  readonly managedPrId: string;
+  readonly oldClaimId: string;
+  readonly oldHoldId: string;
+  readonly oldOperationId: string;
+  readonly oldBundleId: string;
+  readonly newClaimId: string;
+  readonly newHoldId: string;
+  readonly newOperationId: string;
+  readonly newBundleId: string;
+  readonly originalEventVersionIds: readonly string[];
+  readonly retainedEventVersionIds: readonly string[];
+  readonly rolledBackAt?: string;
+}
+
+export interface F11ReevaluationRollbackResult {
+  readonly outcome: "ROLLED_BACK" | "REPLAYED" | "CONFLICT";
+  readonly claim?: F11AutomaticClaimRecord;
+  readonly hold?: F11HoldRecord;
+  readonly reason: F11Reason;
+}
+
 function timestamp(clock: PersistenceClock): string {
   const value = clock.now();
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value))
@@ -191,6 +241,43 @@ function encoded(value: unknown): {
 
 function hash(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 32);
+}
+
+export function f11ReevaluationAuthorizationToken(
+  input: Pick<
+    F11ReevaluationTransferInput,
+    | "managedPrId"
+    | "oldClaimId"
+    | "oldHoldId"
+    | "oldOperationId"
+    | "oldBundleId"
+    | "newClaimId"
+    | "newHoldId"
+    | "newOperationId"
+    | "newBundleId"
+    | "eventVersionIds"
+    | "authorizationId"
+    | "expectedOldClaimVersion"
+    | "expectedOldHoldVersion"
+  >,
+): string {
+  return `f11-reevaluation-${hash(
+    JSON.stringify([
+      input.managedPrId,
+      input.oldClaimId,
+      input.oldHoldId,
+      input.oldOperationId,
+      input.oldBundleId,
+      input.newClaimId,
+      input.newHoldId,
+      input.newOperationId,
+      input.newBundleId,
+      [...input.eventVersionIds],
+      input.authorizationId,
+      input.expectedOldClaimVersion,
+      input.expectedOldHoldVersion,
+    ]),
+  )}`;
 }
 
 function reason(
@@ -417,7 +504,9 @@ function recordAssociationInTransaction(
       (current.state === "RETAINED_DURING_HOLD" &&
         input.nextState === "ASSIGNED_TO_ACTIVE_BUNDLE") ||
       (current.state === "ASSIGNED_TO_ACTIVE_BUNDLE" &&
-        input.nextState === "HANDLED_BY_BUNDLE");
+        (input.nextState === "HANDLED_BY_BUNDLE" ||
+          input.nextState === "ASSIGNED_TO_ACTIVE_BUNDLE" ||
+          input.nextState === "RETAINED_DURING_HOLD"));
     if (!allowed) throw new Error("F11_INVALID_ASSOCIATION_TRANSITION");
     transaction.run(
       "UPDATE f11_event_associations SET state = ?, bundle_id = ?, operation_id = ?, version = version + 1, payload_json = ?, updated_at = ? WHERE event_version_id = ? AND version = ?",
@@ -728,6 +817,15 @@ export class F11PersistenceRepositories {
     return row === undefined ? undefined : holdFromRow(row);
   }
 
+  public getHold(holdId: string): F11HoldRecord | undefined {
+    id(holdId, "automatic hold identifier");
+    const row = this.store.read(
+      "SELECT * FROM f11_holds WHERE hold_id = ?",
+      holdId,
+    );
+    return row === undefined ? undefined : holdFromRow(row);
+  }
+
   public listEligibleVersionIds(managedPrId: string): readonly string[] {
     id(managedPrId, "managed PR identifier");
     return this.store
@@ -1008,6 +1106,573 @@ export class F11PersistenceRepositories {
         };
       throw error;
     }
+  }
+
+  /**
+   * Transfers a live automatic hold to a new, explicitly authorized
+   * re-evaluation identity without marking immutable feedback handled.
+   * Ordinary claimAutomatic cannot perform this operation because the old
+   * hold intentionally keeps the PR in WORKING state.
+   */
+  public transferForReevaluation(
+    input: F11ReevaluationTransferInput,
+  ): F11ReevaluationTransferResult {
+    for (const [value, label] of [
+      [input.managedPrId, "managed PR identifier"],
+      [input.oldClaimId, "old claim identifier"],
+      [input.oldHoldId, "old hold identifier"],
+      [input.oldOperationId, "old operation identifier"],
+      [input.oldBundleId, "old bundle identifier"],
+      [input.newClaimId, "new claim identifier"],
+      [input.newHoldId, "new hold identifier"],
+      [input.newOperationId, "new operation identifier"],
+      [input.newBundleId, "new bundle identifier"],
+      [input.correlationId, "correlation identifier"],
+      [input.authorizationId, "reevaluation authorization identifier"],
+      [input.authorizationToken, "reevaluation authorization token"],
+    ] as const)
+      id(value, label);
+    if (
+      !Number.isSafeInteger(input.expectedOldClaimVersion) ||
+      input.expectedOldClaimVersion < 0 ||
+      !Number.isSafeInteger(input.expectedOldHoldVersion) ||
+      input.expectedOldHoldVersion < 0
+    )
+      return {
+        outcome: "CONFLICT",
+        reason: reason(
+          "EXPLICIT_REEVALUATION_AUTHORIZATION_INVALID",
+          "The re-evaluation authorization versions are invalid.",
+          "F11 binds a transfer to the exact durable claim and hold versions that the human authorized.",
+          "RECONCILE",
+        ),
+      };
+    const eventIds = [...new Set(input.eventVersionIds)];
+    if (
+      eventIds.length === 0 ||
+      eventIds.length !== input.eventVersionIds.length ||
+      eventIds.length > F11_MAX_CLAIM_EVENTS
+    )
+      return {
+        outcome: "CONFLICT",
+        reason: reason(
+          "INVALID_SCOPE",
+          "The re-evaluation event set is empty, duplicated, or too large.",
+          "A transferred hold must retain a bounded exact immutable-version set.",
+          "FIX_INPUT",
+        ),
+      };
+    const transferredAt = input.transferredAt ?? timestamp(this.clock);
+    if (
+      input.authorizationToken !==
+      f11ReevaluationAuthorizationToken({
+        managedPrId: input.managedPrId,
+        oldClaimId: input.oldClaimId,
+        oldHoldId: input.oldHoldId,
+        oldOperationId: input.oldOperationId,
+        oldBundleId: input.oldBundleId,
+        newClaimId: input.newClaimId,
+        newHoldId: input.newHoldId,
+        newOperationId: input.newOperationId,
+        newBundleId: input.newBundleId,
+        eventVersionIds: input.eventVersionIds,
+        authorizationId: input.authorizationId,
+        expectedOldClaimVersion: input.expectedOldClaimVersion,
+        expectedOldHoldVersion: input.expectedOldHoldVersion,
+      })
+    )
+      return {
+        outcome: "CONFLICT",
+        reason: reason(
+          "EXPLICIT_REEVALUATION_AUTHORIZATION_INVALID",
+          "The re-evaluation authorization token does not match the exact F11 transfer request.",
+          "F11 requires a server-verified binding between the human authorization, old owner, new owner, and immutable event set.",
+          "RECONCILE",
+        ),
+      };
+    return this.transaction(
+      (transaction) => {
+        const existingNewClaimRow = transaction.get(
+          "SELECT * FROM f11_automatic_claims WHERE claim_id = ?",
+          input.newClaimId,
+        );
+        const existingNewHoldRow = transaction.get(
+          "SELECT * FROM f11_holds WHERE hold_id = ?",
+          input.newHoldId,
+        );
+        if (
+          existingNewClaimRow !== undefined &&
+          existingNewHoldRow !== undefined &&
+          rowString(existingNewClaimRow, "state") === "ACTIVE" &&
+          rowString(existingNewHoldRow, "state") === "ACTIVE"
+        )
+          return {
+            outcome: "REPLAYED" as const,
+            claim: claimFromRow(existingNewClaimRow),
+            hold: holdFromRow(existingNewHoldRow),
+            reason: reason(
+              "AUTOMATIC_OPERATION_ACTIVE",
+              "The re-evaluation hold transfer is already committed.",
+              "Retrying the same F22 action returns the durable new owner without duplicating a claim.",
+              "NONE",
+            ),
+          };
+        const oldClaimRow = transaction.get(
+          "SELECT * FROM f11_automatic_claims WHERE claim_id = ? AND managed_pr_id = ?",
+          input.oldClaimId,
+          input.managedPrId,
+        );
+        const oldHoldRow = transaction.get(
+          "SELECT * FROM f11_holds WHERE hold_id = ? AND managed_pr_id = ?",
+          input.oldHoldId,
+          input.managedPrId,
+        );
+        if (oldClaimRow === undefined || oldHoldRow === undefined)
+          return {
+            outcome: "CONFLICT" as const,
+            reason: reason(
+              "CLAIM_NOT_FOUND",
+              "The original F11 claim or hold is missing.",
+              "Re-evaluation cannot create a competing owner without the exact durable source hold.",
+              "RECONCILE",
+            ),
+          };
+        const oldClaim = claimFromRow(oldClaimRow);
+        const oldHold = holdFromRow(oldHoldRow);
+        if (
+          oldClaim.version !== input.expectedOldClaimVersion ||
+          oldHold.version !== input.expectedOldHoldVersion
+        )
+          return {
+            outcome: "CONFLICT" as const,
+            claim: oldClaim,
+            hold: oldHold,
+            reason: reason(
+              "EXPLICIT_REEVALUATION_AUTHORIZATION_STALE",
+              "The F11 claim or hold changed after the re-evaluation authorization was issued.",
+              "F11 will not transfer a durable owner from a stale renderer snapshot.",
+              "RECONCILE",
+            ),
+          };
+        if (
+          oldClaim.state !== "ACTIVE" ||
+          oldClaim.operationId !== input.oldOperationId ||
+          oldClaim.bundleId !== input.oldBundleId ||
+          oldHold.state !== "ACTIVE" ||
+          oldHold.claimId !== input.oldClaimId ||
+          oldHold.operationId !== input.oldOperationId ||
+          oldHold.bundleId !== input.oldBundleId
+        )
+          return {
+            outcome: "CONFLICT" as const,
+            claim: oldClaim,
+            hold: oldHold,
+            reason: reason(
+              "CLAIM_OWNER_MISMATCH",
+              "The original F11 owner no longer matches the re-evaluation request.",
+              "F22 rejects stale or competing renderer actions instead of transferring another operation's hold.",
+              "RECONCILE",
+            ),
+          };
+        const transferReason = reason(
+          "EXPLICIT_REEVALUATION_REQUIRED",
+          "An explicit human re-evaluation transferred the held immutable versions.",
+          "The old bundle remains inspectable while the new operation owns the transferred versions and active hold.",
+          "RE_EVALUATE",
+          { oldBundleId: input.oldBundleId, newBundleId: input.newBundleId },
+        );
+        for (const eventVersionId of eventIds) {
+          const event = transaction.get(
+            "SELECT managed_pr_id FROM remote_event_versions WHERE event_version_id = ?",
+            eventVersionId,
+          );
+          if (
+            event === undefined ||
+            rowString(event, "managed_pr_id") !== input.managedPrId
+          )
+            return {
+              outcome: "CONFLICT" as const,
+              claim: oldClaim,
+              hold: oldHold,
+              reason: reason(
+                "INVALID_SCOPE",
+                "A re-evaluation event version belongs to another managed pull request.",
+                "F11 scopes immutable versions by managed PR, not by an untrusted remote identifier.",
+                "FIX_INPUT",
+              ),
+            };
+          const associationRow = transaction.get(
+            "SELECT * FROM f11_event_associations WHERE managed_pr_id = ? AND event_version_id = ?",
+            input.managedPrId,
+            eventVersionId,
+          );
+          if (associationRow === undefined)
+            return {
+              outcome: "CONFLICT" as const,
+              claim: oldClaim,
+              hold: oldHold,
+              reason: reason(
+                "INVALID_SCOPE",
+                "A re-evaluation event version has no durable association.",
+                "F22 cannot infer ownership for an immutable version that is absent from the F11 association ledger.",
+                "RECONCILE",
+              ),
+            };
+          const association = associationFromRow(associationRow);
+          if (
+            association.state !== "ASSIGNED_TO_ACTIVE_BUNDLE" &&
+            association.state !== "RETAINED_DURING_HOLD"
+          )
+            return {
+              outcome: "CONFLICT" as const,
+              claim: oldClaim,
+              hold: oldHold,
+              reason: reason(
+                "ALREADY_HANDLED",
+                "A selected immutable version is no longer transferable.",
+                "Handled versions are permanent and cannot be automatically replayed by re-evaluation.",
+                "REVIEW",
+              ),
+            };
+          if (
+            association.state === "ASSIGNED_TO_ACTIVE_BUNDLE" &&
+            (association.bundleId !== input.oldBundleId ||
+              association.operationId !== input.oldOperationId)
+          )
+            return {
+              outcome: "CONFLICT" as const,
+              claim: oldClaim,
+              hold: oldHold,
+              reason: reason(
+                "CLAIM_OWNER_MISMATCH",
+                "A selected immutable version is owned by another active bundle.",
+                "F11 will not transfer a competing association through a stale F22 action.",
+                "RECONCILE",
+              ),
+            };
+          if (
+            association.state === "RETAINED_DURING_HOLD" &&
+            (association.bundleId !== input.oldBundleId ||
+              association.operationId !== input.oldOperationId)
+          )
+            return {
+              outcome: "CONFLICT" as const,
+              claim: oldClaim,
+              hold: oldHold,
+              reason: reason(
+                "CLAIM_OWNER_MISMATCH",
+                "A selected retained version belongs to another hold.",
+                "F11 will not transfer a retained association through a competing F22 action.",
+                "RECONCILE",
+              ),
+            };
+          recordAssociationInTransaction(transaction, {
+            eventVersionId,
+            managedPrId: input.managedPrId,
+            nextState: "ASSIGNED_TO_ACTIVE_BUNDLE",
+            bundleId: input.newBundleId,
+            operationId: input.newOperationId,
+            reason: transferReason,
+            at: transferredAt,
+          });
+        }
+        transaction.run(
+          "UPDATE f11_automatic_claims SET state = 'RELEASED', released_at = ?, version = version + 1, updated_at = ? WHERE claim_id = ? AND state = 'ACTIVE'",
+          transferredAt,
+          transferredAt,
+          input.oldClaimId,
+        );
+        transaction.run(
+          "UPDATE f11_holds SET state = 'RELEASED', released_at = ?, version = version + 1, updated_at = ? WHERE hold_id = ? AND state = 'ACTIVE'",
+          transferredAt,
+          transferredAt,
+          input.oldHoldId,
+        );
+        transaction.run(
+          "INSERT INTO f11_automatic_claims (claim_id, managed_pr_id, operation_id, bundle_id, state, event_version_ids_json, configuration_snapshot_json, correlation_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, 1, ?, ?)",
+          input.newClaimId,
+          input.managedPrId,
+          input.newOperationId,
+          input.newBundleId,
+          encoded(eventIds).payload,
+          encoded(input.configurationSnapshot).payload,
+          input.correlationId,
+          transferredAt,
+          transferredAt,
+        );
+        transaction.run(
+          "INSERT INTO f11_holds (hold_id, managed_pr_id, claim_id, operation_id, bundle_id, state, reason_json, acquired_at, version, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?)",
+          input.newHoldId,
+          input.managedPrId,
+          input.newClaimId,
+          input.newOperationId,
+          input.newBundleId,
+          encoded(transferReason).payload,
+          transferredAt,
+          transferredAt,
+        );
+        const newClaimRow = transaction.get(
+          "SELECT * FROM f11_automatic_claims WHERE claim_id = ?",
+          input.newClaimId,
+        );
+        const newHoldRow = transaction.get(
+          "SELECT * FROM f11_holds WHERE hold_id = ?",
+          input.newHoldId,
+        );
+        if (newClaimRow === undefined || newHoldRow === undefined)
+          throw new Error("F11_REEVALUATION_TRANSFER_NOT_READABLE");
+        return {
+          outcome: "TRANSFERRED" as const,
+          claim: claimFromRow(newClaimRow),
+          hold: holdFromRow(newHoldRow),
+          reason: transferReason,
+        };
+      },
+      { signal: undefined },
+    );
+  }
+
+  /**
+   * Compensates a transfer when F18 rejects before it can persist the new
+   * bundle.  The operation is exact and idempotent: it can only restore the
+   * named old owner and the original/retained association states.
+   */
+  public rollbackForReevaluation(
+    input: F11ReevaluationRollbackInput,
+  ): F11ReevaluationRollbackResult {
+    for (const [value, label] of [
+      [input.managedPrId, "managed PR identifier"],
+      [input.oldClaimId, "old claim identifier"],
+      [input.oldHoldId, "old hold identifier"],
+      [input.oldOperationId, "old operation identifier"],
+      [input.oldBundleId, "old bundle identifier"],
+      [input.newClaimId, "new claim identifier"],
+      [input.newHoldId, "new hold identifier"],
+      [input.newOperationId, "new operation identifier"],
+      [input.newBundleId, "new bundle identifier"],
+    ] as const)
+      id(value, label);
+    const originalEventIds = [...new Set(input.originalEventVersionIds)];
+    const retainedEventIds = [...new Set(input.retainedEventVersionIds)];
+    const eventIds = [...originalEventIds, ...retainedEventIds];
+    if (
+      eventIds.length === 0 ||
+      eventIds.length !==
+        input.originalEventVersionIds.length +
+          input.retainedEventVersionIds.length ||
+      eventIds.length > F11_MAX_CLAIM_EVENTS
+    )
+      return {
+        outcome: "CONFLICT",
+        reason: reason(
+          "INVALID_SCOPE",
+          "The re-evaluation rollback event set is empty, duplicated, or too large.",
+          "F11 restores only the exact immutable versions named by the durable F22 action.",
+          "RECONCILE",
+        ),
+      };
+    const original = new Set(originalEventIds);
+    const rolledBackAt = input.rolledBackAt ?? timestamp(this.clock);
+    return this.transaction((transaction) => {
+      const oldClaimRow = transaction.get(
+        "SELECT * FROM f11_automatic_claims WHERE claim_id = ? AND managed_pr_id = ?",
+        input.oldClaimId,
+        input.managedPrId,
+      );
+      const oldHoldRow = transaction.get(
+        "SELECT * FROM f11_holds WHERE hold_id = ? AND managed_pr_id = ?",
+        input.oldHoldId,
+        input.managedPrId,
+      );
+      const newClaimRow = transaction.get(
+        "SELECT * FROM f11_automatic_claims WHERE claim_id = ? AND managed_pr_id = ?",
+        input.newClaimId,
+        input.managedPrId,
+      );
+      const newHoldRow = transaction.get(
+        "SELECT * FROM f11_holds WHERE hold_id = ? AND managed_pr_id = ?",
+        input.newHoldId,
+        input.managedPrId,
+      );
+      if (
+        oldClaimRow === undefined ||
+        oldHoldRow === undefined ||
+        newClaimRow === undefined ||
+        newHoldRow === undefined
+      )
+        return {
+          outcome: "CONFLICT" as const,
+          reason: reason(
+            "CLAIM_NOT_FOUND",
+            "The exact F11 owners required for rollback are not readable.",
+            "F11 will not guess whether a re-evaluation transfer committed before F18 refused it.",
+            "RECONCILE",
+          ),
+        };
+      const oldClaim = claimFromRow(oldClaimRow);
+      const oldHold = holdFromRow(oldHoldRow);
+      const newClaim = claimFromRow(newClaimRow);
+      const newHold = holdFromRow(newHoldRow);
+      if (
+        oldClaim.managedPrId !== input.managedPrId ||
+        oldClaim.operationId !== input.oldOperationId ||
+        oldClaim.bundleId !== input.oldBundleId ||
+        oldHold.claimId !== input.oldClaimId ||
+        oldHold.operationId !== input.oldOperationId ||
+        oldHold.bundleId !== input.oldBundleId ||
+        newClaim.operationId !== input.newOperationId ||
+        newClaim.bundleId !== input.newBundleId ||
+        newHold.claimId !== input.newClaimId ||
+        newHold.operationId !== input.newOperationId ||
+        newHold.bundleId !== input.newBundleId
+      )
+        return {
+          outcome: "CONFLICT" as const,
+          claim: oldClaim,
+          hold: oldHold,
+          reason: reason(
+            "CLAIM_OWNER_MISMATCH",
+            "The F11 owners do not match the exact re-evaluation rollback.",
+            "A stale or competing action cannot restore another operation's hold.",
+            "RECONCILE",
+          ),
+        };
+      if (
+        oldClaim.state === "ACTIVE" &&
+        oldHold.state === "ACTIVE" &&
+        newClaim.state === "RELEASED" &&
+        newHold.state === "RELEASED"
+      )
+        return {
+          outcome: "REPLAYED" as const,
+          claim: oldClaim,
+          hold: oldHold,
+          reason: reason(
+            "REEVALUATION_ROLLBACK_REPLAYED",
+            "The F11 re-evaluation transfer was already rolled back.",
+            "Retrying the same compensation returns the restored old owner without another transition.",
+            "NONE",
+          ),
+        };
+      if (
+        oldClaim.state !== "RELEASED" ||
+        oldHold.state !== "RELEASED" ||
+        newClaim.state !== "ACTIVE" ||
+        newHold.state !== "ACTIVE"
+      )
+        return {
+          outcome: "CONFLICT" as const,
+          claim: oldClaim,
+          hold: oldHold,
+          reason: reason(
+            "CLAIM_STATE_CONFLICT",
+            "The F11 transfer is not in a compensatable state.",
+            "F11 refuses to restore ownership after an unrelated terminal transition.",
+            "RECONCILE",
+          ),
+        };
+      for (const eventVersionId of eventIds) {
+        const associationRow = transaction.get(
+          "SELECT * FROM f11_event_associations WHERE managed_pr_id = ? AND event_version_id = ?",
+          input.managedPrId,
+          eventVersionId,
+        );
+        if (associationRow === undefined)
+          return {
+            outcome: "CONFLICT" as const,
+            claim: oldClaim,
+            hold: oldHold,
+            reason: reason(
+              "INVALID_SCOPE",
+              "An immutable event association needed for rollback is missing.",
+              "F11 preserves exact association history instead of inferring a prior owner.",
+              "RECONCILE",
+            ),
+          };
+        const association = associationFromRow(associationRow);
+        const desiredState = original.has(eventVersionId)
+          ? "ASSIGNED_TO_ACTIVE_BUNDLE"
+          : "RETAINED_DURING_HOLD";
+        const alreadyRestored =
+          association.state === desiredState &&
+          association.bundleId === input.oldBundleId &&
+          association.operationId === input.oldOperationId;
+        if (alreadyRestored) continue;
+        if (
+          association.state !== "ASSIGNED_TO_ACTIVE_BUNDLE" ||
+          association.bundleId !== input.newBundleId ||
+          association.operationId !== input.newOperationId
+        )
+          return {
+            outcome: "CONFLICT" as const,
+            claim: oldClaim,
+            hold: oldHold,
+            reason: reason(
+              "CLAIM_OWNER_MISMATCH",
+              "An immutable event association is owned by another operation.",
+              "F11 will not move a competing association during compensation.",
+              "RECONCILE",
+            ),
+          };
+        recordAssociationInTransaction(transaction, {
+          eventVersionId,
+          managedPrId: input.managedPrId,
+          nextState: desiredState,
+          bundleId: input.oldBundleId,
+          operationId: input.oldOperationId,
+          reason: reason(
+            "REEVALUATION_ROLLBACK",
+            "The explicitly requested re-evaluation was not admitted by F18.",
+            "F11 restored the old held owner and immutable association states.",
+            "RECONCILE",
+          ),
+          at: rolledBackAt,
+        });
+      }
+      transaction.run(
+        "UPDATE f11_automatic_claims SET state = 'RELEASED', released_at = ?, version = version + 1, updated_at = ? WHERE claim_id = ? AND state = 'ACTIVE'",
+        rolledBackAt,
+        rolledBackAt,
+        input.newClaimId,
+      );
+      transaction.run(
+        "UPDATE f11_holds SET state = 'RELEASED', released_at = ?, version = version + 1, updated_at = ? WHERE hold_id = ? AND state = 'ACTIVE'",
+        rolledBackAt,
+        rolledBackAt,
+        input.newHoldId,
+      );
+      transaction.run(
+        "UPDATE f11_automatic_claims SET state = 'ACTIVE', released_at = NULL, outcome = NULL, version = version + 1, updated_at = ? WHERE claim_id = ? AND state = 'RELEASED'",
+        rolledBackAt,
+        input.oldClaimId,
+      );
+      transaction.run(
+        "UPDATE f11_holds SET state = 'ACTIVE', released_at = NULL, outcome = NULL, version = version + 1, updated_at = ? WHERE hold_id = ? AND state = 'RELEASED'",
+        rolledBackAt,
+        input.oldHoldId,
+      );
+      const restoredClaimRow = transaction.get(
+        "SELECT * FROM f11_automatic_claims WHERE claim_id = ?",
+        input.oldClaimId,
+      );
+      const restoredHoldRow = transaction.get(
+        "SELECT * FROM f11_holds WHERE hold_id = ?",
+        input.oldHoldId,
+      );
+      if (restoredClaimRow === undefined || restoredHoldRow === undefined)
+        throw new Error("F11_REEVALUATION_ROLLBACK_NOT_READABLE");
+      return {
+        outcome: "ROLLED_BACK" as const,
+        claim: claimFromRow(restoredClaimRow),
+        hold: holdFromRow(restoredHoldRow),
+        reason: reason(
+          "REEVALUATION_ROLLBACK",
+          "The explicit re-evaluation was refused before F18 admitted a new bundle.",
+          "F11 restored the original active hold and immutable event ownership.",
+          "RECONCILE",
+        ),
+      };
+    });
   }
 
   public completeClaim(input: F11CompletionInput): F11CompletionResult {

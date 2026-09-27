@@ -62,6 +62,18 @@ import type {
   F21UserIntent,
   F21ConversationReadModel,
 } from "../shared/f21-conversation";
+import type {
+  F22ActionResult,
+  F22DiscardBeginInput,
+  F22DiscardConfirmInput,
+  F22PreviewResult,
+  F22ReevaluationBeginInput,
+  F22ReevaluationConfirmInput,
+} from "./f22-coordinator";
+import type {
+  F22DiscardPreview,
+  F22ReevaluationPreview,
+} from "../shared/f22-discard-reevaluation";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -199,6 +211,9 @@ export interface IpcServices {
     destination: ManagedPrNavigationDestination,
   ) => OpenTarget;
   readonly readReviewBundle?: (bundleId: string) => F20WorkspaceReadModel;
+  readonly reconcileReviewBundleF22?: (
+    bundleId: string,
+  ) => Promise<F20WorkspaceReadModel>;
   readonly readReviewBundleDiff?: (
     input: F20ReadDiffInput,
   ) => Promise<F20DiffView>;
@@ -216,6 +231,30 @@ export interface IpcServices {
   readonly refreshReviewBundleWorktree?: (
     input: F20RefreshWorktreeInput,
   ) => Promise<F20WorkspaceReadModel>;
+  readonly previewReviewBundleDiscard?: (
+    input: F22DiscardBeginInput,
+  ) => Promise<{
+    readonly result: F22PreviewResult<F22DiscardPreview>;
+    readonly workspace: F20WorkspaceReadModel;
+  }>;
+  readonly confirmReviewBundleDiscard?: (
+    input: F22DiscardConfirmInput,
+  ) => Promise<{
+    readonly result: F22ActionResult;
+    readonly workspace: F20WorkspaceReadModel;
+  }>;
+  readonly previewReviewBundleReevaluation?: (
+    input: F22ReevaluationBeginInput,
+  ) => Promise<{
+    readonly result: F22PreviewResult<F22ReevaluationPreview>;
+    readonly workspace: F20WorkspaceReadModel;
+  }>;
+  readonly confirmReviewBundleReevaluation?: (
+    input: F22ReevaluationConfirmInput,
+  ) => Promise<{
+    readonly result: F22ActionResult;
+    readonly workspace: F20WorkspaceReadModel;
+  }>;
   readonly reviewBundlePathAction?: (
     input: F20PathActionInput,
   ) => Promise<F20PathActionResult>;
@@ -837,6 +876,18 @@ export class IpcRouter {
           }),
         );
       }
+      if (request.type === "review-bundle.f22.reconcile") {
+        if (this.services.reconcileReviewBundleF22 === undefined)
+          throw new Error("PRMONITOR_F22_COORDINATOR_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-workspace",
+            workspace: await this.services.reconcileReviewBundleF22(
+              request.payload.bundleId,
+            ),
+          }),
+        );
+      }
       if (request.type === "review-bundle.diff.read") {
         if (this.services.readReviewBundleDiff === undefined)
           throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
@@ -890,6 +941,102 @@ export class IpcRouter {
             workspace: await this.services.refreshReviewBundleWorktree(
               request.payload,
             ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.discard.preview") {
+        if (this.services.previewReviewBundleDiscard === undefined)
+          throw new Error("PRMONITOR_F22_COORDINATOR_NOT_READY");
+        const response = await this.services.previewReviewBundleDiscard(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-f22",
+            workspace: response.workspace,
+            gate: response.result.gate,
+            outcome: response.result.outcome,
+            ...(response.result.actionId === undefined
+              ? {}
+              : { actionId: response.result.actionId }),
+            ...(response.result.preview === undefined
+              ? {}
+              : { preview: response.result.preview }),
+            ...(response.result.reason === undefined
+              ? {}
+              : { reason: response.result.reason }),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.discard.confirm") {
+        if (this.services.confirmReviewBundleDiscard === undefined)
+          throw new Error("PRMONITOR_F22_COORDINATOR_NOT_READY");
+        const response = await this.services.confirmReviewBundleDiscard(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-f22",
+            workspace: response.workspace,
+            gate: response.result.gate,
+            outcome: response.result.outcome,
+            ...(response.result.actionId === undefined
+              ? {}
+              : { actionId: response.result.actionId }),
+            ...(response.result.newBundleId === undefined
+              ? {}
+              : { newBundleId: response.result.newBundleId }),
+            ...(response.result.reason === undefined
+              ? {}
+              : { reason: response.result.reason }),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.reevaluate.preview") {
+        if (this.services.previewReviewBundleReevaluation === undefined)
+          throw new Error("PRMONITOR_F22_COORDINATOR_NOT_READY");
+        const response = await this.services.previewReviewBundleReevaluation(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-f22",
+            workspace: response.workspace,
+            gate: response.result.gate,
+            outcome: response.result.outcome,
+            ...(response.result.actionId === undefined
+              ? {}
+              : { actionId: response.result.actionId }),
+            ...(response.result.preview === undefined
+              ? {}
+              : { preview: response.result.preview }),
+            ...(response.result.reason === undefined
+              ? {}
+              : { reason: response.result.reason }),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.reevaluate.confirm") {
+        if (this.services.confirmReviewBundleReevaluation === undefined)
+          throw new Error("PRMONITOR_F22_COORDINATOR_NOT_READY");
+        const response = await this.services.confirmReviewBundleReevaluation(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-f22",
+            workspace: response.workspace,
+            gate: response.result.gate,
+            outcome: response.result.outcome,
+            ...(response.result.actionId === undefined
+              ? {}
+              : { actionId: response.result.actionId }),
+            ...(response.result.newBundleId === undefined
+              ? {}
+              : { newBundleId: response.result.newBundleId }),
+            ...(response.result.reason === undefined
+              ? {}
+              : { reason: response.result.reason }),
           }),
         );
       }

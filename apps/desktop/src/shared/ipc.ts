@@ -82,6 +82,16 @@ import {
   type F21ProposalEntryInput,
   type F21UserIntent,
 } from "./f21-conversation";
+import {
+  f22DirtyWorktreeChoiceSchema,
+  f22ActionGateSchema,
+  f22DiscardPreviewSchema,
+  f22ReevaluationPreviewSchema,
+  type F22ActionGate,
+  type F22DiscardPreview,
+  type F22Reason,
+  type F22ReevaluationPreview,
+} from "./f22-discard-reevaluation";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -135,11 +145,16 @@ export type IpcRequestType =
   | "activity.subscribe"
   | "activity.navigate"
   | "review-bundle.read"
+  | "review-bundle.f22.reconcile"
   | "review-bundle.diff.read"
   | "review-bundle.decision.record"
   | "review-bundle.decisions.confirm"
   | "review-bundle.draft.save"
   | "review-bundle.worktree.refresh"
+  | "review-bundle.discard.preview"
+  | "review-bundle.discard.confirm"
+  | "review-bundle.reevaluate.preview"
+  | "review-bundle.reevaluate.confirm"
   | "review-bundle.path-action"
   | "review-bundle.conversation.read"
   | "review-bundle.conversation.ask"
@@ -313,6 +328,10 @@ export type IpcRequest =
       readonly payload: { readonly bundleId: string };
     })
   | (IpcRequestBase & {
+      readonly type: "review-bundle.f22.reconcile";
+      readonly payload: { readonly bundleId: string };
+    })
+  | (IpcRequestBase & {
       readonly type: "review-bundle.diff.read";
       readonly payload: {
         readonly bundleId: string;
@@ -341,6 +360,47 @@ export type IpcRequest =
       readonly payload: {
         readonly bundleId: string;
         readonly expectedVersion?: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.discard.preview";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly idempotencyKey: string;
+        readonly expectedGateRevision?: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.discard.confirm";
+      readonly payload: {
+        readonly actionId: string;
+        readonly bundleId: string;
+        readonly choice:
+          "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL";
+        readonly confirmed?: boolean;
+        readonly expectedActionVersion?: number;
+        readonly expectedGateRevision?: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.reevaluate.preview";
+      readonly payload: {
+        readonly bundleId: string;
+        readonly idempotencyKey: string;
+        readonly selectedRetainedEventVersionIds?: readonly string[];
+        readonly expectedGateRevision?: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.reevaluate.confirm";
+      readonly payload: {
+        readonly actionId: string;
+        readonly bundleId: string;
+        readonly choice:
+          "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL";
+        readonly confirmed?: boolean;
+        readonly expectedActionVersion?: number;
+        readonly expectedGateRevision?: number;
       };
     })
   | (IpcRequestBase & {
@@ -494,6 +554,16 @@ export type IpcResponseValue =
   | {
       readonly kind: "review-bundle-path-action";
       readonly result: F20PathActionResult;
+    }
+  | {
+      readonly kind: "review-bundle-f22";
+      readonly workspace: F20WorkspaceReadModel;
+      readonly gate: F22ActionGate;
+      readonly outcome: string;
+      readonly actionId?: string;
+      readonly newBundleId?: string;
+      readonly preview?: F22DiscardPreview | F22ReevaluationPreview;
+      readonly reason?: F22Reason;
     }
   | {
       readonly kind: "review-bundle-conversation";
@@ -834,6 +904,23 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "result"]) &&
       f20PathActionResultSchema.safeParse(value.result).success
     );
+  if (value.kind === "review-bundle-f22") {
+    const previewOk =
+      value.preview === undefined ||
+      f22DiscardPreviewSchema.safeParse(value.preview).success ||
+      f22ReevaluationPreviewSchema.safeParse(value.preview).success;
+    return (
+      hasExactKeys(
+        value,
+        ["kind", "workspace", "gate", "outcome"],
+        ["actionId", "newBundleId", "preview", "reason"],
+      ) &&
+      f20WorkspaceReadModelSchema.safeParse(value.workspace).success &&
+      f22ActionGateSchema.safeParse(value.gate).success &&
+      typeof value.outcome === "string" &&
+      previewOk
+    );
+  }
   if (value.kind === "review-bundle-conversation")
     return (
       hasExactKeys(value, ["kind", "conversation"]) &&
@@ -1424,6 +1511,23 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "review-bundle.f22.reconcile") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId)
+    )
+      return invalidRequest(
+        "The Review Bundle reconciliation identifier is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { bundleId: value.payload.bundleId },
+      },
+    };
+  }
   if (value.type === "review-bundle.diff.read") {
     if (
       !hasExactKeys(value.payload, ["bundleId", "mode"], ["itemId"]) ||
@@ -1587,6 +1691,156 @@ export function parseIpcRequest(
           ...(value.payload.expectedVersion === undefined
             ? {}
             : { expectedVersion: value.payload.expectedVersion }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.discard.preview") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["bundleId", "idempotencyKey"],
+        ["expectedGateRevision"],
+      ) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !safeGithubIdentifier(value.payload.idempotencyKey) ||
+      (value.payload.expectedGateRevision !== undefined &&
+        !safeVersion(value.payload.expectedGateRevision))
+    )
+      return invalidRequest("The F22 discard preview request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          idempotencyKey: value.payload.idempotencyKey,
+          ...(value.payload.expectedGateRevision === undefined
+            ? {}
+            : { expectedGateRevision: value.payload.expectedGateRevision }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.discard.confirm") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["actionId", "bundleId", "choice"],
+        ["confirmed", "expectedActionVersion", "expectedGateRevision"],
+      ) ||
+      !safeGithubIdentifier(value.payload.actionId) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !f22DirtyWorktreeChoiceSchema.safeParse(value.payload.choice).success ||
+      (value.payload.confirmed !== undefined &&
+        typeof value.payload.confirmed !== "boolean") ||
+      (value.payload.expectedActionVersion !== undefined &&
+        !safeVersion(value.payload.expectedActionVersion)) ||
+      (value.payload.expectedGateRevision !== undefined &&
+        !safeVersion(value.payload.expectedGateRevision))
+    )
+      return invalidRequest("The F22 discard confirmation request is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          actionId: value.payload.actionId,
+          bundleId: value.payload.bundleId,
+          choice: value.payload.choice as
+            "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL",
+          ...(value.payload.confirmed === undefined
+            ? {}
+            : { confirmed: value.payload.confirmed }),
+          ...(value.payload.expectedActionVersion === undefined
+            ? {}
+            : { expectedActionVersion: value.payload.expectedActionVersion }),
+          ...(value.payload.expectedGateRevision === undefined
+            ? {}
+            : { expectedGateRevision: value.payload.expectedGateRevision }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.reevaluate.preview") {
+    const retained = value.payload.selectedRetainedEventVersionIds;
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["bundleId", "idempotencyKey"],
+        ["selectedRetainedEventVersionIds", "expectedGateRevision"],
+      ) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !safeGithubIdentifier(value.payload.idempotencyKey) ||
+      (retained !== undefined &&
+        (!Array.isArray(retained) ||
+          retained.length > 256 ||
+          retained.some((item) => !safeGithubIdentifier(item)))) ||
+      (value.payload.expectedGateRevision !== undefined &&
+        !safeVersion(value.payload.expectedGateRevision))
+    )
+      return invalidRequest(
+        "The F22 re-evaluation preview request is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          bundleId: value.payload.bundleId,
+          idempotencyKey: value.payload.idempotencyKey,
+          ...(retained === undefined
+            ? {}
+            : { selectedRetainedEventVersionIds: retained }),
+          ...(value.payload.expectedGateRevision === undefined
+            ? {}
+            : { expectedGateRevision: value.payload.expectedGateRevision }),
+        },
+      },
+    };
+  }
+  if (value.type === "review-bundle.reevaluate.confirm") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["actionId", "bundleId", "choice"],
+        ["confirmed", "expectedActionVersion", "expectedGateRevision"],
+      ) ||
+      !safeGithubIdentifier(value.payload.actionId) ||
+      !safeGithubIdentifier(value.payload.bundleId) ||
+      !f22DirtyWorktreeChoiceSchema.safeParse(value.payload.choice).success ||
+      (value.payload.confirmed !== undefined &&
+        typeof value.payload.confirmed !== "boolean") ||
+      (value.payload.expectedActionVersion !== undefined &&
+        !safeVersion(value.payload.expectedActionVersion)) ||
+      (value.payload.expectedGateRevision !== undefined &&
+        !safeVersion(value.payload.expectedGateRevision))
+    )
+      return invalidRequest(
+        "The F22 re-evaluation confirmation request is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          actionId: value.payload.actionId,
+          bundleId: value.payload.bundleId,
+          choice: value.payload.choice as
+            "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL",
+          ...(value.payload.confirmed === undefined
+            ? {}
+            : { confirmed: value.payload.confirmed }),
+          ...(value.payload.expectedActionVersion === undefined
+            ? {}
+            : { expectedActionVersion: value.payload.expectedActionVersion }),
+          ...(value.payload.expectedGateRevision === undefined
+            ? {}
+            : { expectedGateRevision: value.payload.expectedGateRevision }),
         },
       },
     };
@@ -1914,6 +2168,7 @@ export interface PrMonitorPreloadApi {
     destination: "details" | "settings",
   ) => Promise<IpcResponse>;
   readonly readReviewBundle: (bundleId: string) => Promise<IpcResponse>;
+  readonly reconcileReviewBundleF22: (bundleId: string) => Promise<IpcResponse>;
   readonly readReviewBundleDiff: (
     bundleId: string,
     mode: F20DiffMode,
@@ -1934,6 +2189,35 @@ export interface PrMonitorPreloadApi {
     bundleId: string,
     expectedVersion?: number,
   ) => Promise<IpcResponse>;
+  readonly previewReviewBundleDiscard: (input: {
+    readonly bundleId: string;
+    readonly idempotencyKey: string;
+    readonly expectedGateRevision?: number;
+  }) => Promise<IpcResponse>;
+  readonly confirmReviewBundleDiscard: (input: {
+    readonly actionId: string;
+    readonly bundleId: string;
+    readonly choice:
+      "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL";
+    readonly confirmed?: boolean;
+    readonly expectedActionVersion?: number;
+    readonly expectedGateRevision?: number;
+  }) => Promise<IpcResponse>;
+  readonly previewReviewBundleReevaluation: (input: {
+    readonly bundleId: string;
+    readonly idempotencyKey: string;
+    readonly selectedRetainedEventVersionIds?: readonly string[];
+    readonly expectedGateRevision?: number;
+  }) => Promise<IpcResponse>;
+  readonly confirmReviewBundleReevaluation: (input: {
+    readonly actionId: string;
+    readonly bundleId: string;
+    readonly choice:
+      "NO_CHANGES" | "CLEAR_ALL" | "CLEAR_AI_ONLY" | "KEEP_AND_CANCEL";
+    readonly confirmed?: boolean;
+    readonly expectedActionVersion?: number;
+    readonly expectedGateRevision?: number;
+  }) => Promise<IpcResponse>;
   readonly reviewBundlePathAction: (
     input: F20PathActionInput,
   ) => Promise<IpcResponse>;

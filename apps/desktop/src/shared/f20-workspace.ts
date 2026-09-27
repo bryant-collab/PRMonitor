@@ -17,6 +17,12 @@ import type {
   F13PathAction,
   F13WorktreeCondition,
 } from "./f13-contracts";
+import {
+  f22ActionGateSchema,
+  f22PendingActionSchema,
+  type F22ActionGate,
+  type F22PendingAction,
+} from "./f22-discard-reevaluation";
 
 /**
  * F20 is a renderer-facing projection, not a second workflow state machine.
@@ -299,6 +305,8 @@ export const f20WorkspaceReadModelSchema = z
         prContext: f20DiffReferenceSchema.optional(),
       })
       .strict(),
+    f22: f22ActionGateSchema.optional(),
+    f22PendingAction: f22PendingActionSchema.optional(),
     actions: z.array(f20ActionCapabilitySchema).max(32),
     authority: z
       .object({
@@ -481,7 +489,25 @@ function readableStatus(value: string): string {
 
 function statePresentation(
   model: F18ReviewBundleReadModel,
+  f22?: F22ActionGate,
 ): F20StatePresentation {
+  if (f22 !== undefined && f22.status !== "CURRENT") {
+    return {
+      label: f22.status.replaceAll("_", " "),
+      semantic: "ATTENTION",
+      what:
+        f22.reason?.what ??
+        "This Review Bundle is gated by a newer or unavailable deterministic observation.",
+      why:
+        f22.reason?.why ??
+        "The original evidence remains inspectable, but continuation and publication are disabled until the explicit next action completes.",
+      nextAction: f22.reason?.nextAction ?? "INSPECT",
+      preservedEvidence: [
+        "The original Review Bundle and its immutable evidence remain available.",
+        "No worktree or publication mutation is implied by this state.",
+      ],
+    };
+  }
   if (model.state === "NEEDS_ATTENTION") {
     const first = model.reasons[0];
     return {
@@ -559,9 +585,14 @@ function buildAction(
 function actionCapabilities(
   model: F18ReviewBundleReadModel,
   hasWorktree: boolean,
+  f22?: F22ActionGate,
+  f22PendingAction?: F22PendingAction,
 ): F20ActionCapability[] {
   const proposal = model.stage === "PROPOSAL_REVIEW";
-  const active = model.state !== "WORKING";
+  const f22Current =
+    f22 === undefined ||
+    (f22.status === "CURRENT" && f22.remote.observationRevision !== undefined);
+  const active = model.state !== "WORKING" && f22Current;
   const actions = [
     buildAction(
       "ACCEPT_RECOMMENDATION",
@@ -638,6 +669,34 @@ function actionCapabilities(
       hasWorktree ? undefined : "WORKTREE_UNAVAILABLE",
     ),
     buildAction(
+      "DISCARD",
+      f22?.actions.discard === true && f22PendingAction === undefined,
+      f22PendingAction !== undefined
+        ? "Another durable F22 action is awaiting confirmation or reconciliation."
+        : f22?.actions.discard === true
+          ? "Open the explicit discard choice flow; no worktree mutation occurs before confirmation."
+          : "Discard is available only through the current F22 action gate.",
+      f22?.actions.discard === true && f22PendingAction === undefined
+        ? undefined
+        : f22PendingAction !== undefined
+          ? "F22_ACTION_IN_PROGRESS"
+          : "F22_ACTION_GATED",
+    ),
+    buildAction(
+      "RE_EVALUATE",
+      f22?.actions.reevaluate === true && f22PendingAction === undefined,
+      f22PendingAction !== undefined
+        ? "Another durable F22 action is awaiting confirmation or reconciliation."
+        : f22?.actions.reevaluate === true
+          ? "Preview a fresh evaluation at the current exact pull-request head."
+          : "Re-evaluation is available only after F22 records stale or attention evidence.",
+      f22?.actions.reevaluate === true && f22PendingAction === undefined
+        ? undefined
+        : f22PendingAction !== undefined
+          ? "F22_ACTION_IN_PROGRESS"
+          : "F22_ACTION_GATED",
+    ),
+    buildAction(
       "PUBLISH",
       false,
       "Publication belongs to F23 and requires a separate explicit approval workflow.",
@@ -688,6 +747,8 @@ export function projectReviewBundleWorkspace(input: {
   readonly baselineValidation?: F20ValidationProjection;
   readonly postChangeValidation?: F20ValidationProjection;
   readonly worktreeCondition?: F13WorktreeCondition;
+  readonly f22Gate?: F22ActionGate;
+  readonly f22PendingAction?: F22PendingAction;
 }): F20WorkspaceReadModel {
   const model = f18ReviewBundleReadModelSchema.parse(input.readModel);
   const feedbackByEvent = new Map(
@@ -765,7 +826,7 @@ export function projectReviewBundleWorkspace(input: {
     phase: model.phase,
     version: model.version,
     evidenceRevision: model.version,
-    statePresentation: statePresentation(model),
+    statePresentation: statePresentation(model, input.f22Gate),
     itemCount: items.length,
     items,
     decisionSummary: model.decisionSummary,
@@ -784,6 +845,10 @@ export function projectReviewBundleWorkspace(input: {
       : { implementationWork: model.implementationWork }),
     configuration: configurationSnapshot(model),
     ...(worktree === undefined ? {} : { worktree }),
+    ...(input.f22Gate === undefined ? {} : { f22: input.f22Gate }),
+    ...(input.f22PendingAction === undefined
+      ? {}
+      : { f22PendingAction: input.f22PendingAction }),
     diffReferences: {
       relevantAvailable: items.some(
         (item) =>
@@ -796,7 +861,12 @@ export function projectReviewBundleWorkspace(input: {
         ? {}
         : { prContext: model.worktree.contextDiff }),
     },
-    actions: actionCapabilities(model, worktree !== undefined),
+    actions: actionCapabilities(
+      model,
+      worktree !== undefined,
+      input.f22Gate,
+      input.f22PendingAction,
+    ),
     authority: {
       bundle: "F18_DURABLE" as const,
       decisions: "F18_DURABLE" as const,
@@ -1054,7 +1124,10 @@ export function projectDiffView(input: {
   readonly selectedItemId?: string;
   readonly relatedPaths?: readonly string[];
   readonly relatedHunk?: string;
+  /** Production callers pass the shared F22 freshness gate; direct projections default to the legacy candidate behavior. */
+  readonly publicationEligible?: boolean;
 }): F20DiffView {
+  const publicationGate = input.publicationEligible ?? true;
   const authority =
     input.mode === "RELEVANT"
       ? "ITEM_CONTEXT"
@@ -1193,7 +1266,8 @@ export function projectDiffView(input: {
       message: "The verified worktree contains no changes for this diff mode.",
       purpose,
       authority,
-      publicationEligible: input.mode === "PROPOSED_WORKTREE" && diff.complete,
+      publicationEligible:
+        publicationGate && input.mode === "PROPOSED_WORKTREE" && diff.complete,
     });
   let files: F20DiffFile[];
   try {
@@ -1245,7 +1319,8 @@ export function projectDiffView(input: {
     mode: input.mode,
     authority,
     purpose,
-    publicationEligible: input.mode === "PROPOSED_WORKTREE" && diff.complete,
+    publicationEligible:
+      publicationGate && input.mode === "PROPOSED_WORKTREE" && diff.complete,
     status: diff.complete ? "READY" : "OVER_LIMIT",
     message: diff.complete
       ? "Deterministic F13 diff evidence loaded."

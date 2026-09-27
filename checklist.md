@@ -174,7 +174,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Primary application criteria:** APP-AC-22; integrates APP-AC-33, APP-AC-55 through APP-AC-62.
   - **F15 handoff:** F21 uses F15's read-only conversation and mutating revision contracts. F15 enforces the capability/policy floor; F21 owns user intent and workflow state, F17/F03 own bounded turns and persistence, and F13/F14 determine actual changes and validation.
 
-- [ ] **F22 - Discard, stale detection, and re-evaluation with dirty-worktree choices**
+- [x] **F22 - Discard, stale detection, and re-evaluation with dirty-worktree choices**
   - **Depends on:** F10-F13, F16-F21.
   - **Deliver:** Detect remote head movement during polling and before action; mark bundles stale without deleting history/worktrees; block stale publication; and implement **Discard** and **Re-evaluate**. Before destructive replacement, show the actual changes and require **Clear All Changes**, **Clear Only AI Changes**, or **Keep Worktree and Cancel**; re-evaluate from current remote snapshots with the current Automatic Review profile while preserving original feedback versions and prior bundle history.
   - **Exit:** No stale bundle can publish, no dirty worktree is silently changed, handled versions remain handled after discard, and re-evaluation produces a newly snapshotted bundle while the PR remains held.

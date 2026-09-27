@@ -4,8 +4,26 @@ import type {
   F13WorktreeCondition,
 } from "../shared/f13-contracts";
 import type { F18AutomaticReviewBoundary } from "./automatic-review-coordinator";
-import type { F18DecisionInput } from "../shared/f18-automatic-review";
+import type {
+  F18DecisionInput,
+  F18ReviewBundleReadModel,
+} from "../shared/f18-automatic-review";
+import type {
+  F22ActionGate,
+  F22DiscardPreview,
+  F22ReevaluationPreview,
+} from "../shared/f22-discard-reevaluation";
+import type {
+  F22ActionResult,
+  F22Coordinator,
+  F22DiscardBeginInput,
+  F22DiscardConfirmInput,
+  F22PreviewResult,
+  F22ReevaluationBeginInput,
+  F22ReevaluationConfirmInput,
+} from "./f22-coordinator";
 import type { F14ValidationReadModel } from "./f14-validation-runner";
+import { f23PublicationPreflightFromF22 } from "../shared/f23-preflight";
 import {
   F20_MAX_VALIDATION_OUTPUT_BYTES,
   f20PathActionResultSchema,
@@ -46,10 +64,19 @@ export interface F20ValidationPort {
   readonly readModel: (runId: string) => F14ValidationReadModel | undefined;
 }
 
+export interface F20F19AttentionPort {
+  readonly handleF22Gate: (
+    readModel: F18ReviewBundleReadModel,
+    gate: F22ActionGate,
+  ) => Promise<unknown>;
+}
+
 export interface F20WorkspaceServiceOptions {
   readonly bundles: F18AutomaticReviewBoundary;
   readonly worktrees: F20WorktreePort;
   readonly validation?: F20ValidationPort;
+  readonly f22?: F22Coordinator;
+  readonly f19?: F20F19AttentionPort;
 }
 
 export class F20WorkspaceError extends Error {
@@ -172,6 +199,90 @@ export class F20WorkspaceService {
     return this.project(model);
   }
 
+  public async reconcileF22(bundleId: string): Promise<F20WorkspaceReadModel> {
+    if (this.options.f22 === undefined)
+      throw new F20WorkspaceError(
+        "F22_UNAVAILABLE",
+        "The stale/discard/re-evaluation coordinator is not ready.",
+      );
+    await this.options.f22.reconcileStartup();
+    return this.read(bundleId);
+  }
+
+  public readF22Gate(bundleId: string): F22ActionGate {
+    if (this.options.f22 === undefined)
+      throw new F20WorkspaceError(
+        "F22_UNAVAILABLE",
+        "The stale/discard/re-evaluation coordinator is not ready.",
+      );
+    return this.options.f22.readGate(bundleId);
+  }
+
+  public async beginDiscard(input: F22DiscardBeginInput): Promise<{
+    readonly result: F22PreviewResult<F22DiscardPreview>;
+    readonly workspace: F20WorkspaceReadModel;
+  }> {
+    if (this.options.f22 === undefined)
+      throw new F20WorkspaceError(
+        "F22_UNAVAILABLE",
+        "The stale/discard/re-evaluation coordinator is not ready.",
+      );
+    const result = await this.options.f22.beginDiscard(input);
+    this.rememberF22Condition(input.bundleId, result);
+    this.notifyF22Gate(input.bundleId, result.gate);
+    return { result, workspace: this.read(input.bundleId) };
+  }
+
+  public async confirmDiscard(input: F22DiscardConfirmInput): Promise<{
+    readonly result: F22ActionResult;
+    readonly workspace: F20WorkspaceReadModel;
+  }> {
+    if (this.options.f22 === undefined)
+      throw new F20WorkspaceError(
+        "F22_UNAVAILABLE",
+        "The stale/discard/re-evaluation coordinator is not ready.",
+      );
+    const result = await this.options.f22.confirmDiscard(input);
+    this.rememberF22Condition(input.bundleId, result);
+    this.notifyF22Gate(input.bundleId, result.gate);
+    return { result, workspace: this.read(input.bundleId) };
+  }
+
+  public async beginReevaluation(input: F22ReevaluationBeginInput): Promise<{
+    readonly result: F22PreviewResult<F22ReevaluationPreview>;
+    readonly workspace: F20WorkspaceReadModel;
+  }> {
+    if (this.options.f22 === undefined)
+      throw new F20WorkspaceError(
+        "F22_UNAVAILABLE",
+        "The stale/discard/re-evaluation coordinator is not ready.",
+      );
+    const result = await this.options.f22.beginReevaluation(input);
+    this.rememberF22Condition(input.bundleId, result);
+    this.notifyF22Gate(input.bundleId, result.gate);
+    return { result, workspace: this.read(input.bundleId) };
+  }
+
+  public async confirmReevaluation(
+    input: F22ReevaluationConfirmInput,
+  ): Promise<{
+    readonly result: F22ActionResult;
+    readonly workspace: F20WorkspaceReadModel;
+  }> {
+    if (this.options.f22 === undefined)
+      throw new F20WorkspaceError(
+        "F22_UNAVAILABLE",
+        "The stale/discard/re-evaluation coordinator is not ready.",
+      );
+    const result = await this.options.f22.confirmReevaluation(input);
+    this.rememberF22Condition(input.bundleId, result);
+    this.notifyF22Gate(input.bundleId, result.gate);
+    return {
+      result,
+      workspace: this.read(result.newBundleId ?? input.bundleId),
+    };
+  }
+
   public async readDiff(input: F20ReadDiffInput): Promise<F20DiffView> {
     const model = this.requireReadModel(input.bundleId);
     if (model.worktree === undefined)
@@ -190,6 +301,25 @@ export class F20WorkspaceService {
       model.bundleId,
       "INSPECTION",
     );
+    const f22Gate =
+      this.options.f22 === undefined
+        ? undefined
+        : await this.options.f22.observeRemoteHead(model.bundleId);
+    const f23Preflight =
+      f22Gate === undefined
+        ? undefined
+        : f23PublicationPreflightFromF22(f22Gate, {
+            freshRemoteObservation:
+              f22Gate.remote.observationToken === undefined ||
+              f22Gate.remote.observationRevision === undefined ||
+              f22Gate.remote.observedAt === undefined
+                ? undefined
+                : {
+                    token: f22Gate.remote.observationToken,
+                    observationRevision: f22Gate.remote.observationRevision,
+                    observedAt: f22Gate.remote.observedAt,
+                  },
+          });
     return projectDiffView({
       bundleId: model.bundleId,
       operationId: model.operationId,
@@ -198,6 +328,7 @@ export class F20WorkspaceService {
       prBaseSha: model.input.pullRequest.baseSha,
       prHeadSha: model.input.pullRequest.headSha,
       worktreeBaselineSha: model.worktree.baselineSha,
+      publicationEligible: f23Preflight?.f22SafeForPublication === true,
       ...(input.itemId === undefined ? {} : { selectedItemId: input.itemId }),
       ...(item === undefined
         ? {}
@@ -206,6 +337,12 @@ export class F20WorkspaceService {
         ? {}
         : { relatedHunk: feedback.diffHunk }),
     });
+  }
+
+  private notifyF22Gate(bundleId: string, gate: F22ActionGate): void {
+    const readModel = this.options.bundles.getReadModel?.(bundleId);
+    if (readModel === undefined || this.options.f19 === undefined) return;
+    void this.options.f19.handleF22Gate(readModel, gate).catch(() => undefined);
   }
 
   public recordDecision(input: F20DecisionCommandInput): F20WorkspaceReadModel {
@@ -346,6 +483,20 @@ export class F20WorkspaceService {
     return model;
   }
 
+  private rememberF22Condition(
+    bundleId: string,
+    result:
+      | F22PreviewResult<F22DiscardPreview>
+      | F22PreviewResult<F22ReevaluationPreview>
+      | F22ActionResult,
+  ): void {
+    const previewCondition =
+      "preview" in result ? result.preview?.worktreeCondition : undefined;
+    const condition = previewCondition ?? result.gate.worktreeCondition;
+    if (condition !== undefined)
+      this.refreshedConditions.set(bundleId, condition);
+  }
+
   private project(
     model: Parameters<typeof projectReviewBundleWorkspace>[0]["readModel"],
   ): F20WorkspaceReadModel {
@@ -361,6 +512,9 @@ export class F20WorkspaceService {
       postRunId === undefined || this.options.validation === undefined
         ? undefined
         : validationProjection(this.options.validation.readModel(postRunId));
+    const pendingF22Action = this.options.f22?.readPendingAction(
+      model.bundleId,
+    );
     const workspace = projectReviewBundleWorkspace({
       readModel: model,
       ...(baseline === undefined ? {} : { baselineValidation: baseline }),
@@ -368,6 +522,12 @@ export class F20WorkspaceService {
       ...(this.refreshedConditions.get(model.bundleId) === undefined
         ? {}
         : { worktreeCondition: this.refreshedConditions.get(model.bundleId) }),
+      ...(this.options.f22 === undefined
+        ? {}
+        : { f22Gate: this.options.f22.readGate(model.bundleId) }),
+      ...(pendingF22Action === undefined
+        ? {}
+        : { f22PendingAction: pendingF22Action }),
     });
     const baselineSource =
       baselineRunId === undefined || this.options.validation === undefined

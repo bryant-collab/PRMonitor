@@ -1,4 +1,4 @@
-export const PERSISTENCE_SCHEMA_VERSION = 15 as const;
+export const PERSISTENCE_SCHEMA_VERSION = 16 as const;
 export const PERSISTENCE_RECORD_SCHEMA_VERSION = 1 as const;
 export const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 export const DEFAULT_MAX_TRANSACTION_ATTEMPTS = 3;

@@ -2,8 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   access,
   constants as fsConstants,
+  chmod,
   lstat,
   mkdir,
+  readFile,
   realpath,
   unlink,
   writeFile,
@@ -53,6 +55,7 @@ import type {
   F13WorktreeRecord,
 } from "../shared/f13-contracts";
 import type {
+  F13ClearActionRecord,
   F13PersistenceRepositories,
   F13OperationIntentRecord,
 } from "./persistence/f13-repositories";
@@ -103,6 +106,13 @@ interface ActualState {
   readonly statusText: string;
   readonly dirty: boolean;
   readonly fileMap: ReadonlyMap<string, InternalFileEvidence>;
+}
+
+interface F13MutationBackup {
+  readonly target: string;
+  readonly existed: boolean;
+  readonly content?: Buffer;
+  readonly mode?: number;
 }
 
 interface DiffNameStatus {
@@ -2047,6 +2057,26 @@ export class F13WorktreeService {
     return this.inspectInternal(intent, phase);
   }
 
+  public readClearAction(input: {
+    readonly actionId: string;
+    readonly operationId: string;
+    readonly ownerId: string;
+    readonly choice: F13ClearChoice;
+  }): F13ClearActionRecord | undefined {
+    const intent = this.options.repositories.getOperation(input.operationId);
+    if (intent === undefined || intent.ownerId !== input.ownerId)
+      return undefined;
+    const action = this.options.repositories.getClearAction(input.actionId);
+    if (
+      action === undefined ||
+      action.operationId !== intent.operationId ||
+      action.worktreeId !== intent.worktreeId ||
+      action.choice !== input.choice
+    )
+      return undefined;
+    return action;
+  }
+
   /**
    * Read-only provider context.  The path and state are derived from the
    * durable operation intent and a fresh inspection; callers cannot submit a
@@ -2829,6 +2859,7 @@ export class F13WorktreeService {
     readonly operationId: string;
     readonly ownerId: string;
     readonly choice: F13ClearChoice;
+    readonly actionId?: string;
     readonly confirmed?: boolean;
     readonly beforeSnapshotId?: string;
     readonly afterSnapshotId?: string;
@@ -2897,7 +2928,8 @@ export class F13WorktreeService {
     if (currentSnapshot !== undefined)
       currentPaths.push(...currentSnapshot.manifest.ignoredFiles);
     currentPaths.sort((left, right) => left.localeCompare(right));
-    const actionId = actionIdFor(intent.operationId, input.choice);
+    const actionId =
+      input.actionId ?? actionIdFor(intent.operationId, input.choice);
     try {
       this.options.repositories.saveClearAction({
         actionId,
@@ -3367,39 +3399,63 @@ export class F13WorktreeService {
     const planPaths = new Set(plans.map((plan) => plan.path));
     for (const filePath of currentFiles.keys())
       if (!planPaths.has(filePath)) preserved.add(filePath);
+    const mutations: Array<{
+      readonly plan: (typeof plans)[number];
+      readonly backup: F13MutationBackup;
+    }> = [];
     try {
       for (const plan of plans) {
-        const target = this.safeTarget(intent.canonicalPath, plan.path);
-        if (plan.kind === "delete") {
-          const targetInfo = await lstat(target).catch(() => undefined);
-          if (targetInfo?.isSymbolicLink() || targetInfo?.isDirectory())
-            throw new Error("unsafe-delete-target");
-          if (targetInfo !== undefined) await unlink(target);
+        const target = await this.prepareMutationTarget(
+          intent.canonicalPath,
+          plan.path,
+        );
+        const backup = await this.mutationBackup(target);
+        if (plan.kind === "delete" && !backup.existed)
+          throw new Error("missing-delete-target");
+        mutations.push({ plan, backup });
+      }
+      for (const mutation of mutations) {
+        if (mutation.plan.kind === "delete") {
+          await unlink(mutation.backup.target);
         } else {
-          await mkdir(path.dirname(target), { recursive: true });
-          await writeFile(target, plan.content ?? Buffer.alloc(0));
+          await writeFile(
+            mutation.backup.target,
+            mutation.plan.content ?? Buffer.alloc(0),
+          );
         }
       }
     } catch {
+      const rolledBack = await this.rollbackMutationBackups(mutations);
       const reason = safeReason(
-        "AI_CLEAR_UNCERTAIN",
+        rolledBack ? "AI_CLEAR_ROLLED_BACK" : "AI_CLEAR_UNCERTAIN",
         "RECOVERY",
-        "Clear Only AI Changes did not produce a confirmed outcome.",
-        "The worktree was preserved for manual inspection and reconciliation.",
+        rolledBack
+          ? "Clear Only AI Changes failed and its partial filesystem effect was rolled back."
+          : "Clear Only AI Changes did not produce a confirmed outcome.",
+        rolledBack
+          ? "F13 restored the recorded worktree files and preserved the operation for explicit reconciliation."
+          : "F13 could not prove that every partial mutation was reversed; the worktree was preserved for manual inspection and reconciliation.",
         "RECONCILE",
         intent.correlationId,
       );
       try {
         this.options.repositories.updateLifecycle({
           operationId: intent.operationId,
-          lifecycle: "UNKNOWN",
+          lifecycle: rolledBack ? "RETAINED" : "UNKNOWN",
           reason,
         });
         this.options.repositories.updateClearAction({
           actionId,
-          status: "UNKNOWN",
+          status: rolledBack ? "BLOCKED" : "UNKNOWN",
           reason,
-          outcome: { removed: [], preserved: [...preserved] },
+          outcome: {
+            removed: [],
+            preserved: [...preserved],
+            remaining: [
+              ...currentFiles.keys(),
+              ...current.manifest.ignoredFiles,
+            ],
+          },
         });
       } catch {
         // Startup reconciliation remains authoritative.
@@ -3640,10 +3696,82 @@ export class F13WorktreeService {
   }
 
   private safeTarget(worktreePath: string, relativePath: string): string {
+    if (
+      !isRelativePath(relativePath) ||
+      !bytesWithin(relativePath, F13_MAX_PATH_BYTES)
+    )
+      throw new Error("F13_PATH_INVALID");
     const candidate = path.resolve(worktreePath, relativePath);
     if (!pathWithin(worktreePath, candidate))
       throw new Error("F13_PATH_ESCAPE");
     return candidate;
+  }
+
+  private async prepareMutationTarget(
+    worktreePath: string,
+    relativePath: string,
+  ): Promise<string> {
+    const target = this.safeTarget(worktreePath, relativePath);
+    const worktreeInfo = await lstat(worktreePath);
+    if (!worktreeInfo.isDirectory() || worktreeInfo.isSymbolicLink())
+      throw new Error("F13_WORKTREE_TARGET_UNSAFE");
+    const canonicalWorktree = await realpath(worktreePath);
+    if (!pathEqual(canonicalWorktree, worktreePath))
+      throw new Error("F13_WORKTREE_SYMLINK");
+    const parts = relativePath.split(/[\\/]/u);
+    let current = worktreePath;
+    for (const [index, part] of parts.entries()) {
+      current = path.join(current, part);
+      const info = await lstat(current).catch(() => undefined);
+      if (info === undefined) throw new Error("F13_MUTATION_PARENT_MISSING");
+      if (info.isSymbolicLink()) throw new Error("F13_MUTATION_SYMLINK");
+      const canonical = await realpath(current);
+      if (!pathWithin(canonicalWorktree, canonical))
+        throw new Error("F13_MUTATION_PATH_ESCAPE");
+      if (index < parts.length - 1 && !info.isDirectory())
+        throw new Error("F13_MUTATION_PARENT_NOT_DIRECTORY");
+      if (index === parts.length - 1 && !info.isFile())
+        throw new Error("F13_MUTATION_TARGET_NOT_FILE");
+    }
+    return target;
+  }
+
+  private async mutationBackup(target: string): Promise<F13MutationBackup> {
+    const info = await lstat(target).catch(() => undefined);
+    if (info === undefined) return { target, existed: false };
+    if (info.isSymbolicLink() || !info.isFile())
+      throw new Error("F13_MUTATION_TARGET_UNSAFE");
+    return {
+      target,
+      existed: true,
+      content: await readFile(target),
+      mode: info.mode,
+    };
+  }
+
+  private async rollbackMutationBackups(
+    mutations: readonly {
+      readonly backup: F13MutationBackup;
+    }[],
+  ): Promise<boolean> {
+    try {
+      for (const { backup } of [...mutations].reverse()) {
+        const current = await lstat(backup.target).catch(() => undefined);
+        if (current?.isSymbolicLink() || current?.isDirectory()) return false;
+        if (backup.existed) {
+          if (backup.content === undefined) return false;
+          await writeFile(backup.target, backup.content);
+          if (backup.mode !== undefined)
+            await chmod(backup.target, backup.mode);
+        } else if (current !== undefined) {
+          if (!current.isFile()) return false;
+          await unlink(backup.target);
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   public async releaseWorktree(input: {

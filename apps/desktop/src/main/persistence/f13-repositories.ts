@@ -8,21 +8,22 @@ import {
 import { PersistenceError } from "./types";
 import type { PersistenceClock, SqlRow } from "./types";
 import type { PersistenceStore } from "./database";
-import type {
-  F13ChangeSummary,
-  F13ClearChoice,
-  F13DiffEvidence,
-  F13DiffKind,
-  F13FileEvidence,
-  F13LifecycleState,
-  F13OperationKind,
-  F13PathAction,
-  F13RepositoryIdentity,
-  F13SafeReason,
-  F13SnapshotManifest,
-  F13SnapshotPhase,
-  F13SnapshotRecord,
-  F13WorktreeRecord,
+import {
+  isF13ClearChoice,
+  type F13ClearChoice,
+  type F13ChangeSummary,
+  type F13DiffEvidence,
+  type F13DiffKind,
+  type F13FileEvidence,
+  type F13LifecycleState,
+  type F13OperationKind,
+  type F13PathAction,
+  type F13RepositoryIdentity,
+  type F13SafeReason,
+  type F13SnapshotManifest,
+  type F13SnapshotPhase,
+  type F13SnapshotRecord,
+  type F13WorktreeRecord,
 } from "../../shared/f13-contracts";
 
 type Payload = unknown;
@@ -96,6 +97,23 @@ export interface F13ClearActionInput {
   readonly status: string;
   readonly outcome?: Payload;
   readonly reason?: F13SafeReason;
+}
+
+export interface F13ClearActionRecord {
+  readonly actionId: string;
+  readonly operationId: string;
+  readonly worktreeId: string;
+  readonly choice: F13ClearChoice;
+  readonly confirmation: boolean;
+  readonly beforeSnapshotId?: string;
+  readonly afterSnapshotId?: string;
+  readonly currentSnapshotId?: string;
+  readonly status: string;
+  readonly outcome: Payload;
+  readonly reason?: F13SafeReason;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface F13PathActionInput {
@@ -174,6 +192,14 @@ function decodeJson<T>(row: SqlRow, jsonKey: string, hashKey: string): T {
   );
 }
 
+function parseJson<T>(row: SqlRow, jsonKey: string): T {
+  try {
+    return JSON.parse(rowString(row, jsonKey)) as T;
+  } catch {
+    throw new Error(`F13_INVALID_ROW_${jsonKey}`);
+  }
+}
+
 function repositoryError(
   store: PersistenceStore,
   code: "CONFLICT" | "NOT_FOUND" | "INVALID_RECORD" | "SECURITY_VIOLATION",
@@ -243,6 +269,38 @@ function intentFromRow(row: SqlRow): F13OperationIntentRecord {
     ...(reasonJson === undefined || reasonJson === "{}"
       ? {}
       : { reason: JSON.parse(reasonJson) as F13SafeReason }),
+    version: rowNumber(row, "version"),
+    createdAt: rowString(row, "created_at"),
+    updatedAt: rowString(row, "updated_at"),
+  };
+}
+
+function clearActionFromRow(row: SqlRow): F13ClearActionRecord {
+  const choice = rowString(row, "choice");
+  if (!isF13ClearChoice(choice)) throw new Error("F13_INVALID_ROW_choice");
+  const reasonJson = rowString(row, "reason_json");
+  return {
+    actionId: rowString(row, "action_id"),
+    operationId: rowString(row, "operation_id"),
+    worktreeId: rowString(row, "worktree_id"),
+    choice,
+    confirmation: rowBoolean(row, "confirmation"),
+    ...(rowOptionalString(row, "before_snapshot_id") === undefined
+      ? {}
+      : { beforeSnapshotId: rowOptionalString(row, "before_snapshot_id") }),
+    ...(rowOptionalString(row, "after_snapshot_id") === undefined
+      ? {}
+      : { afterSnapshotId: rowOptionalString(row, "after_snapshot_id") }),
+    ...(rowOptionalString(row, "current_snapshot_id") === undefined
+      ? {}
+      : { currentSnapshotId: rowOptionalString(row, "current_snapshot_id") }),
+    status: rowString(row, "status"),
+    outcome: parseJson<Payload>(row, "outcome_json"),
+    ...(reasonJson === "{}"
+      ? {}
+      : {
+          reason: parseJson<F13SafeReason>(row, "reason_json"),
+        }),
     version: rowNumber(row, "version"),
     createdAt: rowString(row, "created_at"),
     updatedAt: rowString(row, "updated_at"),
@@ -827,6 +885,20 @@ export class F13PersistenceRepositories {
         timestamp,
         timestamp,
       ),
+    );
+  }
+
+  public getClearAction(actionId: string): F13ClearActionRecord | undefined {
+    id(actionId, "clear action identifier");
+    return this.store.transaction(
+      (transaction) => {
+        const row = transaction.get(
+          "SELECT * FROM f13_clear_actions WHERE action_id = ?",
+          actionId,
+        );
+        return row === undefined ? undefined : clearActionFromRow(row);
+      },
+      { maxAttempts: 1 },
     );
   }
 
