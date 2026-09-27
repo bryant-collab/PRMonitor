@@ -87,6 +87,9 @@ import { F21AIWorkAdapter } from "./f21-ai-work-adapter";
 import { F21ConversationService } from "./f21-conversation-service";
 import { F20WorkspaceService } from "./f20-workspace-service";
 import { F22Coordinator } from "./f22-coordinator";
+import { F23PublicationService } from "./f23-release-service";
+import { F23DeterministicGitPublisher } from "./f23-release-git";
+import { createF23GithubResponsePublisher } from "./f23-release-github";
 import { TrayNotificationCoordinator } from "./f19-coordinator";
 import { ElectronF19NativeSurfaceAdapter } from "./f19-native-adapter";
 import { createF19EffectiveBounds } from "../shared/f19-native-surfaces";
@@ -156,6 +159,7 @@ let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
 let f21AiWorkAdapter: F21AIWorkAdapter | undefined;
 let f21ConversationService: F21ConversationService | undefined;
 let f20WorkspaceService: F20WorkspaceService | undefined;
+let f23PublicationService: F23PublicationService | undefined;
 let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
 let f19Coordinator: TrayNotificationCoordinator | undefined;
 const pendingTargets = new OpenTargetQueue();
@@ -939,6 +943,39 @@ async function initializeMainProcessPersistence(): Promise<void> {
   if (f21ConversationService === undefined)
     throw new Error("PRMONITOR_F21_CONVERSATION_SERVICE_NOT_READY");
   await f21ConversationService.reconcileStartup();
+  f23PublicationService = new F23PublicationService({
+    persistence: f03Repositories,
+    bundles: initializedAutomaticReviewCoordinator,
+    worktrees: initializedF13WorktreeService,
+    f22: initializedF22Coordinator,
+    managedPrs: {
+      get: (managedPrId) => {
+        const managed = f07Repositories.getManagedPr(managedPrId);
+        return managed === undefined
+          ? undefined
+          : {
+              managedPrId: managed.id,
+              serverId: managed.serverId,
+              owner: managed.owner,
+              repositoryName: managed.repositoryName,
+              number: managed.number,
+            };
+      },
+    },
+    git: new F23DeterministicGitPublisher(),
+    responses:
+      githubServerService === undefined
+        ? undefined
+        : createF23GithubResponsePublisher(githubServerService),
+    hold: {
+      completeAutomaticReview: (input) =>
+        initializedF11EligibilityService.completeAutomaticReview(input),
+    },
+    validation: {
+      readModel: (runId) => initializedF14ValidationService.readModel(runId),
+    },
+  });
+  await f23PublicationService.reconcileStartup();
   reviewScheduler = new ReviewScheduler({
     managedPrs: {
       listManagedPrs: () => f07Repositories.listManagedPrs(),
@@ -1395,6 +1432,58 @@ async function startMainProcess(): Promise<void> {
       if (f20WorkspaceService === undefined)
         throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
       return f20WorkspaceService.read(bundleId);
+    },
+    readReviewBundlePublication: (bundleId) => {
+      if (f23PublicationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY"),
+        );
+      return f23PublicationService.read(bundleId);
+    },
+    approveReviewBundlePublication: (input) => {
+      if (f23PublicationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY"),
+        );
+      return f23PublicationService
+        .approve(input)
+        .then((result) => result.readModel);
+    },
+    publishReviewBundlePublication: (input) => {
+      if (f23PublicationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY"),
+        );
+      return f23PublicationService
+        .publish(input)
+        .then((result) => result.readModel);
+    },
+    reconcileReviewBundlePublication: (input) => {
+      if (f23PublicationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY"),
+        );
+      return f23PublicationService
+        .reconcile(input)
+        .then((result) => result.readModel);
+    },
+    retryReviewBundleResponses: (input) => {
+      if (f23PublicationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY"),
+        );
+      return f23PublicationService
+        .retryResponses(input)
+        .then((result) => result.readModel);
+    },
+    discardReviewBundlePublication: (input) => {
+      if (f23PublicationService === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY"),
+        );
+      return f23PublicationService
+        .discard(input)
+        .then((result) => result.readModel);
     },
     reconcileReviewBundleF22: async (bundleId) => {
       if (f20WorkspaceService === undefined)

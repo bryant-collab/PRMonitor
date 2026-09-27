@@ -15,6 +15,7 @@ import type {
   F22DiscardPreview,
   F22ReevaluationPreview,
 } from "../shared/f22-discard-reevaluation";
+import type { F23PublicationReadModel } from "../shared/f23-release";
 import { F22ChoiceControls } from "./F22ChoiceControls";
 
 interface ReviewBundleWorkspaceProps {
@@ -57,6 +58,14 @@ function formatTimestamp(value: string | undefined): string {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(parsed);
+}
+
+async function sha256Text(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function itemLabel(item: F20WorkspaceItem): string {
@@ -323,6 +332,7 @@ export function ReviewBundleWorkspace({
   bundleId,
 }: ReviewBundleWorkspaceProps) {
   const [workspace, setWorkspace] = useState<F20WorkspaceReadModel>();
+  const [publication, setPublication] = useState<F23PublicationReadModel>();
   const [conversation, setConversation] = useState<F21ConversationReadModel>();
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [diffMode, setDiffMode] = useState<F20DiffMode>("PROPOSED_WORKTREE");
@@ -355,6 +365,14 @@ export function ReviewBundleWorkspace({
     f22SelectedRetainedEventVersionIds,
     setF22SelectedRetainedEventVersionIds,
   ] = useState<string[]>([]);
+  const [publicationResponses, setPublicationResponses] = useState<
+    Record<string, { readonly included: boolean; readonly body: string }>
+  >({});
+  const [publicationAcknowledged, setPublicationAcknowledged] = useState(false);
+  const [
+    publicationUnattributedAcknowledged,
+    setPublicationUnattributedAcknowledged,
+  ] = useState(false);
 
   const selectedItem = useMemo(
     () => workspace?.items.find((item) => item.itemId === selectedItemId),
@@ -412,6 +430,26 @@ export function ReviewBundleWorkspace({
         conversationResponse.value.kind === "review-bundle-conversation"
       )
         setConversation(conversationResponse.value.conversation);
+      const publicationResponse =
+        await bridge.readReviewBundlePublication(bundleId);
+      if (
+        publicationResponse.ok &&
+        publicationResponse.value.kind === "review-bundle-publication"
+      ) {
+        const nextPublication = publicationResponse.value.publication;
+        setPublication(nextPublication);
+        if (nextPublication.candidate !== undefined) {
+          setPublicationResponses((current) => {
+            const next = { ...current };
+            for (const response of nextPublication.candidate?.responses ?? [])
+              next[response.responseKey] ??= {
+                included: true,
+                body: response.body,
+              };
+            return next;
+          });
+        }
+      }
     } else {
       setError(responseError(response));
     }
@@ -422,6 +460,10 @@ export function ReviewBundleWorkspace({
     setDiff(undefined);
     setWorkspace(undefined);
     setConversation(undefined);
+    setPublication(undefined);
+    setPublicationResponses({});
+    setPublicationAcknowledged(false);
+    setPublicationUnattributedAcknowledged(false);
     setSelectedItemId(undefined);
     void readWorkspace();
   }, [readWorkspace]);
@@ -1030,6 +1072,104 @@ export function ReviewBundleWorkspace({
     }
   }, [diff]);
 
+  const approvePublication = useCallback(async () => {
+    if (workspace === undefined || publication?.candidate === undefined || busy)
+      return;
+    if (!publicationAcknowledged) {
+      setActionMessage(
+        "Review the exact proposed diff and acknowledge it before approving publication.",
+      );
+      return;
+    }
+    if (
+      publication.candidate.condition === "UNATTRIBUTED_CHANGES" &&
+      !publicationUnattributedAcknowledged
+    ) {
+      setActionMessage(
+        "The worktree contains unattributed changes. A separate acknowledgement is required.",
+      );
+      return;
+    }
+    setBusy(true);
+    setActionMessage("");
+    const responses = await Promise.all(
+      publication.candidate.responses.map(async (response) => {
+        const selected = publicationResponses[response.responseKey] ?? {
+          included: true,
+          body: response.body,
+        };
+        return {
+          responseKey: response.responseKey,
+          included: selected.included,
+          body: selected.body,
+          bodyHash: await sha256Text(selected.body),
+        };
+      }),
+    );
+    const idempotencyKey = `f23-${workspace.bundleId}-${publication.candidate.candidateHash.slice(0, 24)}`;
+    const response = await window.prmonitor?.approveReviewBundlePublication({
+      bundleId: workspace.bundleId,
+      candidateHash: publication.candidate.candidateHash,
+      expectedBundleVersion: publication.candidate.bundleVersion,
+      expectedEvidenceRevision: publication.candidate.evidenceRevision,
+      expectedGateRevision: publication.candidate.gateRevision,
+      approvalId: `approval-${idempotencyKey}`,
+      idempotencyKey,
+      commitMessage: publication.candidate.commitMessage,
+      completeDiffAcknowledged: true,
+      unattributedChangesAcknowledged:
+        publicationUnattributedAcknowledged ||
+        publication.candidate.condition !== "UNATTRIBUTED_CHANGES",
+      responses,
+    });
+    if (response?.ok && response.value.kind === "review-bundle-publication") {
+      setPublication(response.value.publication);
+      setActionMessage(
+        "The exact diff, commit message, and response decisions were approved and durably locked.",
+      );
+    } else if (response !== undefined) {
+      setActionMessage(responseError(response));
+    }
+    setBusy(false);
+  }, [
+    busy,
+    publication,
+    publicationAcknowledged,
+    publicationResponses,
+    publicationUnattributedAcknowledged,
+    workspace,
+  ]);
+
+  const runPublication = useCallback(
+    async (actionType: "publish" | "reconcile" | "retry-responses") => {
+      const idempotencyKey = publication?.publication?.idempotencyKey;
+      if (idempotencyKey === undefined || workspace === undefined || busy)
+        return;
+      setBusy(true);
+      const input = { bundleId: workspace.bundleId, idempotencyKey };
+      const response =
+        actionType === "publish"
+          ? await window.prmonitor?.publishReviewBundlePublication(input)
+          : actionType === "reconcile"
+            ? await window.prmonitor?.reconcileReviewBundlePublication(input)
+            : await window.prmonitor?.retryReviewBundleResponses(input);
+      if (response?.ok && response.value.kind === "review-bundle-publication") {
+        setPublication(response.value.publication);
+        setActionMessage(
+          actionType === "reconcile"
+            ? "The durable publication state was reconciled; no blind effect was retried."
+            : actionType === "retry-responses"
+              ? "Only pending or failed responses were retried; code was not republished."
+              : "The publication state was updated by the main process.",
+        );
+      } else if (response !== undefined) {
+        setActionMessage(responseError(response));
+      }
+      setBusy(false);
+    },
+    [busy, publication, workspace],
+  );
+
   const f22Condition = f22Preview?.worktreeCondition;
   const f22ReevaluationPreview =
     f22Preview?.kind === "F22_REEVALUATION_PREVIEW" ? f22Preview : undefined;
@@ -1117,6 +1257,222 @@ export function ReviewBundleWorkspace({
           <span key={evidence}>{evidence}</span>
         ))}
       </div>
+
+      {publication !== undefined ? (
+        <section
+          className="review-publication-panel"
+          aria-labelledby="review-publication-heading"
+          role={publication.status === "BLOCKED" ? "alert" : "region"}
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">F23 human-approved publication</p>
+              <h3 id="review-publication-heading">
+                {readable(publication.status)}
+              </h3>
+            </div>
+            <span className="review-authority-label">
+              Authority: main process only
+            </span>
+          </div>
+          {publication.candidate !== undefined ? (
+            <>
+              <dl className="review-evidence-grid">
+                <div>
+                  <dt>Candidate hash</dt>
+                  <dd>{publication.candidate.candidateHash}</dd>
+                </div>
+                <div>
+                  <dt>Baseline / expected head</dt>
+                  <dd>
+                    {publication.candidate.baselineSha} /{" "}
+                    {publication.candidate.expectedHeadSha}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Worktree condition</dt>
+                  <dd>{readable(publication.candidate.condition)}</dd>
+                </div>
+                <div>
+                  <dt>Validation</dt>
+                  <dd>
+                    {publication.candidate.validationStatus ?? "Not recorded"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Changed files</dt>
+                  <dd>{publication.candidate.changedFiles.length}</dd>
+                </div>
+                <div>
+                  <dt>Proposed diff</dt>
+                  <dd>
+                    {publication.candidate.proposedDiffComplete
+                      ? "Complete"
+                      : "Incomplete"}
+                  </dd>
+                </div>
+              </dl>
+              {publication.candidate.changedFiles.length > 0 ? (
+                <ul className="review-evidence-list">
+                  {publication.candidate.changedFiles.map((path) => (
+                    <li key={path}>{path}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="review-evidence-note">
+                  No code changes will be staged, committed, or pushed. Any
+                  selected responses can still be published as a response-only
+                  publication.
+                </p>
+              )}
+              {publication.candidate.responses.length > 0 ? (
+                <fieldset className="review-publication-responses">
+                  <legend>Response publication decisions</legend>
+                  <p className="review-evidence-note">
+                    Include or exclude each response explicitly. Included bodies
+                    are editable; excluded responses remain in history and have
+                    no remote effect.
+                  </p>
+                  {publication.candidate.responses.map((response) => {
+                    const selected = publicationResponses[
+                      response.responseKey
+                    ] ?? {
+                      included: true,
+                      body: response.body,
+                    };
+                    return (
+                      <div
+                        className="review-publication-response"
+                        key={response.responseKey}
+                      >
+                        <label className="review-checkbox">
+                          <input
+                            type="checkbox"
+                            disabled={!publication.canApprove || busy}
+                            checked={selected.included}
+                            onChange={(event) =>
+                              setPublicationResponses((current) => ({
+                                ...current,
+                                [response.responseKey]: {
+                                  ...selected,
+                                  included: event.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          Include response for{" "}
+                          {response.target.source.toLowerCase()}
+                        </label>
+                        <textarea
+                          aria-label={`Editable response ${response.responseKey}`}
+                          disabled={!publication.canApprove || busy}
+                          value={selected.body}
+                          onChange={(event) =>
+                            setPublicationResponses((current) => ({
+                              ...current,
+                              [response.responseKey]: {
+                                ...selected,
+                                body: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </fieldset>
+              ) : null}
+              {publication.canApprove ? (
+                <fieldset className="review-publication-acknowledgements">
+                  <legend>Publication approval acknowledgements</legend>
+                  <label className="review-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={publicationAcknowledged}
+                      disabled={busy}
+                      onChange={(event) =>
+                        setPublicationAcknowledged(event.target.checked)
+                      }
+                    />
+                    I reviewed this complete exact proposed diff and commit
+                    message.
+                  </label>
+                  {publication.candidate.condition ===
+                  "UNATTRIBUTED_CHANGES" ? (
+                    <label className="review-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={publicationUnattributedAcknowledged}
+                        disabled={busy}
+                        onChange={(event) =>
+                          setPublicationUnattributedAcknowledged(
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      I explicitly acknowledge the complete fresh diff includes
+                      unattributed changes.
+                    </label>
+                  ) : null}
+                </fieldset>
+              ) : null}
+              {publication.reasons.map((reason) => (
+                <p className="review-evidence-note" key={reason.code}>
+                  <strong>{readable(reason.code)}:</strong> {reason.what}{" "}
+                  {reason.why}
+                </p>
+              ))}
+              <div className="review-publication-actions">
+                {publication.canApprove ? (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={busy}
+                    onClick={() => void approvePublication()}
+                  >
+                    Approve exact publication
+                  </button>
+                ) : null}
+                {publication.canPublish ? (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={busy}
+                    onClick={() => void runPublication("publish")}
+                  >
+                    Publish approved Review Bundle
+                  </button>
+                ) : null}
+                {publication.canReconcile ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void runPublication("reconcile")}
+                  >
+                    Reconcile publication state
+                  </button>
+                ) : null}
+                {publication.canRetryResponses ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void runPublication("retry-responses")}
+                  >
+                    Retry responses only
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="review-evidence-note">
+              No exact publication candidate is available. No side effect was
+              attempted.
+            </p>
+          )}
+        </section>
+      ) : null}
 
       {workspace.f22 !== undefined ? (
         <section

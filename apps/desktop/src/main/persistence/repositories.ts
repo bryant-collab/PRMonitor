@@ -4040,6 +4040,25 @@ export class PersistenceRepositories {
     );
   }
 
+  /** Discover durable publication intents for restart reconciliation. */
+  public listPublicationIntents(
+    kind?: PublicationIntentInput["kind"],
+  ): readonly PublicationIntentRecord[] {
+    const rows = this.store.readAll(
+      kind === undefined
+        ? "SELECT publication_id FROM publication_intents ORDER BY updated_at DESC, publication_id ASC"
+        : "SELECT publication_id FROM publication_intents WHERE publication_kind = ? ORDER BY updated_at DESC, publication_id ASC",
+      ...(kind === undefined ? [] : [kind]),
+    );
+    return rows
+      .map((row) =>
+        this.getPublicationIntentById(rowString(row, "publication_id")),
+      )
+      .filter(
+        (intent): intent is PublicationIntentRecord => intent !== undefined,
+      );
+  }
+
   private readPublicationIntent(
     transaction: PersistenceTransaction,
     row: SqlRow | undefined,

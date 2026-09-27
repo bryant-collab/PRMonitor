@@ -74,6 +74,11 @@ import type {
   F22DiscardPreview,
   F22ReevaluationPreview,
 } from "../shared/f22-discard-reevaluation";
+import type {
+  F23ApprovalInput,
+  F23PublicationInput,
+  F23PublicationReadModel,
+} from "../shared/f23-release";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -211,6 +216,24 @@ export interface IpcServices {
     destination: ManagedPrNavigationDestination,
   ) => OpenTarget;
   readonly readReviewBundle?: (bundleId: string) => F20WorkspaceReadModel;
+  readonly readReviewBundlePublication?: (
+    bundleId: string,
+  ) => Promise<F23PublicationReadModel>;
+  readonly approveReviewBundlePublication?: (
+    input: F23ApprovalInput,
+  ) => Promise<F23PublicationReadModel>;
+  readonly publishReviewBundlePublication?: (
+    input: F23PublicationInput,
+  ) => Promise<F23PublicationReadModel>;
+  readonly reconcileReviewBundlePublication?: (
+    input: F23PublicationInput,
+  ) => Promise<F23PublicationReadModel>;
+  readonly retryReviewBundleResponses?: (
+    input: F23PublicationInput,
+  ) => Promise<F23PublicationReadModel>;
+  readonly discardReviewBundlePublication?: (
+    input: F23PublicationInput,
+  ) => Promise<F23PublicationReadModel>;
   readonly reconcileReviewBundleF22?: (
     bundleId: string,
   ) => Promise<F20WorkspaceReadModel>;
@@ -873,6 +896,53 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "review-bundle-workspace",
             workspace: this.services.readReviewBundle(request.payload.bundleId),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.publication.read") {
+        if (this.services.readReviewBundlePublication === undefined)
+          throw new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-publication",
+            publication: await this.services.readReviewBundlePublication(
+              request.payload.bundleId,
+            ),
+          }),
+        );
+      }
+      if (request.type === "review-bundle.publication.approve") {
+        if (this.services.approveReviewBundlePublication === undefined)
+          throw new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-publication",
+            publication: await this.services.approveReviewBundlePublication(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (
+        request.type === "review-bundle.publication.publish" ||
+        request.type === "review-bundle.publication.reconcile" ||
+        request.type === "review-bundle.publication.retry-responses" ||
+        request.type === "review-bundle.publication.discard"
+      ) {
+        const handler =
+          request.type === "review-bundle.publication.publish"
+            ? this.services.publishReviewBundlePublication
+            : request.type === "review-bundle.publication.reconcile"
+              ? this.services.reconcileReviewBundlePublication
+              : request.type === "review-bundle.publication.retry-responses"
+                ? this.services.retryReviewBundleResponses
+                : this.services.discardReviewBundlePublication;
+        if (handler === undefined)
+          throw new Error("PRMONITOR_F23_PUBLICATION_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "review-bundle-publication",
+            publication: await handler(request.payload),
           }),
         );
       }

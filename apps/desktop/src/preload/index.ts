@@ -5,6 +5,8 @@ import {
   type IpcRequestType,
   parseIpcInboxUpdateEvent,
   parseIpcOpenTargetEvent,
+  type F23ApprovalInput,
+  type F23PublicationInput,
   type IpcResponse,
   type PrMonitorPreloadApi,
 } from "../shared/ipc";
@@ -35,7 +37,6 @@ import type {
   F21ProposalEntryInput,
   F21UserIntent,
 } from "../shared/f21-conversation";
-
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
 
@@ -77,6 +78,8 @@ function invoke(
     | ActivityQuery
     | { readonly eventId: string }
     | { readonly bundleId: string }
+    | F23ApprovalInput
+    | F23PublicationInput
     | {
         readonly bundleId: string;
         readonly mode: F20DiffMode;
@@ -185,6 +188,18 @@ const api: PrMonitorPreloadApi = {
   navigateManagedPr: (managedPrId, destination) =>
     invoke("inbox.navigate", { managedPrId, destination }),
   readReviewBundle: (bundleId) => invoke("review-bundle.read", { bundleId }),
+  readReviewBundlePublication: (bundleId) =>
+    invoke("review-bundle.publication.read", { bundleId }),
+  approveReviewBundlePublication: (input) =>
+    invoke("review-bundle.publication.approve", input),
+  publishReviewBundlePublication: (input) =>
+    invoke("review-bundle.publication.publish", input),
+  reconcileReviewBundlePublication: (input) =>
+    invoke("review-bundle.publication.reconcile", input),
+  retryReviewBundleResponses: (input) =>
+    invoke("review-bundle.publication.retry-responses", input),
+  discardReviewBundlePublication: (input) =>
+    invoke("review-bundle.publication.discard", input),
   reconcileReviewBundleF22: (bundleId) =>
     invoke("review-bundle.f22.reconcile", { bundleId }),
   readReviewBundleDiff: (bundleId, mode, itemId) =>

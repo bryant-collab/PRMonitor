@@ -277,6 +277,25 @@ export class GithubServerService {
     });
   }
 
+  /**
+   * F23 receives the same verified profile and credential broker as F10, but
+   * keeps the response mutation capability behind an explicit publication
+   * accessor.  Read-only consumers continue to receive GithubReadClient.
+   */
+  public getPublicationClient(serverId: string): GithubRestClient | undefined {
+    const profile = this.getVerifiedProfile(serverId);
+    if (profile === undefined) return undefined;
+    return new GithubRestClient({
+      broker: this.broker,
+      transport: this.options.transport,
+      profile,
+      profileForServerId: (requestedServerId) =>
+        requestedServerId === serverId
+          ? this.getVerifiedProfile(requestedServerId)
+          : undefined,
+    });
+  }
+
   public getPullRequestMetadata(input: {
     readonly profile: GithubServerProfileRecord;
     readonly identity: GithubPullRequestIdentity;

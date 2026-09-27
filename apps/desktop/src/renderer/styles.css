@@ -545,6 +545,36 @@ h1 {
   color: #29435e !important;
 }
 
+.primary-button,
+.secondary-button {
+  width: fit-content;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #0a4f9a;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: #0a4f9a;
+  color: #fff;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.review-publication-response textarea:focus-visible,
+.review-checkbox input:focus-visible {
+  outline: 3px solid #0a4f9a;
+  outline-offset: 2px;
+}
+
 .field-help {
   margin: -0.55rem 0 0;
   font-size: 0.78rem;
@@ -1186,6 +1216,76 @@ h1 {
 .review-evidence-grid dd {
   margin: 0.2rem 0 0;
   overflow-wrap: anywhere;
+}
+
+.review-publication-panel {
+  display: grid;
+  min-width: 0;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 2px solid #2066b1;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.review-publication-responses,
+.review-publication-acknowledgements {
+  display: grid;
+  min-width: 0;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid #c7d1df;
+  border-radius: 0.45rem;
+  background: #fff;
+}
+
+.review-publication-responses legend,
+.review-publication-acknowledgements legend {
+  padding: 0 0.3rem;
+  color: #29435e;
+  font-weight: 700;
+}
+
+.review-publication-response {
+  display: grid;
+  min-width: 0;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.4rem;
+  background: #f8fbff;
+}
+
+.review-publication-response textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.55rem;
+  border: 1px solid #a9b9cb;
+  border-radius: 0.35rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.review-checkbox {
+  display: flex;
+  min-width: 0;
+  gap: 0.5rem;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+
+.review-checkbox input {
+  flex: 0 0 auto;
+  margin-top: 0.2rem;
+}
+
+.review-publication-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
 }
 
 .review-feedback,

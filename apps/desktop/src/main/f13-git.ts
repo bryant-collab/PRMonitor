@@ -31,17 +31,22 @@ export interface F13GitCommandRunner {
 }
 
 const ALLOWED_COMMANDS = new Set([
+  "add",
   "cat-file",
   "clean",
   "clone",
   "diff",
   "fetch",
   "ls-files",
+  "ls-remote",
   "merge-base",
   "reset",
   "rev-parse",
   "status",
   "worktree",
+  "commit",
+  "push",
+  "show",
 ]);
 
 const DISALLOWED_ARGUMENTS = [
@@ -63,9 +68,42 @@ function positional(value: string): boolean {
   return value !== "--" && !value.startsWith("-");
 }
 
+function safeRelativePath(value: string): boolean {
+  return (
+    positional(value) &&
+    !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/u.test(value) &&
+    !value.split(/[\\/]/u).includes("..")
+  );
+}
+
+function safeRemote(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u.test(value);
+}
+
+function safeBranch(value: string): boolean {
+  return (
+    value.length > 0 &&
+    !value.startsWith("-") &&
+    !value.includes("..") &&
+    !value.includes("@{") &&
+    !/[ ~^:?*]/u.test(value) &&
+    !value.includes("\\") &&
+    !value.includes("\u0000") &&
+    !value.includes("\r") &&
+    !value.includes("\n")
+  );
+}
+
 function allowedCommandShape(args: readonly string[]): boolean {
   const command = args[0];
   switch (command) {
+    case "add":
+      return (
+        args.length >= 4 &&
+        args[1] === "--all" &&
+        args[2] === "--" &&
+        args.slice(3).every((value) => safeRelativePath(value))
+      );
     case "clone":
       return (
         args.length === 6 &&
@@ -93,7 +131,39 @@ function allowedCommandShape(args: readonly string[]): boolean {
           args[3] === "--find-renames" &&
           args[4] === "--find-copies" &&
           safeSha(args[5] ?? "") &&
-          args[6] === "--")
+          args[6] === "--") ||
+        (args.length === 9 &&
+          args[1] === "--cached" &&
+          args[2] === "--binary" &&
+          args[3] === "--no-ext-diff" &&
+          args[4] === "--no-color" &&
+          args[5] === "--full-index" &&
+          args[6] === "--find-renames" &&
+          safeSha(args[7] ?? "") &&
+          args[8] === "--") ||
+        (args.length === 7 &&
+          args[1] === "--cached" &&
+          args[2] === "--name-only" &&
+          args[3] === "-z" &&
+          args[4] === "--find-renames" &&
+          safeSha(args[5] ?? "") &&
+          args[6] === "--") ||
+        (args.length === 7 &&
+          args[1] === "--name-only" &&
+          args[2] === "-z" &&
+          args[3] === "--find-renames" &&
+          safeSha(args[4] ?? "") &&
+          args[5] === "HEAD" &&
+          args[6] === "--") ||
+        (args.length === 9 &&
+          args[1] === "--binary" &&
+          args[2] === "--no-ext-diff" &&
+          args[3] === "--no-color" &&
+          args[4] === "--full-index" &&
+          args[5] === "--find-renames" &&
+          safeSha(args[6] ?? "") &&
+          args[7] === "HEAD" &&
+          args[8] === "--")
       );
     case "fetch":
       return (
@@ -110,13 +180,20 @@ function allowedCommandShape(args: readonly string[]): boolean {
         args.length === 3 && safeSha(args[1] ?? "") && safeSha(args[2] ?? "")
       );
     case "reset":
-      return args.length === 3 && args[1] === "--hard" && args[2] === "HEAD";
+      return (
+        (args.length === 3 && args[1] === "--hard" && args[2] === "HEAD") ||
+        (args.length >= 3 &&
+          args[1] === "HEAD" &&
+          args[2] === "--" &&
+          args.slice(3).every((value) => safeRelativePath(value)))
+      );
     case "rev-parse":
       return (
         (args.length === 2 &&
           (args[1] === "--show-toplevel" ||
             args[1] === "--is-bare-repository" ||
-            args[1] === "HEAD")) ||
+            args[1] === "HEAD" ||
+            args[1] === "HEAD^")) ||
         (args.length === 4 &&
           args[1] === "--verify" &&
           args[2] === "--quiet" &&
@@ -129,6 +206,36 @@ function allowedCommandShape(args: readonly string[]): boolean {
         args[2] === "-z" &&
         args[3] === "--untracked-files=all" &&
         args[4] === "--ignored=matching"
+      );
+    case "commit":
+      return (
+        args.length === 4 &&
+        args[1] === "--no-gpg-sign" &&
+        args[2] === "-m" &&
+        positional(args[3] ?? "")
+      );
+    case "push":
+      return (
+        args.length === 4 &&
+        args[1] === "--porcelain" &&
+        safeRemote(args[2] ?? "") &&
+        safeSha((args[3] ?? "").split(":", 1)[0] ?? "") &&
+        /^refs\/heads\//u.test((args[3] ?? "").split(":", 2)[1] ?? "") &&
+        safeBranch((args[3] ?? "").split("refs/heads/", 2)[1] ?? "")
+      );
+    case "ls-remote":
+      return (
+        args.length === 4 &&
+        args[1] === "--heads" &&
+        safeRemote(args[2] ?? "") &&
+        safeBranch(args[3] ?? "")
+      );
+    case "show":
+      return (
+        args.length === 4 &&
+        args[1] === "-s" &&
+        args[2] === "--format=%s" &&
+        args[3] === "HEAD"
       );
     case "worktree":
       return (

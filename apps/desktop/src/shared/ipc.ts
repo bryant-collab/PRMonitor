@@ -92,6 +92,19 @@ import {
   type F22Reason,
   type F22ReevaluationPreview,
 } from "./f22-discard-reevaluation";
+import {
+  f23ApprovalInputSchema,
+  f23PublicationInputSchema,
+  isF23PublicationReadModel,
+  type F23ApprovalInput,
+  type F23PublicationInput,
+  type F23PublicationReadModel,
+} from "./f23-release";
+export type {
+  F23ApprovalInput,
+  F23PublicationInput,
+  F23PublicationReadModel,
+} from "./f23-release";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -162,7 +175,13 @@ export type IpcRequestType =
   | "review-bundle.conversation.start-new-operation"
   | "review-bundle.proposal-input.save"
   | "review-bundle.conversation.cancel"
-  | "review-bundle.conversation.continue";
+  | "review-bundle.conversation.continue"
+  | "review-bundle.publication.read"
+  | "review-bundle.publication.approve"
+  | "review-bundle.publication.publish"
+  | "review-bundle.publication.reconcile"
+  | "review-bundle.publication.retry-responses"
+  | "review-bundle.publication.discard";
 
 export interface IpcRequestBase {
   readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
@@ -438,6 +457,22 @@ export type IpcRequest =
         readonly selectedBudget?: number;
         readonly expectedBundleVersion?: number;
       };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.publication.read";
+      readonly payload: { readonly bundleId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "review-bundle.publication.approve";
+      readonly payload: F23ApprovalInput;
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        | "review-bundle.publication.publish"
+        | "review-bundle.publication.reconcile"
+        | "review-bundle.publication.retry-responses"
+        | "review-bundle.publication.discard";
+      readonly payload: F23PublicationInput;
     });
 
 export interface IpcError {
@@ -568,6 +603,10 @@ export type IpcResponseValue =
   | {
       readonly kind: "review-bundle-conversation";
       readonly conversation: F21ConversationReadModel;
+    }
+  | {
+      readonly kind: "review-bundle-publication";
+      readonly publication: F23PublicationReadModel;
     };
 
 export type IpcResponse =
@@ -704,6 +743,14 @@ function safeReviewBundleRelativePath(value: unknown): value is string {
 
 function safeVersion(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+}
+
+function isF23ApprovalInput(value: unknown): value is F23ApprovalInput {
+  return f23ApprovalInputSchema.safeParse(value).success;
+}
+
+function isF23PublicationInput(value: unknown): value is F23PublicationInput {
+  return f23PublicationInputSchema.safeParse(value).success;
 }
 
 function hasExactKeys(
@@ -925,6 +972,11 @@ function parseResponseValue(value: unknown): boolean {
     return (
       hasExactKeys(value, ["kind", "conversation"]) &&
       f21ConversationReadModelSchema.safeParse(value.conversation).success
+    );
+  if (value.kind === "review-bundle-publication")
+    return (
+      hasExactKeys(value, ["kind", "publication"]) &&
+      isF23PublicationReadModel(value.publication)
     );
   return false;
 }
@@ -1509,6 +1561,48 @@ export function parseIpcRequest(
         type: value.type,
         payload: { bundleId: value.payload.bundleId },
       },
+    };
+  }
+  if (value.type === "review-bundle.publication.read") {
+    if (
+      !hasExactKeys(value.payload, ["bundleId"]) ||
+      !safeGithubIdentifier(value.payload.bundleId)
+    )
+      return invalidRequest(
+        "The Review Bundle publication identifier is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { bundleId: value.payload.bundleId },
+      },
+    };
+  }
+  if (value.type === "review-bundle.publication.approve") {
+    if (!isF23ApprovalInput(value.payload))
+      return invalidRequest(
+        "The Review Bundle publication approval is invalid.",
+      );
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: value.payload },
+    };
+  }
+  if (
+    value.type === "review-bundle.publication.publish" ||
+    value.type === "review-bundle.publication.reconcile" ||
+    value.type === "review-bundle.publication.retry-responses" ||
+    value.type === "review-bundle.publication.discard"
+  ) {
+    if (!isF23PublicationInput(value.payload))
+      return invalidRequest(
+        "The Review Bundle publication request is invalid.",
+      );
+    return {
+      ok: true,
+      value: { ...base, type: value.type, payload: value.payload },
     };
   }
   if (value.type === "review-bundle.f22.reconcile") {
@@ -2168,6 +2262,24 @@ export interface PrMonitorPreloadApi {
     destination: "details" | "settings",
   ) => Promise<IpcResponse>;
   readonly readReviewBundle: (bundleId: string) => Promise<IpcResponse>;
+  readonly readReviewBundlePublication: (
+    bundleId: string,
+  ) => Promise<IpcResponse>;
+  readonly approveReviewBundlePublication: (
+    input: F23ApprovalInput,
+  ) => Promise<IpcResponse>;
+  readonly publishReviewBundlePublication: (
+    input: F23PublicationInput,
+  ) => Promise<IpcResponse>;
+  readonly reconcileReviewBundlePublication: (
+    input: F23PublicationInput,
+  ) => Promise<IpcResponse>;
+  readonly retryReviewBundleResponses: (
+    input: F23PublicationInput,
+  ) => Promise<IpcResponse>;
+  readonly discardReviewBundlePublication: (
+    input: F23PublicationInput,
+  ) => Promise<IpcResponse>;
   readonly reconcileReviewBundleF22: (bundleId: string) => Promise<IpcResponse>;
   readonly readReviewBundleDiff: (
     bundleId: string,

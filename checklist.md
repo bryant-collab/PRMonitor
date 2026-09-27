@@ -180,7 +180,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** No stale bundle can publish, no dirty worktree is silently changed, handled versions remain handled after discard, and re-evaluation produces a newly snapshotted bundle while the PR remains held.
   - **Primary application criteria:** APP-AC-23, APP-AC-26; completes APP-AC-24, APP-AC-39, and APP-AC-67.
 
-- [ ] **F23 - Human-approved, idempotent Review Bundle publication**
+- [x] **F23 - Human-approved, idempotent Review Bundle publication**
   - **Depends on:** F06, F13, F18, F20-F22.
   - **Deliver:** Add the final exact-diff/response/commit-message approval flow and deterministic publication state machine. Persist approval, lock, intent, idempotency keys, phases, baseline/head verification, commit SHA, push reconciliation, and per-response pending/posted/failed state/remote IDs before side effects. Stage only the approved proposed diff; support response-only publication; never force push; make replies editable; and represent partial response failure as `PUBLISHED_WITH_ERRORS` without republishing code.
   - **Exit:** Restart or uncertain network outcomes reconcile remote state before retry; duplicate commits/pushes/comments are impossible under tested fault injection; success/discard releases the hold correctly and exposes later feedback.
