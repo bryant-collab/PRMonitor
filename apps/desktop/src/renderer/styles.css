@@ -69,6 +69,34 @@ h1 {
   color: #405a78;
 }
 
+.recovery-panel {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding-bottom: 1rem;
+}
+
+.recovery-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  color: #29435e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.recovery-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 12rem;
+  margin: 0;
+  padding: 0 0 0 1.25rem;
+  color: #405a78;
+  font-size: 0.86rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
 .server-settings {
   margin-top: 2rem;
   padding-top: 1.5rem;

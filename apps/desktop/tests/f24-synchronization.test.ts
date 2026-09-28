@@ -11,6 +11,7 @@ import {
 import {
   F24PersistenceRepositories,
   initializePersistence,
+  PERSISTENCE_SCHEMA_VERSION,
   type PersistenceStore,
 } from "../src/main/persistence";
 import {
@@ -541,7 +542,7 @@ describe("F24 synchronization selection and resolution", () => {
         },
         { clock: { now: () => NOW }, applicationBuild: "f24-test" },
       );
-      expect(store.health.schemaVersion).toBe(18);
+      expect(store.health.schemaVersion).toBe(PERSISTENCE_SCHEMA_VERSION);
       const repositories = new F24PersistenceRepositories(store, {
         clock: { now: () => NOW },
       });

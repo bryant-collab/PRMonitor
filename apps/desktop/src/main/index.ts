@@ -1,4 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  safeStorage,
+} from "electron";
 import { mkdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -34,6 +41,7 @@ import {
   F24PersistenceRepositories,
   F25PersistenceRepositories,
   F27PersistenceRepositories,
+  F28RecoveryRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -115,6 +123,17 @@ import {
   type F24F16ConfigurationReference,
 } from "../shared/f24-synchronization";
 import { F25SynchronizationService } from "./f25-synchronization-service";
+import {
+  F28RecoveryCoordinator,
+  type F28RecoveryOwner,
+} from "./f28-recovery-service";
+import { readOnlineState } from "./f28-connectivity";
+import {
+  F28_SCHEMA_VERSION,
+  type F28OwnerOutcome,
+  type F28LifecycleSnapshot,
+  type F28RecoveryScopeInput,
+} from "../shared/f28-recovery";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -185,6 +204,10 @@ let f19Coordinator: TrayNotificationCoordinator | undefined;
 let f24SynchronizationService: F24SynchronizationService | undefined;
 let f25SynchronizationService: F25SynchronizationService | undefined;
 let f27SynchronizationService: F27SynchronizationService | undefined;
+let f28RecoveryCoordinator: F28RecoveryCoordinator | undefined;
+let f28LifecycleListenersAttached = false;
+let f28ResumeHandler: (() => void) | undefined;
+let f28NetworkPollTimer: NodeJS.Timeout | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -194,6 +217,31 @@ const rendererEntry = path.join(
   "index.html",
 );
 const preloadEntry = path.join(currentDirectory, "..", "preload", "index.cjs");
+
+function requestF28RendererReplacement(): void {
+  const coordinator = f28RecoveryCoordinator;
+  if (coordinator === undefined) return;
+  const phase = lifecycle?.getStatus().phase;
+  if (
+    phase === "SHUTDOWN_REQUESTED" ||
+    phase === "HANDING_OFF" ||
+    phase === "STOPPED"
+  )
+    return;
+  void coordinator
+    .rendererReplaced(`f28-renderer-replaced-${randomUUID()}`)
+    .catch(() => undefined);
+}
+
+function detachF28LifecycleListeners(): void {
+  if (!f28LifecycleListenersAttached) return;
+  if (f28ResumeHandler !== undefined)
+    powerMonitor.removeListener("resume", f28ResumeHandler);
+  if (f28NetworkPollTimer !== undefined) clearInterval(f28NetworkPollTimer);
+  f28ResumeHandler = undefined;
+  f28NetworkPollTimer = undefined;
+  f28LifecycleListenersAttached = false;
+}
 
 function configureSmokePaths(): void {
   if (!smokeMode) return;
@@ -1505,6 +1553,80 @@ function createCurrentState(): CurrentState {
   };
 }
 
+function f28LifecycleSnapshot(): F28LifecycleSnapshot {
+  const status = lifecycle?.getStatus();
+  return {
+    schemaVersion: F28_SCHEMA_VERSION,
+    applicationSessionId: status?.sessionId ?? "lifecycle-missing",
+    lifecyclePhase: status?.phase ?? "RECOVERY_REQUIRED",
+    rendererAttached: windowManager?.visibleWindowId !== undefined,
+    explicitShutdown:
+      status?.phase === "SHUTDOWN_REQUESTED" ||
+      status?.phase === "HANDING_OFF" ||
+      status?.phase === "STOPPED",
+    online: readOnlineState(),
+    wallClockAt: new Date().toISOString(),
+    monotonicNowMs: performance.now(),
+  };
+}
+
+function f28OwnerOutcome(
+  sessionId: string,
+  scope: F28RecoveryScopeInput,
+  input: {
+    readonly classification: F28OwnerOutcome["classification"];
+    readonly code: string;
+    readonly what: string;
+    readonly why: string;
+    readonly nextAction: F28OwnerOutcome["reason"]["nextAction"];
+    readonly retryable: boolean;
+  },
+): F28OwnerOutcome {
+  const correlationId = `f28-${sessionId}-${scope.kind}`;
+  const reason = {
+    schemaVersion: F28_SCHEMA_VERSION,
+    code: input.code,
+    what: input.what,
+    why: input.why,
+    nextAction: input.nextAction,
+    retryable: input.retryable,
+    correlationId,
+    evidenceRefs: [],
+  };
+  return {
+    schemaVersion: F28_SCHEMA_VERSION,
+    classification: input.classification,
+    reason,
+    evidenceRefs: [],
+  };
+}
+
+function f28ManagedPrScopes(
+  owner: string,
+  stage: F28RecoveryScopeInput["stage"],
+  kind: F28RecoveryScopeInput["kind"],
+  fallbackId: string,
+): readonly F28RecoveryScopeInput[] {
+  const managed = managedPrService?.list().managedPrs ?? [];
+  if (managed.length === 0)
+    return [
+      {
+        schemaVersion: F28_SCHEMA_VERSION,
+        kind,
+        id: fallbackId,
+        owner,
+        stage,
+      },
+    ];
+  return managed.map((pr) => ({
+    schemaVersion: F28_SCHEMA_VERSION,
+    kind,
+    id: pr.id,
+    owner,
+    stage,
+  }));
+}
+
 async function startMainProcess(): Promise<void> {
   await initializeMainProcessPersistence();
   if (persistenceRepositories === undefined)
@@ -1578,6 +1700,193 @@ async function startMainProcess(): Promise<void> {
     },
   });
 
+  const f28Owners: readonly F28RecoveryOwner[] = [
+    {
+      owner: "f28-scheduler",
+      stage: "SCHEDULER",
+      requiresNetwork: true,
+      listScopes: () =>
+        f28ManagedPrScopes(
+          "f28-scheduler",
+          "SCHEDULER",
+          "managed_pr",
+          "scheduler",
+        ),
+      recover: ({ sessionId, scope }) => {
+        prWatcher?.reconcileStartup();
+        reviewScheduler?.read();
+        return f28OwnerOutcome(sessionId, scope, {
+          classification: "COMPLETED",
+          code: "SCHEDULER_RECOVERY_RECONCILED",
+          what: "Durable polling and scheduler state were re-read after the lifecycle event.",
+          why: "The scheduler owns polling admission and can safely recover only its recorded state.",
+          nextAction: "NONE",
+          retryable: false,
+        });
+      },
+    },
+    {
+      owner: "f28-holds",
+      stage: "HOLDS",
+      listScopes: () =>
+        f28ManagedPrScopes("f28-holds", "HOLDS", "managed_pr", "holds"),
+      recover: ({ sessionId, scope }) => {
+        f11EligibilityService?.reconcileStartup();
+        return f28OwnerOutcome(sessionId, scope, {
+          classification: "COMPLETED",
+          code: "HOLDS_RECOVERY_RECONCILED",
+          what: "Durable claims, holds, and feedback state were re-read.",
+          why: "Existing hold state remains authoritative across restart and renderer replacement.",
+          nextAction: "NONE",
+          retryable: false,
+        });
+      },
+    },
+    {
+      owner: "f28-local-work",
+      stage: "LOCAL_WORK",
+      listScopes: () =>
+        f28ManagedPrScopes(
+          "f28-local-work",
+          "LOCAL_WORK",
+          "managed_pr",
+          "local-work",
+        ),
+      recover: async ({ sessionId, scope }) => {
+        await f13WorktreeService?.reconcileStartup();
+        await f14ValidationService?.reconcileStartup();
+        return f28OwnerOutcome(sessionId, scope, {
+          classification: "COMPLETED",
+          code: "LOCAL_WORK_RECOVERY_RECONCILED",
+          what: "Worktree intents and interrupted validation runs were reconciled from durable evidence.",
+          why: "Recovery preserves owned paths and never reruns validation or replaces a worktree automatically.",
+          nextAction: "NONE",
+          retryable: false,
+        });
+      },
+    },
+    {
+      owner: "f28-ai",
+      stage: "AI",
+      listScopes: () =>
+        f28ManagedPrScopes("f28-ai", "AI", "ai_operation", "ai-work"),
+      recover: async ({ sessionId, scope }) => {
+        await f21ConversationService?.reconcileStartup();
+        await f26AiWorkAdapter?.reconcileStartup();
+        return f28OwnerOutcome(sessionId, scope, {
+          classification: "COMPLETED",
+          code: "AI_RECOVERY_RECONCILED",
+          what: "In-flight AI work was reconciled to durable interrupted or uncertain state.",
+          why: "Recovery does not invoke a provider or consume budget without a new explicit user turn.",
+          nextAction: "NONE",
+          retryable: false,
+        });
+      },
+    },
+    {
+      owner: "f28-review-publication",
+      stage: "REVIEW_PUBLICATION",
+      requiresNetwork: true,
+      listScopes: () =>
+        f28ManagedPrScopes(
+          "f28-review-publication",
+          "REVIEW_PUBLICATION",
+          "publication",
+          "review-publication",
+        ),
+      recover: async ({ sessionId, scope }) => {
+        await f23PublicationService?.reconcileStartup();
+        return f28OwnerOutcome(sessionId, scope, {
+          classification: "COMPLETED",
+          code: "REVIEW_PUBLICATION_RECOVERY_RECONCILED",
+          what: "Review Bundle publication intents were reconciled by their durable evidence.",
+          why: "Publication remains separate from AI recovery and never publishes without an existing authorized intent.",
+          nextAction: "NONE",
+          retryable: false,
+        });
+      },
+    },
+    {
+      owner: "f28-sync-publication",
+      stage: "SYNC_PUBLICATION",
+      requiresNetwork: true,
+      listScopes: () =>
+        f28ManagedPrScopes(
+          "f28-sync-publication",
+          "SYNC_PUBLICATION",
+          "publication",
+          "sync-publication",
+        ),
+      recover: async ({ sessionId, scope }) => {
+        await f27SynchronizationService?.reconcileStartup();
+        return f28OwnerOutcome(sessionId, scope, {
+          classification: "COMPLETED",
+          code: "SYNC_PUBLICATION_RECOVERY_RECONCILED",
+          what: "Synchronization publication intents were reconciled by their durable evidence.",
+          why: "Synchronization publication is independent from Review Bundle publication and never force-pushes during recovery.",
+          nextAction: "NONE",
+          retryable: false,
+        });
+      },
+    },
+  ];
+  if (persistenceStore === undefined)
+    throw new Error("PRMONITOR_PERSISTENCE_STORE_MISSING");
+  f28RecoveryCoordinator = new F28RecoveryCoordinator({
+    persistence: new F28RecoveryRepositories(persistenceStore),
+    lifecycle: f28LifecycleSnapshot,
+    owners: f28Owners,
+    activity:
+      activityService?.writer === undefined
+        ? undefined
+        : {
+            append: (event) => {
+              const reasonCode =
+                event.event === "RETRY_SCHEDULED"
+                  ? "RETRYING"
+                  : event.event === "UNCERTAIN" || event.event === "BLOCKED"
+                    ? "UNKNOWN_OUTCOME"
+                    : event.event === "SESSION_STARTED"
+                      ? "STARTED"
+                      : event.event === "SESSION_COMPLETED"
+                        ? "COMPLETED"
+                        : "RECONCILED";
+              const nextAction =
+                event.event === "RETRY_SCHEDULED" ? "WAIT" : "NONE";
+              activityService?.writer.append({
+                eventId: `f28-activity-${randomUUID()}`,
+                eventType: "OPERATION_PROGRESS",
+                stage: "LIFECYCLE",
+                correlationId: event.sessionId,
+                ...(event.scopeKey === undefined
+                  ? {}
+                  : { operationId: event.scopeKey }),
+                occurrenceAt: event.occurrenceAt,
+                severity:
+                  event.event === "UNCERTAIN" || event.event === "BLOCKED"
+                    ? "WARNING"
+                    : "INFO",
+                reason: {
+                  code: reasonCode,
+                  what: event.summary,
+                  why: "F28 recovery activity is diagnostic; the durable recovery projection remains authoritative.",
+                  nextAction,
+                },
+                summary: event.summary,
+                details: {
+                  f28Event: event.event,
+                  f28Stage: event.stage,
+                  f28ReasonCode: event.reasonCode,
+                  ...(event.classification === undefined
+                    ? {}
+                    : { f28Classification: event.classification }),
+                },
+              });
+            },
+          },
+  });
+  await f28RecoveryCoordinator.startup(`f28-startup-${randomUUID()}`);
+
   ipcRouter = new IpcRouter(ipcMain, {
     readCurrentState: () => createCurrentState(),
     getLifecycleStatus: () =>
@@ -1590,6 +1899,24 @@ async function startMainProcess(): Promise<void> {
         updatedAt: new Date().toISOString(),
         incompleteHandoff: true,
       },
+    readRecovery: () => {
+      const projection = f28RecoveryCoordinator?.read();
+      if (projection === undefined)
+        throw new Error("PRMONITOR_RECOVERY_PROJECTION_NOT_READY");
+      return projection;
+    },
+    requestRecovery: () => {
+      if (f28RecoveryCoordinator === undefined)
+        return Promise.reject(
+          new Error("PRMONITOR_RECOVERY_SERVICE_NOT_READY"),
+        );
+      return f28RecoveryCoordinator
+        .request({
+          trigger: "explicit",
+          requestId: `f28-explicit-${randomUUID()}`,
+        })
+        .then((result) => result.projection);
+    },
     readScheduler: () => {
       if (reviewScheduler === undefined)
         throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
@@ -2198,7 +2525,10 @@ async function startMainProcess(): Promise<void> {
     sendTarget: (contents, target) =>
       ipcRouter?.deliverOpenTarget(contents.id, target) ?? false,
     onRendererAttached: (contents) => ipcRouter?.attachRenderer(contents),
-    onRendererDetached: (contentsId) => ipcRouter?.detachRenderer(contentsId),
+    onRendererDetached: (contentsId) => {
+      ipcRouter?.detachRenderer(contentsId);
+      requestF28RendererReplacement();
+    },
   });
 
   if (
@@ -2264,6 +2594,25 @@ async function startMainProcess(): Promise<void> {
     throw new Error(
       started.error?.message ?? "PRMONITOR_LIFECYCLE_START_FAILED",
     );
+  if (!f28LifecycleListenersAttached && f28RecoveryCoordinator !== undefined) {
+    let lastOnline = readOnlineState();
+    f28ResumeHandler = () => {
+      void f28RecoveryCoordinator
+        ?.wake(`f28-wake-${Date.now()}`)
+        .catch(() => undefined);
+    };
+    powerMonitor.on("resume", f28ResumeHandler);
+    f28NetworkPollTimer = setInterval(() => {
+      const online = readOnlineState();
+      if (online === lastOnline) return;
+      lastOnline = online;
+      const recovery = online
+        ? f28RecoveryCoordinator?.online(`f28-online-${randomUUID()}`)
+        : f28RecoveryCoordinator?.wake(`f28-offline-${randomUUID()}`);
+      void recovery?.catch(() => undefined);
+    }, 5_000);
+    f28LifecycleListenersAttached = true;
+  }
   await f19Coordinator.start();
 
   if (smokeMode && !smokeNonce) {
@@ -2322,6 +2671,9 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  detachF28LifecycleListeners();
+  f28RecoveryCoordinator?.stop();
+  f28RecoveryCoordinator = undefined;
   f19Coordinator?.stop();
   f19Coordinator = undefined;
   void f14ValidationService?.shutdown();

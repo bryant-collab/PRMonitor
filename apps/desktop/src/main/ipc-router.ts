@@ -12,6 +12,7 @@ import {
   type IpcResponse,
   type LifecycleStatus,
 } from "../shared/ipc";
+import type { F28RecoveryProjection } from "../shared/f28-recovery";
 import { parseOpenTargetRecord, type OpenTarget } from "../shared/routing";
 import type {
   GithubServerProfileInput,
@@ -128,6 +129,8 @@ export interface IpcMainLike {
 export interface IpcServices {
   readonly readCurrentState: (sessionId: string) => CurrentState;
   readonly getLifecycleStatus: () => LifecycleStatus;
+  readonly readRecovery?: () => F28RecoveryProjection;
+  readonly requestRecovery?: () => Promise<F28RecoveryProjection>;
   readonly requestShutdown: () => Promise<{
     readonly status: LifecycleStatus;
     readonly ok: boolean;
@@ -527,6 +530,26 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "lifecycle-status",
             status: this.services.getLifecycleStatus(),
+          }),
+        );
+      }
+      if (request.type === "recovery.read") {
+        if (this.services.readRecovery === undefined)
+          throw new Error("PRMONITOR_RECOVERY_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "recovery",
+            projection: this.services.readRecovery(),
+          }),
+        );
+      }
+      if (request.type === "recovery.request") {
+        if (this.services.requestRecovery === undefined)
+          throw new Error("PRMONITOR_RECOVERY_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "recovery",
+            projection: await this.services.requestRecovery(),
           }),
         );
       }

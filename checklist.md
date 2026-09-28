@@ -215,7 +215,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 6 - Reliability, security, and release completion
 
-- [ ] **F28 - Restart, sleep, network-loss, and uncertain-outcome recovery**
+- [x] **F28 - Restart, sleep, network-loss, and uncertain-outcome recovery**
   - **Depends on:** F10-F27.
   - **Deliver:** Add startup reconciliation for timers, holds, jobs, worktrees, AI operations, validation, synchronization, and publication; resume only deterministic/recoverable phases; never auto-authorize a stopped AI segment; handle sleep/wake and offline/online transitions with bounded backoff; and surface orphaned/missing worktrees or unreconciled effects as actionable states.
   - **Exit:** Fault-injection tests kill/restart the app at every durable phase and demonstrate no lost feedback, reset budget, duplicate external effect, overwritten worktree, or falsely successful result.

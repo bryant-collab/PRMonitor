@@ -149,6 +149,8 @@ const api: PrMonitorPreloadApi = {
   getLifecycleStatus: () => invoke("lifecycle.status", {}),
   requestShutdown: () =>
     invoke("lifecycle.shutdown", { command: "Shutdown PRMonitor" }),
+  readRecovery: () => invoke("recovery.read", {}),
+  requestRecovery: () => invoke("recovery.request", {}),
   readScheduler: () => invoke("scheduler.read", {}),
   saveSchedulerConfiguration: (input) =>
     invoke("scheduler.configuration.save", input),

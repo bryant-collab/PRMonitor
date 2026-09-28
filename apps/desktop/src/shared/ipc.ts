@@ -131,6 +131,10 @@ import {
   type F27ResultReview,
   type F27WorktreeActionInput,
 } from "./f27-synchronization";
+import {
+  isF28RecoveryProjection,
+  type F28RecoveryProjection,
+} from "./f28-recovery";
 export type {
   F23ApprovalInput,
   F23PublicationInput,
@@ -162,6 +166,8 @@ export type IpcRequestType =
   | "app.read-current-state"
   | "lifecycle.status"
   | "lifecycle.shutdown"
+  | "recovery.read"
+  | "recovery.request"
   | "scheduler.read"
   | "scheduler.configuration.save"
   | "scheduler.check-now"
@@ -265,6 +271,10 @@ export type IpcRequest =
     })
   | (IpcRequestBase & {
       readonly type: "lifecycle.status";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "recovery.read" | "recovery.request";
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
@@ -680,6 +690,7 @@ export type IpcResponseValue =
   | { readonly kind: "current-state"; readonly state: CurrentState }
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
+  | { readonly kind: "recovery"; readonly projection: F28RecoveryProjection }
   | {
       readonly kind: "scheduler-snapshot";
       readonly snapshot: F12SchedulerSnapshot;
@@ -1065,6 +1076,11 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "status"]) &&
       parseLifecycleStatus(value.status)
     );
+  if (value.kind === "recovery")
+    return (
+      hasExactKeys(value, ["kind", "projection"]) &&
+      isF28RecoveryProjection(value.projection)
+    );
   if (value.kind === "scheduler-snapshot")
     return (
       hasExactKeys(value, ["kind", "snapshot"]) &&
@@ -1321,7 +1337,9 @@ export function parseIpcRequest(
   }
   if (
     value.type === "app.read-current-state" ||
-    value.type === "lifecycle.status"
+    value.type === "lifecycle.status" ||
+    value.type === "recovery.read" ||
+    value.type === "recovery.request"
   ) {
     if (Object.keys(value.payload).length !== 0)
       return invalidRequest("This IPC request does not accept a payload.");
@@ -2820,6 +2838,8 @@ export interface PrMonitorPreloadApi {
   readonly readCurrentState: () => Promise<IpcResponse>;
   readonly getLifecycleStatus: () => Promise<IpcResponse>;
   readonly requestShutdown: () => Promise<IpcResponse>;
+  readonly readRecovery: () => Promise<IpcResponse>;
+  readonly requestRecovery: () => Promise<IpcResponse>;
   readonly readScheduler: () => Promise<IpcResponse>;
   readonly saveSchedulerConfiguration: (
     input: F12SchedulerConfigurationInput & {

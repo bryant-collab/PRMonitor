@@ -12,6 +12,7 @@ import {
   STARTUP_STATUS_ID,
 } from "../shared/startup";
 import type { CurrentState } from "../shared/ipc";
+import type { F28RecoveryProjection } from "../shared/f28-recovery";
 import type {
   GithubCredentialOperationView,
   GithubServerProfileView,
@@ -56,6 +57,8 @@ function statusLabel(profile: GithubServerProfileView): string {
 export function StartupApp() {
   const statusRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<CurrentState | undefined>();
+  const [recovery, setRecovery] = useState<F28RecoveryProjection>();
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [settings, setSettings] = useState<
     GithubServerSettingsView | undefined
   >();
@@ -122,10 +125,12 @@ export function StartupApp() {
       setInboxLastKnown(false);
     });
     void bridge.ready().then(async () => {
-      const [stateResponse, settingsResponse] = await Promise.all([
-        bridge.readCurrentState(),
-        bridge.readGithubSettings(),
-      ]);
+      const [stateResponse, settingsResponse, recoveryResponse] =
+        await Promise.all([
+          bridge.readCurrentState(),
+          bridge.readGithubSettings(),
+          bridge.readRecovery(),
+        ]);
       if (!active) return;
       if (stateResponse.ok && stateResponse.value.kind === "current-state")
         setState(stateResponse.value.state);
@@ -137,6 +142,8 @@ export function StartupApp() {
         const first = settingsResponse.value.settings.profiles[0];
         if (first !== undefined) setSelectedProfileId(first.id);
       }
+      if (recoveryResponse.ok && recoveryResponse.value.kind === "recovery")
+        setRecovery(recoveryResponse.value.projection);
       const selectionResponse = await bridge.readSynchronizationSelection();
       if (
         active &&
@@ -224,6 +231,19 @@ export function StartupApp() {
       unsubscribeInbox();
     };
   }, []);
+
+  const requestRecovery = useCallback(async () => {
+    const bridge = window.prmonitor;
+    if (bridge === undefined || recoveryBusy) return;
+    setRecoveryBusy(true);
+    try {
+      const response = await bridge.requestRecovery();
+      if (response.ok && response.value.kind === "recovery")
+        setRecovery(response.value.projection);
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }, [recoveryBusy]);
 
   const retryInbox = useCallback(async () => {
     const bridge = window.prmonitor;
@@ -749,6 +769,55 @@ export function StartupApp() {
             : `Main process ${state.lifecycle.phase.toLowerCase().replaceAll("_", " ")}.`}
         </div>
         <p className="scope-note">Current target: {targetLabel}.</p>
+        {recovery !== undefined ? (
+          <section
+            className="server-settings recovery-panel"
+            aria-labelledby="recovery-heading"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Durable recovery</p>
+                <h2 id="recovery-heading">Restart and connection recovery</h2>
+              </div>
+              <span className="store-state" aria-label="Recovery status">
+                {recovery.status.toLowerCase()}
+              </span>
+            </div>
+            <p className="section-help" role="status" aria-live="polite">
+              {recovery.summary.attention > 0
+                ? `${recovery.summary.attention} item${recovery.summary.attention === 1 ? "" : "s"} need attention.`
+                : recovery.summary.retrying > 0
+                  ? `${recovery.summary.retrying} item${recovery.summary.retrying === 1 ? " is" : "s are"} waiting to retry safely.`
+                  : "No recovery action is waiting for attention."}
+            </p>
+            <div className="recovery-summary" aria-label="Recovery summary">
+              <span>{recovery.summary.scopes} scopes</span>
+              <span>{recovery.summary.completed} completed</span>
+              <span>{recovery.summary.attention} attention</span>
+              <span>{recovery.summary.retrying} retrying</span>
+            </div>
+            {recovery.scopes.some((scope) => scope.reason !== undefined) ? (
+              <ul className="recovery-list">
+                {recovery.scopes
+                  .filter((scope) => scope.reason !== undefined)
+                  .slice(0, 8)
+                  .map((scope) => (
+                    <li key={scope.scopeKey}>
+                      <strong>{scope.scope.kind.replaceAll("_", " ")}</strong>{" "}
+                      <span>{scope.scope.id}</span>: {scope.reason?.what}
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void requestRecovery()}
+              disabled={recoveryBusy}
+            >
+              {recoveryBusy ? "Reconciling…" : "Reconcile now"}
+            </button>
+          </section>
+        ) : null}
         <ManagedPrInbox
           snapshot={inboxSnapshot}
           loading={inboxLoading}

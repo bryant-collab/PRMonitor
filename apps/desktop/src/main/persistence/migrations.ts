@@ -1550,6 +1550,87 @@ CREATE INDEX IF NOT EXISTS idx_f27_invalidations_pr
 PRAGMA user_version = 18;
 `;
 
+const MIGRATION_19 = `
+/* F28 stores lifecycle recovery as an append-only envelope around the
+   authoritative F02-F27 records.  Scope rows are optimistic projections;
+   attempts retain the evidence needed to distinguish an adopted effect from
+   a safe retry or an unknown outcome after restart. */
+CREATE TABLE IF NOT EXISTS f28_recovery_sessions (
+  session_id TEXT PRIMARY KEY,
+  request_key TEXT NOT NULL UNIQUE,
+  trigger TEXT NOT NULL CHECK (trigger IN ('startup', 'wake', 'online', 'explicit', 'renderer_replaced')),
+  status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETED', 'PARTIAL', 'FAILED')),
+  stage TEXT NOT NULL,
+  lifecycle_json TEXT NOT NULL,
+  lifecycle_hash TEXT NOT NULL,
+  scope_count INTEGER NOT NULL DEFAULT 0 CHECK (scope_count >= 0 AND scope_count <= 250),
+  completed_count INTEGER NOT NULL DEFAULT 0 CHECK (completed_count >= 0 AND completed_count <= 250),
+  attention_count INTEGER NOT NULL DEFAULT 0 CHECK (attention_count >= 0 AND attention_count <= 250),
+  retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0 AND retry_count <= 250),
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS f28_recovery_scopes (
+  scope_key TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES f28_recovery_sessions(session_id),
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('application', 'managed_pr', 'review_bundle', 'ai_operation', 'sync_operation', 'publication')),
+  scope_id TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  expected_revision TEXT,
+  input_revision TEXT,
+  repository_key TEXT,
+  branch TEXT,
+  worktree_id TEXT,
+  effect_id TEXT,
+  scope_json TEXT NOT NULL,
+  scope_hash TEXT NOT NULL,
+  classification TEXT NOT NULL CHECK (classification IN ('COMPLETED', 'ADOPTED', 'SAFE_TO_RETRY', 'WAITING_FOR_NETWORK', 'INTERRUPTED', 'UNCERTAIN', 'BLOCKED', 'SKIPPED')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0 AND attempt_count <= 16),
+  reason_json TEXT,
+  reason_hash TEXT,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  evidence_refs_hash TEXT NOT NULL DEFAULT '',
+  next_attempt_at TEXT,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (session_id, owner, stage, scope_kind, scope_id, expected_revision)
+);
+
+CREATE TABLE IF NOT EXISTS f28_recovery_attempts (
+  attempt_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES f28_recovery_sessions(session_id),
+  scope_key TEXT NOT NULL REFERENCES f28_recovery_scopes(scope_key),
+  stage TEXT NOT NULL,
+  attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1 AND attempt_number <= 16),
+  status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETED', 'FAILED')),
+  expected_revision TEXT,
+  classification TEXT CHECK (classification IS NULL OR classification IN ('COMPLETED', 'ADOPTED', 'SAFE_TO_RETRY', 'WAITING_FOR_NETWORK', 'INTERRUPTED', 'UNCERTAIN', 'BLOCKED', 'SKIPPED')),
+  reason_json TEXT,
+  reason_hash TEXT,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  evidence_refs_hash TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  next_attempt_at TEXT,
+  UNIQUE (session_id, scope_key, attempt_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_f28_sessions_status
+  ON f28_recovery_sessions(status, updated_at, session_id);
+CREATE INDEX IF NOT EXISTS idx_f28_scopes_session
+  ON f28_recovery_scopes(session_id, stage, scope_key);
+CREATE INDEX IF NOT EXISTS idx_f28_scopes_attention
+  ON f28_recovery_scopes(classification, next_attempt_at, updated_at);
+CREATE INDEX IF NOT EXISTS idx_f28_attempts_session
+  ON f28_recovery_attempts(session_id, started_at, attempt_id);
+
+PRAGMA user_version = 19;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1662,6 +1743,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F27-001-synchronization-review-publication-overlay",
     sql: MIGRATION_18,
     checksum: checksum(MIGRATION_18),
+  },
+  {
+    version: 19,
+    id: "F28-001-recovery-sessions-and-attempt-evidence",
+    sql: MIGRATION_19,
+    checksum: checksum(MIGRATION_19),
   },
 ];
 
