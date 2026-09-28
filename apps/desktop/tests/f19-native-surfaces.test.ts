@@ -54,6 +54,7 @@ import {
 } from "../src/main/persistence/f19-repositories";
 import {
   initializePersistence,
+  PERSISTENCE_SCHEMA_VERSION,
   type PersistenceStore,
 } from "../src/main/persistence";
 import type { F13PathActionResult } from "../src/shared/f13-contracts";
@@ -812,7 +813,7 @@ describe("F19 persistence and coordinator", () => {
       { clock: { now: () => TIME }, applicationBuild: "f19-test" },
     );
     stores.push(store);
-    expect(store.health.schemaVersion).toBe(16);
+    expect(store.health.schemaVersion).toBe(PERSISTENCE_SCHEMA_VERSION);
     const first = new F19PersistenceRepositories(store, {
       clock: { now: () => TIME },
     });

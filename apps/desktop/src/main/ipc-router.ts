@@ -79,6 +79,12 @@ import type {
   F23PublicationInput,
   F23PublicationReadModel,
 } from "../shared/f23-release";
+import type {
+  F24PreparationIntent,
+  F24SelectionCommandInput,
+  F24SelectionSession,
+  F24SynchronizationConfirmation,
+} from "../shared/f24-synchronization";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -209,6 +215,22 @@ export interface IpcServices {
     input: ManagedPrConfigurationInput,
   ) => Promise<ManagedPrOperationView>;
   readonly readInbox?: () => ManagedPrInboxReadModel;
+  readonly readSynchronizationSelection?: () => F24SelectionSession;
+  readonly commandSynchronizationSelection?: (
+    input: F24SelectionCommandInput,
+  ) => F24SelectionSession;
+  readonly resetSynchronizationSelection?: () => F24SelectionSession;
+  readonly resolveSynchronization?: () => Promise<F24SynchronizationConfirmation>;
+  readonly confirmSynchronizationPreparation?: (
+    resolutionRevision: string,
+  ) => Promise<F24PreparationIntent>;
+  readonly readSynchronizationIntent?: (
+    intentId: string,
+  ) => F24PreparationIntent | undefined;
+  readonly listSynchronizationIntents?: () => readonly F24PreparationIntent[];
+  readonly reconcileSynchronizationIntent?: (
+    intentId: string,
+  ) => Promise<F24PreparationIntent>;
   readonly readActivity?: (query: ActivityQuery) => ActivityQuerySnapshot;
   readonly navigateActivity?: (eventId: string) => OpenTarget | undefined;
   readonly navigateManagedPr?: (
@@ -748,6 +770,101 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "managed-pr-inbox",
             snapshot,
+          }),
+        );
+      }
+      if (
+        request.type === "synchronization.selection.read" ||
+        request.type === "synchronization.selection.reset"
+      ) {
+        const read =
+          request.type === "synchronization.selection.read"
+            ? this.services.readSynchronizationSelection
+            : this.services.resetSynchronizationSelection;
+        if (read === undefined)
+          throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-selection",
+            selection: read(),
+          }),
+        );
+      }
+      if (request.type === "synchronization.selection.command") {
+        if (this.services.commandSynchronizationSelection === undefined)
+          throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-selection",
+            selection: this.services.commandSynchronizationSelection(
+              request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "synchronization.resolve") {
+        if (this.services.resolveSynchronization === undefined)
+          throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-confirmation",
+            confirmation: await this.services.resolveSynchronization(),
+          }),
+        );
+      }
+      if (request.type === "synchronization.confirm") {
+        if (this.services.confirmSynchronizationPreparation === undefined)
+          throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-intent",
+            intent: await this.services.confirmSynchronizationPreparation(
+              request.payload.resolutionRevision,
+            ),
+          }),
+        );
+      }
+      if (request.type === "synchronization.intent.list") {
+        if (this.services.listSynchronizationIntents === undefined)
+          throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-intents",
+            intents: this.services.listSynchronizationIntents(),
+          }),
+        );
+      }
+      if (
+        request.type === "synchronization.intent.read" ||
+        request.type === "synchronization.intent.reconcile"
+      ) {
+        if (request.type === "synchronization.intent.read") {
+          if (this.services.readSynchronizationIntent === undefined)
+            throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+          const intent = this.services.readSynchronizationIntent(
+            request.payload.intentId,
+          );
+          if (intent === undefined)
+            return errorResponse(
+              request.requestId,
+              "HANDLER_FAILED",
+              "The synchronization preparation intent is not available.",
+            );
+          return boundedIpcResponse(
+            successResponse(request.requestId, {
+              kind: "synchronization-intent",
+              intent,
+            }),
+          );
+        }
+        if (this.services.reconcileSynchronizationIntent === undefined)
+          throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-intent",
+            intent: await this.services.reconcileSynchronizationIntent(
+              request.payload.intentId,
+            ),
           }),
         );
       }

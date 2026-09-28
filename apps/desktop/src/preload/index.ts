@@ -37,6 +37,7 @@ import type {
   F21ProposalEntryInput,
   F21UserIntent,
 } from "../shared/f21-conversation";
+import type { F24SelectionCommandInput } from "../shared/f24-synchronization";
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
 
@@ -109,7 +110,10 @@ function invoke(
         readonly operationId: string;
         readonly selectedBudget?: number;
         readonly expectedBundleVersion?: number;
-      },
+      }
+    | F24SelectionCommandInput
+    | { readonly resolutionRevision: string }
+    | { readonly intentId: string },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -182,6 +186,20 @@ const api: PrMonitorPreloadApi = {
     invoke("managed-pr.configuration.save", input),
   readInbox: () => invoke("inbox.read", {}),
   subscribeInbox: () => invoke("inbox.subscribe", {}),
+  readSynchronizationSelection: () =>
+    invoke("synchronization.selection.read", {}),
+  commandSynchronizationSelection: (input) =>
+    invoke("synchronization.selection.command", input),
+  resetSynchronizationSelection: () =>
+    invoke("synchronization.selection.reset", {}),
+  resolveSynchronization: () => invoke("synchronization.resolve", {}),
+  confirmSynchronizationPreparation: (resolutionRevision) =>
+    invoke("synchronization.confirm", { resolutionRevision }),
+  readSynchronizationIntent: (intentId) =>
+    invoke("synchronization.intent.read", { intentId }),
+  listSynchronizationIntents: () => invoke("synchronization.intent.list", {}),
+  reconcileSynchronizationIntent: (intentId) =>
+    invoke("synchronization.intent.reconcile", { intentId }),
   readActivity: (query = {}) => invoke("activity.query", query),
   subscribeActivity: (query = {}) => invoke("activity.subscribe", query),
   navigateActivity: (eventId) => invoke("activity.navigate", { eventId }),

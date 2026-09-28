@@ -1480,6 +1480,34 @@ CREATE INDEX IF NOT EXISTS idx_f22_action_intents_recovery
 PRAGMA user_version = 16;
 `;
 
+const MIGRATION_17 = `
+/* F24 stores the user-confirmed synchronization preparation snapshot before
+   any downstream preparation handoff.  The immutable snapshot is separated
+   from mutable handoff status so exact inputs remain auditable. */
+CREATE TABLE IF NOT EXISTS f24_preparation_intents (
+  intent_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  scope_key TEXT NOT NULL,
+  resolution_revision TEXT NOT NULL,
+  snapshot_schema_version INTEGER NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  snapshot_hash TEXT NOT NULL,
+  handoff_status TEXT NOT NULL CHECK (handoff_status IN ('PENDING', 'ACKNOWLEDGED', 'FAILED', 'UNCERTAIN')),
+  authorization_id TEXT NOT NULL,
+  handoff_reason_json TEXT,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f24_preparation_intents_scope
+  ON f24_preparation_intents(scope_key, updated_at, intent_id);
+CREATE INDEX IF NOT EXISTS idx_f24_preparation_intents_status
+  ON f24_preparation_intents(handoff_status, updated_at, intent_id);
+
+PRAGMA user_version = 17;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1580,6 +1608,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F22-001-stale-discard-and-reevaluation-ledger",
     sql: MIGRATION_16,
     checksum: checksum(MIGRATION_16),
+  },
+  {
+    version: 17,
+    id: "F24-001-synchronization-preparation-intents",
+    sql: MIGRATION_17,
+    checksum: checksum(MIGRATION_17),
   },
 ];
 

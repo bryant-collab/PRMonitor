@@ -14,4 +14,5 @@ export * from "./f18-repositories";
 export * from "./f19-repositories";
 export * from "./f21-repositories";
 export * from "./f22-repositories";
+export * from "./f24-repositories";
 export * from "./types";

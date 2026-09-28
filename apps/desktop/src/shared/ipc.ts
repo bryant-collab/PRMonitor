@@ -100,6 +100,15 @@ import {
   type F23PublicationInput,
   type F23PublicationReadModel,
 } from "./f23-release";
+import {
+  isF24Confirmation,
+  isF24PreparationIntent,
+  isF24SelectionSession,
+  type F24PreparationIntent,
+  type F24SelectionCommandInput,
+  type F24SelectionSession,
+  type F24SynchronizationConfirmation,
+} from "./f24-synchronization";
 export type {
   F23ApprovalInput,
   F23PublicationInput,
@@ -153,6 +162,14 @@ export type IpcRequestType =
   | "managed-pr.configuration.save"
   | "inbox.read"
   | "inbox.subscribe"
+  | "synchronization.selection.read"
+  | "synchronization.selection.command"
+  | "synchronization.selection.reset"
+  | "synchronization.resolve"
+  | "synchronization.confirm"
+  | "synchronization.intent.read"
+  | "synchronization.intent.list"
+  | "synchronization.intent.reconcile"
   | "inbox.navigate"
   | "activity.query"
   | "activity.subscribe"
@@ -326,6 +343,27 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "inbox.read" | "inbox.subscribe";
       readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        | "synchronization.selection.read"
+        | "synchronization.selection.reset"
+        | "synchronization.resolve"
+        | "synchronization.intent.list";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.selection.command";
+      readonly payload: F24SelectionCommandInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.confirm";
+      readonly payload: { readonly resolutionRevision: string };
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        "synchronization.intent.read" | "synchronization.intent.reconcile";
+      readonly payload: { readonly intentId: string };
     })
   | (IpcRequestBase & {
       readonly type: "inbox.navigate";
@@ -571,6 +609,22 @@ export type IpcResponseValue =
   | {
       readonly kind: "managed-pr-inbox";
       readonly snapshot: ManagedPrInboxReadModel;
+    }
+  | {
+      readonly kind: "synchronization-selection";
+      readonly selection: F24SelectionSession;
+    }
+  | {
+      readonly kind: "synchronization-confirmation";
+      readonly confirmation: F24SynchronizationConfirmation;
+    }
+  | {
+      readonly kind: "synchronization-intent";
+      readonly intent: F24PreparationIntent;
+    }
+  | {
+      readonly kind: "synchronization-intents";
+      readonly intents: readonly F24PreparationIntent[];
     }
   | {
       readonly kind: "activity-query";
@@ -920,6 +974,28 @@ function parseResponseValue(value: unknown): boolean {
     return (
       hasExactKeys(value, ["kind", "snapshot"]) &&
       isManagedPrInboxReadModel(value.snapshot)
+    );
+  if (value.kind === "synchronization-selection")
+    return (
+      hasExactKeys(value, ["kind", "selection"]) &&
+      isF24SelectionSession(value.selection)
+    );
+  if (value.kind === "synchronization-confirmation")
+    return (
+      hasExactKeys(value, ["kind", "confirmation"]) &&
+      isF24Confirmation(value.confirmation)
+    );
+  if (value.kind === "synchronization-intent")
+    return (
+      hasExactKeys(value, ["kind", "intent"]) &&
+      isF24PreparationIntent(value.intent)
+    );
+  if (value.kind === "synchronization-intents")
+    return (
+      hasExactKeys(value, ["kind", "intents"]) &&
+      Array.isArray(value.intents) &&
+      value.intents.length <= 250 &&
+      value.intents.every(isF24PreparationIntent)
     );
   if (value.kind === "activity-query")
     return (
@@ -1352,13 +1428,88 @@ export function parseIpcRequest(
     value.type === "managed-pr.list" ||
     value.type === "managed-pr.clone.pick" ||
     value.type === "inbox.read" ||
-    value.type === "inbox.subscribe"
+    value.type === "inbox.subscribe" ||
+    value.type === "synchronization.selection.read" ||
+    value.type === "synchronization.selection.reset" ||
+    value.type === "synchronization.resolve" ||
+    value.type === "synchronization.intent.list"
   ) {
     if (Object.keys(value.payload).length !== 0)
       return invalidRequest("This read request does not accept a payload.");
     return {
       ok: true,
       value: { ...base, type: value.type, payload: {} } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.selection.command") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["command", "projectionRevision"],
+        ["managedPrId"],
+      ) ||
+      !["TOGGLE", "CLEAR", "SELECT_ALL"].includes(
+        String(value.payload.command),
+      ) ||
+      typeof value.payload.projectionRevision !== "number" ||
+      !Number.isSafeInteger(value.payload.projectionRevision) ||
+      value.payload.projectionRevision < 0 ||
+      (value.payload.managedPrId !== undefined &&
+        !safeGithubIdentifier(value.payload.managedPrId))
+    )
+      return invalidRequest(
+        "The synchronization selection command is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          command: value.payload.command as F24SelectionCommandInput["command"],
+          projectionRevision: value.payload.projectionRevision,
+          ...(value.payload.managedPrId === undefined
+            ? {}
+            : { managedPrId: value.payload.managedPrId }),
+        },
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.confirm") {
+    if (
+      !hasExactKeys(value.payload, ["resolutionRevision"]) ||
+      !safeGithubIdentifier(value.payload.resolutionRevision)
+    )
+      return invalidRequest(
+        "The synchronization resolution revision is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { resolutionRevision: value.payload.resolutionRevision },
+      } as IpcRequest,
+    };
+  }
+  if (
+    value.type === "synchronization.intent.read" ||
+    value.type === "synchronization.intent.reconcile"
+  ) {
+    if (
+      !hasExactKeys(value.payload, ["intentId"]) ||
+      !safeGithubIdentifier(value.payload.intentId)
+    )
+      return invalidRequest(
+        "The synchronization intent identifier is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { intentId: value.payload.intentId },
+      } as IpcRequest,
     };
   }
   if (
@@ -2254,6 +2405,22 @@ export interface PrMonitorPreloadApi {
   ) => Promise<IpcResponse>;
   readonly readInbox: () => Promise<IpcResponse>;
   readonly subscribeInbox: () => Promise<IpcResponse>;
+  readonly readSynchronizationSelection: () => Promise<IpcResponse>;
+  readonly commandSynchronizationSelection: (
+    input: F24SelectionCommandInput,
+  ) => Promise<IpcResponse>;
+  readonly resetSynchronizationSelection: () => Promise<IpcResponse>;
+  readonly resolveSynchronization: () => Promise<IpcResponse>;
+  readonly confirmSynchronizationPreparation: (
+    resolutionRevision: string,
+  ) => Promise<IpcResponse>;
+  readonly readSynchronizationIntent: (
+    intentId: string,
+  ) => Promise<IpcResponse>;
+  readonly listSynchronizationIntents: () => Promise<IpcResponse>;
+  readonly reconcileSynchronizationIntent: (
+    intentId: string,
+  ) => Promise<IpcResponse>;
   readonly readActivity: (query?: ActivityQuery) => Promise<IpcResponse>;
   readonly subscribeActivity: (query?: ActivityQuery) => Promise<IpcResponse>;
   readonly navigateActivity: (eventId: string) => Promise<IpcResponse>;

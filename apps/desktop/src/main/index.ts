@@ -31,6 +31,7 @@ import {
   F19PersistenceRepositories,
   F21PersistenceRepositories,
   F22PersistenceRepositories,
+  F24PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -97,6 +98,15 @@ import {
   MAX_PERSISTED_JSON_BYTES,
   MAX_PERSISTED_TEXT_BYTES,
 } from "./persistence/types";
+import {
+  F24SynchronizationService,
+  type F24F13ReadinessResult,
+} from "./f24-synchronization-service";
+import {
+  f24Fingerprint,
+  f24Reason,
+  type F24F16ConfigurationReference,
+} from "../shared/f24-synchronization";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -162,6 +172,7 @@ let f20WorkspaceService: F20WorkspaceService | undefined;
 let f23PublicationService: F23PublicationService | undefined;
 let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
 let f19Coordinator: TrayNotificationCoordinator | undefined;
+let f24SynchronizationService: F24SynchronizationService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -551,6 +562,86 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedF11EligibilityService = f11EligibilityService;
   if (initializedF11EligibilityService === undefined)
     throw new Error("PRMONITOR_F11_ELIGIBILITY_SERVICE_NOT_READY");
+  const f24Persistence = new F24PersistenceRepositories(persistenceStore);
+  f24SynchronizationService = new F24SynchronizationService({
+    inbox: {
+      read: () => {
+        if (managedPrInboxService === undefined)
+          throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
+        return managedPrInboxService.read();
+      },
+    },
+    managedPrs: {
+      getManagedPr: (managedPrId) => f07Repositories.getManagedPr(managedPrId),
+    },
+    github: {
+      getReadClient: (serverId) => githubServerService?.getReadClient(serverId),
+    },
+    f16: {
+      readReference: (): F24F16ConfigurationReference | undefined => {
+        const preferences = initializedF16PreferencesService.readPreferences();
+        const rootRevision = preferences.operational.worktreeRoot?.rootRevision;
+        return {
+          schemaVersion: 1,
+          settingsRevision: preferences.settingsRevision,
+          boundsRevision: preferences.boundsRevision,
+          ...(rootRevision === undefined
+            ? {}
+            : { worktreeRootRevision: rootRevision }),
+        };
+      },
+    },
+    f13: {
+      check: async (input): Promise<F24F13ReadinessResult> => {
+        const preferences = initializedF16PreferencesService.readPreferences();
+        const configuredRoot = preferences.operational.worktreeRoot;
+        const result = await initializedF13WorktreeService.resolveRoot({
+          ...(configuredRoot?.canonicalPath === undefined
+            ? {}
+            : { worktreeRoot: configuredRoot.canonicalPath }),
+          ...(input.developerClonePath === undefined
+            ? {}
+            : { developerClonePaths: [input.developerClonePath] }),
+          ...(input.rootRevision === undefined
+            ? { rootRevision: configuredRoot?.rootRevision ?? 0 }
+            : { rootRevision: input.rootRevision }),
+          correlationId: input.correlationId,
+        });
+        const reason = result.reason;
+        const mappedReason =
+          reason === undefined
+            ? undefined
+            : f24Reason({
+                code: "F13_NOT_READY",
+                category: "F13_NOT_READY",
+                what: reason.what,
+                why: reason.why,
+                nextAction:
+                  reason.nextAction === "OPEN_SETTINGS"
+                    ? "OPEN_PR_SETTINGS"
+                    : reason.nextAction === "SELECT_WORKTREE_ACTION"
+                      ? "SELECT_CLONE"
+                      : reason.nextAction === "RECONCILE"
+                        ? "RECONCILE"
+                        : "RETRY_RESOLUTION",
+                retryable: true,
+                correlationId: input.correlationId,
+              });
+        return {
+          ok: result.ok,
+          rootRevision: result.rootRevision,
+          evidenceRevision: f24Fingerprint({
+            operationId: input.operationId,
+            rootRevision: result.rootRevision,
+            ok: result.ok,
+            reason: reason?.code,
+          }),
+          ...(mappedReason === undefined ? {} : { reason: mappedReason }),
+        };
+      },
+    },
+    persistence: f24Persistence,
+  });
   const f17Persistence = new F17PersistenceRepositories(persistenceStore);
   automaticReviewAiAdapter = new F18AIWorkAdapter({
     persistence: f17Persistence,
@@ -1416,6 +1507,49 @@ async function startMainProcess(): Promise<void> {
       if (managedPrInboxService === undefined)
         throw new Error("PRMONITOR_INBOX_SERVICE_NOT_READY");
       return managedPrInboxService.read();
+    },
+    readSynchronizationSelection: () => {
+      if (f24SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+      return f24SynchronizationService.readSelection();
+    },
+    commandSynchronizationSelection: (input) => {
+      if (f24SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+      return f24SynchronizationService.applySelection(input);
+    },
+    resetSynchronizationSelection: () => {
+      if (f24SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+      return f24SynchronizationService.resetSelection();
+    },
+    resolveSynchronization: () => {
+      if (f24SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F24_SERVICE_NOT_READY"));
+      return f24SynchronizationService.openSynchronization();
+    },
+    confirmSynchronizationPreparation: (resolutionRevision) => {
+      if (f24SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F24_SERVICE_NOT_READY"));
+      return f24SynchronizationService.confirmPreparation({
+        resolutionRevision,
+        actor: "USER",
+      });
+    },
+    readSynchronizationIntent: (intentId) => {
+      if (f24SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+      return f24SynchronizationService.readPreparationIntent(intentId);
+    },
+    listSynchronizationIntents: () => {
+      if (f24SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+      return f24SynchronizationService.listPreparationIntents();
+    },
+    reconcileSynchronizationIntent: (intentId) => {
+      if (f24SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F24_SERVICE_NOT_READY"));
+      return f24SynchronizationService.reconcilePreparation(intentId);
     },
     navigateManagedPr: (managedPrId, destination) => {
       if (managedPrInboxService === undefined)

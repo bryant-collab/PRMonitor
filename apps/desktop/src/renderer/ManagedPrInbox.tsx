@@ -2,6 +2,12 @@ import type {
   ManagedPrInboxGroup,
   ManagedPrInboxReadModel,
 } from "../shared/inbox";
+import type {
+  F24PreparationIntent,
+  F24SelectionCommandInput,
+  F24SelectionSession,
+  F24SynchronizationConfirmation,
+} from "../shared/f24-synchronization";
 
 interface ManagedPrInboxProps {
   readonly snapshot: ManagedPrInboxReadModel | undefined;
@@ -14,6 +20,14 @@ interface ManagedPrInboxProps {
     destination: "details" | "settings",
   ) => void;
   readonly onAddPr: () => void;
+  readonly selection: F24SelectionSession | undefined;
+  readonly confirmation: F24SynchronizationConfirmation | undefined;
+  readonly preparationIntent: F24PreparationIntent | undefined;
+  readonly selectionBusy: boolean;
+  readonly confirmingPreparation: boolean;
+  readonly onSelectionCommand: (input: F24SelectionCommandInput) => void;
+  readonly onOpenSynchronization: () => void;
+  readonly onConfirmPreparation: () => void;
 }
 
 const stateLabels = {
@@ -40,10 +54,14 @@ function InboxGroup({
   group,
   cards,
   onNavigate,
+  selection,
+  onSelectionCommand,
 }: {
   readonly group: ManagedPrInboxGroup;
   readonly cards: ManagedPrInboxReadModel["cards"];
   readonly onNavigate: ManagedPrInboxProps["onNavigate"];
+  readonly selection: ManagedPrInboxProps["selection"];
+  readonly onSelectionCommand: ManagedPrInboxProps["onSelectionCommand"];
 }) {
   if (cards.length === 0) return null;
   return (
@@ -76,6 +94,23 @@ function InboxGroup({
               aria-labelledby={titleId}
               aria-describedby={descriptionId}
             >
+              <label className="inbox-card-selection">
+                <input
+                  type="checkbox"
+                  checked={
+                    selection?.selectedManagedPrIds.includes(card.id) ?? false
+                  }
+                  onChange={() =>
+                    onSelectionCommand({
+                      command: "TOGGLE",
+                      projectionRevision: selection?.projectionRevision ?? 0,
+                      managedPrId: card.id,
+                    })
+                  }
+                  aria-label={`Select ${card.reference} for synchronization`}
+                />
+                <span>Select for synchronization</span>
+              </label>
               <div className="inbox-card-heading">
                 <div className="inbox-card-title-block">
                   <h4 id={titleId}>{card.title ?? card.reference}</h4>
@@ -152,6 +187,14 @@ export function ManagedPrInbox({
   onRetry,
   onNavigate,
   onAddPr,
+  selection,
+  confirmation,
+  preparationIntent,
+  selectionBusy,
+  confirmingPreparation,
+  onSelectionCommand,
+  onOpenSynchronization,
+  onConfirmPreparation,
 }: ManagedPrInboxProps) {
   const cardsById = new Map(
     (snapshot?.cards ?? []).map((card) => [card.id, card]),
@@ -179,6 +222,56 @@ export function ManagedPrInbox({
         The inbox is read from main-process state. Synchronization appears as a
         separate overlay and never changes the review state.
       </p>
+      {snapshot !== undefined && snapshot.cards.length > 0 ? (
+        <div
+          className="inbox-selection-toolbar"
+          aria-label="Synchronization selection controls"
+        >
+          <div>
+            <strong>{selection?.selectedCount ?? 0} selected</strong>
+            <span>
+              Select pull requests to review exact source and destination refs
+              before preparation.
+            </span>
+          </div>
+          <div className="inbox-selection-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={selectionBusy}
+              onClick={() =>
+                onSelectionCommand({
+                  command: "SELECT_ALL",
+                  projectionRevision: snapshot.version,
+                })
+              }
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={selectionBusy || (selection?.selectedCount ?? 0) === 0}
+              onClick={() =>
+                onSelectionCommand({
+                  command: "CLEAR",
+                  projectionRevision: snapshot.version,
+                })
+              }
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={selectionBusy || !(selection?.canOpen ?? false)}
+              onClick={onOpenSynchronization}
+            >
+              {selection?.actionLabel ?? "Synchronize PR Branches"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {loading ? (
         <p className="inbox-status" role="status" aria-live="polite">
           Loading the managed pull-request inbox…
@@ -221,9 +314,103 @@ export function ManagedPrInbox({
                 return card === undefined ? [] : [card];
               })}
               onNavigate={onNavigate}
+              selection={selection}
+              onSelectionCommand={onSelectionCommand}
             />
           ))}
         </div>
+      ) : null}
+      {confirmation !== undefined ? (
+        <section
+          className="sync-confirmation"
+          aria-labelledby="sync-confirmation-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Review before preparation</p>
+              <h3 id="sync-confirmation-heading">
+                Confirm synchronization preparation
+              </h3>
+            </div>
+            <span className="store-state">
+              {confirmation.eligibleCount} eligible /{" "}
+              {confirmation.selectedCount} selected
+            </span>
+          </div>
+          <p className="section-help">{confirmation.prepareOnlyMessage}</p>
+          <div className="sync-confirmation-rows">
+            {confirmation.rows.map((row) => (
+              <article className="sync-confirmation-row" key={row.managedPrId}>
+                <div className="sync-row-heading">
+                  <strong>{row.managedPrId}</strong>
+                  <span
+                    className={`sync-eligibility sync-${row.eligibility.toLowerCase()}`}
+                  >
+                    {row.eligibility}
+                  </span>
+                </div>
+                <dl className="sync-row-details">
+                  <div>
+                    <dt>Source repository</dt>
+                    <dd>{row.sourceRepository.key}</dd>
+                  </div>
+                  <div>
+                    <dt>Source branch</dt>
+                    <dd>
+                      {row.syncSourceBranch} (
+                      {row.sourceProvenance.toLowerCase().replaceAll("_", " ")})
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Destination repository</dt>
+                    <dd>{row.destinationRepository.key}</dd>
+                  </div>
+                  <div>
+                    <dt>Destination branch</dt>
+                    <dd>{row.prHeadBranch}</dd>
+                  </div>
+                  <div>
+                    <dt>Current source SHA</dt>
+                    <dd>{row.syncSourceSha ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Current head SHA</dt>
+                    <dd>{row.prHeadSha ?? "Unavailable"}</dd>
+                  </div>
+                </dl>
+                <p
+                  className="sync-row-reason"
+                  role={row.eligibility === "INELIGIBLE" ? "alert" : undefined}
+                >
+                  {row.reason.what} {row.reason.why} Next action:{" "}
+                  {readableStatus(row.reason.nextAction)}.
+                </p>
+              </article>
+            ))}
+          </div>
+          <div className="sync-confirmation-actions">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!confirmation.confirmEnabled || confirmingPreparation}
+              onClick={onConfirmPreparation}
+            >
+              {confirmingPreparation
+                ? "Recording preparation…"
+                : "Confirm preparation"}
+            </button>
+            <span className="field-help">
+              Ineligible rows remain visible and will be skipped.
+            </span>
+          </div>
+        </section>
+      ) : null}
+      {preparationIntent !== undefined ? (
+        <p className="sync-intent-status" role="status" aria-live="polite">
+          Preparation intent {preparationIntent.snapshot.intentId} is{" "}
+          {preparationIntent.handoff.status.toLowerCase()}. No merge, push,
+          response, AI, or publication authority was granted.
+        </p>
       ) : null}
     </section>
   );

@@ -26,6 +26,12 @@ import {
   acceptManagedPrInboxSnapshot,
   type ManagedPrInboxReadModel,
 } from "../shared/inbox";
+import type {
+  F24PreparationIntent,
+  F24SelectionCommandInput,
+  F24SelectionSession,
+  F24SynchronizationConfirmation,
+} from "../shared/f24-synchronization";
 import { ManagedPrInbox } from "./ManagedPrInbox";
 import { ActivityViewer } from "./ActivityViewer";
 import { Preferences } from "./Preferences";
@@ -82,6 +88,15 @@ export function StartupApp() {
   const [inboxLoading, setInboxLoading] = useState(true);
   const [inboxError, setInboxError] = useState<string>();
   const [inboxLastKnown, setInboxLastKnown] = useState(false);
+  const [synchronizationSelection, setSynchronizationSelection] = useState<
+    F24SelectionSession | undefined
+  >();
+  const [synchronizationConfirmation, setSynchronizationConfirmation] =
+    useState<F24SynchronizationConfirmation>();
+  const [preparationIntent, setPreparationIntent] =
+    useState<F24PreparationIntent>();
+  const [synchronizationBusy, setSynchronizationBusy] = useState(false);
+  const [confirmingPreparation, setConfirmingPreparation] = useState(false);
 
   useEffect(() => {
     document.title = APPLICATION_TITLE;
@@ -116,6 +131,22 @@ export function StartupApp() {
         setSettings(settingsResponse.value.settings);
         const first = settingsResponse.value.settings.profiles[0];
         if (first !== undefined) setSelectedProfileId(first.id);
+      }
+      const selectionResponse = await bridge.readSynchronizationSelection();
+      if (
+        active &&
+        selectionResponse.ok &&
+        selectionResponse.value.kind === "synchronization-selection"
+      )
+        setSynchronizationSelection(selectionResponse.value.selection);
+      const intentResponse = await bridge.listSynchronizationIntents();
+      if (
+        active &&
+        intentResponse.ok &&
+        intentResponse.value.kind === "synchronization-intents"
+      ) {
+        const latestIntent = intentResponse.value.intents[0];
+        if (latestIntent !== undefined) setPreparationIntent(latestIntent);
       }
       const managedResponse = await bridge.readManagedPrs();
       if (
@@ -225,6 +256,101 @@ export function StartupApp() {
     },
     [],
   );
+
+  const commandSynchronizationSelection = useCallback(
+    async (input: F24SelectionCommandInput) => {
+      const bridge = window.prmonitor;
+      if (bridge === undefined || synchronizationBusy) return;
+      setSynchronizationBusy(true);
+      try {
+        const response = await bridge.commandSynchronizationSelection(input);
+        if (
+          response.ok &&
+          response.value.kind === "synchronization-selection"
+        ) {
+          setSynchronizationSelection(response.value.selection);
+          setSynchronizationConfirmation(undefined);
+          setPreparationIntent(undefined);
+          setInboxError(undefined);
+        } else {
+          setInboxError(
+            response.ok
+              ? "The synchronization selection returned an invalid result."
+              : response.error.message,
+          );
+        }
+      } catch {
+        setInboxError(
+          "The synchronization selection was not changed. Reload the inbox and retry.",
+        );
+      } finally {
+        setSynchronizationBusy(false);
+      }
+    },
+    [synchronizationBusy],
+  );
+
+  const openSynchronization = useCallback(async () => {
+    const bridge = window.prmonitor;
+    if (bridge === undefined || synchronizationBusy) return;
+    setSynchronizationBusy(true);
+    setPreparationIntent(undefined);
+    try {
+      const response = await bridge.resolveSynchronization();
+      if (
+        response.ok &&
+        response.value.kind === "synchronization-confirmation"
+      ) {
+        setSynchronizationConfirmation(response.value.confirmation);
+        setInboxError(undefined);
+      } else {
+        setInboxError(
+          response.ok
+            ? "The synchronization summary returned an invalid result."
+            : response.error.message,
+        );
+      }
+    } catch {
+      setInboxError(
+        "The synchronization summary could not be resolved. Retry after refreshing the inbox.",
+      );
+    } finally {
+      setSynchronizationBusy(false);
+    }
+  }, [synchronizationBusy]);
+
+  const confirmSynchronizationPreparation = useCallback(async () => {
+    const bridge = window.prmonitor;
+    const confirmation = synchronizationConfirmation;
+    if (
+      bridge === undefined ||
+      confirmation === undefined ||
+      confirmingPreparation
+    )
+      return;
+    setConfirmingPreparation(true);
+    try {
+      const response = await bridge.confirmSynchronizationPreparation(
+        confirmation.resolutionRevision,
+      );
+      if (response.ok && response.value.kind === "synchronization-intent") {
+        setPreparationIntent(response.value.intent);
+        setInboxError(undefined);
+      } else {
+        setInboxError(
+          response.ok
+            ? "The preparation intent returned an invalid result."
+            : response.error.message,
+        );
+      }
+    } catch {
+      setInboxError(
+        "Preparation was not confirmed. Review the current synchronization summary and retry.",
+      );
+    } finally {
+      setConfirmingPreparation(false);
+    }
+  }, [confirmingPreparation, synchronizationConfirmation]);
 
   const focusAddPr = useCallback(() => {
     document
@@ -620,6 +746,16 @@ export function StartupApp() {
             void navigateFromInbox(managedPrId, destination)
           }
           onAddPr={focusAddPr}
+          selection={synchronizationSelection}
+          confirmation={synchronizationConfirmation}
+          preparationIntent={preparationIntent}
+          selectionBusy={synchronizationBusy}
+          confirmingPreparation={confirmingPreparation}
+          onSelectionCommand={(input) =>
+            void commandSynchronizationSelection(input)
+          }
+          onOpenSynchronization={() => void openSynchronization()}
+          onConfirmPreparation={() => void confirmSynchronizationPreparation()}
         />
         {reviewBundleId !== undefined ? (
           <ReviewBundleWorkspace bundleId={reviewBundleId} />

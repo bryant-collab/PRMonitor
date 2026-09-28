@@ -188,7 +188,7 @@ These apply to every item and should be copied into each PRD when relevant:
 
 ### Phase 5 - Managed PR branch synchronization
 
-- [ ] **F24 - Synchronization selection, source resolution, and confirmation**
+- [x] **F24 - Synchronization selection, source resolution, and confirmation**
   - **Depends on:** F06-F08, F13, F16.
   - **Deliver:** Add inbox selection/clear/select-all and **Synchronize PR Branch(es)**. Deterministically resolve override then `prBaseBranch`, never repository default branch; explicitly resolve source/destination repositories for forks; fetch current `syncSourceSha`/`prHeadSha`; classify every selected PR eligible/ineligible with actionable reason; and show a confirmation that authorizes preparation only.
   - **Exit:** The user sees selected count, source provenance, repositories, branches, both SHAs, and all skipped/ineligible PRs before starting; missing/ambiguous refs can never choose an implicit same-named branch.
