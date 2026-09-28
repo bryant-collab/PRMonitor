@@ -185,6 +185,8 @@ export interface F24PreparationAuthorization {
   readonly createdAt: string;
   readonly eligible: readonly F24ResolutionRow[];
   readonly skippedManagedPrIds: readonly string[];
+  /** Immutable skipped-row evidence carried into the downstream batch. */
+  readonly skipped?: readonly F24ResolutionRow[];
   readonly preparationOnly: true;
   readonly capabilities: {
     readonly prepareWorktree: true;
@@ -598,6 +600,10 @@ function isResolutionRow(value: unknown): value is F24ResolutionRow {
   );
 }
 
+export function isF24ResolutionRow(value: unknown): value is F24ResolutionRow {
+  return isResolutionRow(value);
+}
+
 export function isF24SelectionSession(
   value: unknown,
 ): value is F24SelectionSession {
@@ -667,6 +673,13 @@ export function isF24PreparationAuthorization(
   value: unknown,
 ): value is F24PreparationAuthorization {
   if (!isRecord(value) || !isRecord(value.capabilities)) return false;
+  const skippedManagedPrIds = value.skippedManagedPrIds;
+  if (
+    !Array.isArray(skippedManagedPrIds) ||
+    !skippedManagedPrIds.every((id) => f24SafeIdentifier(id))
+  )
+    return false;
+  const skipped = value.skipped;
   return (
     value.schemaVersion === F24_SCHEMA_VERSION &&
     value.kind === "SynchronizationPreparationAuthorization" &&
@@ -676,8 +689,15 @@ export function isF24PreparationAuthorization(
     isSafeText(value.createdAt, 64) &&
     Array.isArray(value.eligible) &&
     value.eligible.every(isResolutionRow) &&
-    Array.isArray(value.skippedManagedPrIds) &&
-    value.skippedManagedPrIds.every((id) => f24SafeIdentifier(id)) &&
+    (skipped === undefined ||
+      (Array.isArray(skipped) &&
+        skipped.length === skippedManagedPrIds.length &&
+        skipped.every(
+          (row) => isResolutionRow(row) && row.eligibility === "INELIGIBLE",
+        ) &&
+        skipped.every((row) =>
+          skippedManagedPrIds.includes(row.managedPrId),
+        ))) &&
     value.preparationOnly === true &&
     value.capabilities.prepareWorktree === true &&
     value.capabilities.commit === false &&

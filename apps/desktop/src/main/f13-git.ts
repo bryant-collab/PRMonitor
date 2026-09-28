@@ -40,6 +40,7 @@ const ALLOWED_COMMANDS = new Set([
   "ls-files",
   "ls-remote",
   "merge-base",
+  "merge",
   "reset",
   "rev-parse",
   "status",
@@ -132,6 +133,14 @@ function allowedCommandShape(args: readonly string[]): boolean {
           args[4] === "--find-copies" &&
           safeSha(args[5] ?? "") &&
           args[6] === "--") ||
+        (args.length === 8 &&
+          args[1] === "--name-status" &&
+          args[2] === "-z" &&
+          args[3] === "--find-renames" &&
+          args[4] === "--find-copies" &&
+          safeSha(args[5] ?? "") &&
+          safeSha(args[6] ?? "") &&
+          args[7] === "--") ||
         (args.length === 9 &&
           args[1] === "--cached" &&
           args[2] === "--binary" &&
@@ -178,6 +187,14 @@ function allowedCommandShape(args: readonly string[]): boolean {
     case "merge-base":
       return (
         args.length === 3 && safeSha(args[1] ?? "") && safeSha(args[2] ?? "")
+      );
+    case "merge":
+      return (
+        args.length === 5 &&
+        args[1] === "--no-commit" &&
+        args[2] === "--no-ff" &&
+        args[3] === "--" &&
+        safeSha(args[4] ?? "")
       );
     case "reset":
       return (

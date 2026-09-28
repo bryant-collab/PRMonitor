@@ -59,6 +59,7 @@ function invoke(
     | { readonly serverId: string; readonly token: string }
     | { readonly serverId: string }
     | { readonly operationId: string }
+    | { readonly batchId: string }
     | ManagedPrAddInput
     | ManagedPrCloneInput
     | ManagedPrConfigurationInput
@@ -200,6 +201,13 @@ const api: PrMonitorPreloadApi = {
   listSynchronizationIntents: () => invoke("synchronization.intent.list", {}),
   reconcileSynchronizationIntent: (intentId) =>
     invoke("synchronization.intent.reconcile", { intentId }),
+  listSynchronizationBatches: () => invoke("synchronization.batch.list", {}),
+  readSynchronizationBatch: (batchId) =>
+    invoke("synchronization.batch.read", { batchId }),
+  readSynchronizationResult: (operationId) =>
+    invoke("synchronization.result.read", { operationId }),
+  cancelSynchronizationOperation: (operationId) =>
+    invoke("synchronization.operation.cancel", { operationId }),
   readActivity: (query = {}) => invoke("activity.query", query),
   subscribeActivity: (query = {}) => invoke("activity.subscribe", query),
   navigateActivity: (eventId) => invoke("activity.navigate", { eventId }),

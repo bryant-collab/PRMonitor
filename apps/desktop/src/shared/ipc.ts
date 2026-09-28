@@ -109,6 +109,12 @@ import {
   type F24SelectionSession,
   type F24SynchronizationConfirmation,
 } from "./f24-synchronization";
+import {
+  isF25SynchronizationBatchReadModel,
+  isF25SynchronizationResultReadModel,
+  type F25SynchronizationBatchReadModel,
+  type F25SynchronizationResultReadModel,
+} from "./f25-synchronization";
 export type {
   F23ApprovalInput,
   F23PublicationInput,
@@ -170,6 +176,10 @@ export type IpcRequestType =
   | "synchronization.intent.read"
   | "synchronization.intent.list"
   | "synchronization.intent.reconcile"
+  | "synchronization.batch.list"
+  | "synchronization.batch.read"
+  | "synchronization.result.read"
+  | "synchronization.operation.cancel"
   | "inbox.navigate"
   | "activity.query"
   | "activity.subscribe"
@@ -349,7 +359,8 @@ export type IpcRequest =
         | "synchronization.selection.read"
         | "synchronization.selection.reset"
         | "synchronization.resolve"
-        | "synchronization.intent.list";
+        | "synchronization.intent.list"
+        | "synchronization.batch.list";
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
@@ -364,6 +375,15 @@ export type IpcRequest =
       readonly type:
         "synchronization.intent.read" | "synchronization.intent.reconcile";
       readonly payload: { readonly intentId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.batch.read";
+      readonly payload: { readonly batchId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        "synchronization.result.read" | "synchronization.operation.cancel";
+      readonly payload: { readonly operationId: string };
     })
   | (IpcRequestBase & {
       readonly type: "inbox.navigate";
@@ -625,6 +645,22 @@ export type IpcResponseValue =
   | {
       readonly kind: "synchronization-intents";
       readonly intents: readonly F24PreparationIntent[];
+    }
+  | {
+      readonly kind: "synchronization-batches";
+      readonly batches: readonly F25SynchronizationBatchReadModel[];
+    }
+  | {
+      readonly kind: "synchronization-batch";
+      readonly batch: F25SynchronizationBatchReadModel;
+    }
+  | {
+      readonly kind: "synchronization-result";
+      readonly result: F25SynchronizationResultReadModel;
+    }
+  | {
+      readonly kind: "synchronization-operation-cancelled";
+      readonly cancelled: boolean;
     }
   | {
       readonly kind: "activity-query";
@@ -996,6 +1032,28 @@ function parseResponseValue(value: unknown): boolean {
       Array.isArray(value.intents) &&
       value.intents.length <= 250 &&
       value.intents.every(isF24PreparationIntent)
+    );
+  if (value.kind === "synchronization-batches")
+    return (
+      hasExactKeys(value, ["kind", "batches"]) &&
+      Array.isArray(value.batches) &&
+      value.batches.length <= 250 &&
+      value.batches.every(isF25SynchronizationBatchReadModel)
+    );
+  if (value.kind === "synchronization-batch")
+    return (
+      hasExactKeys(value, ["kind", "batch"]) &&
+      isF25SynchronizationBatchReadModel(value.batch)
+    );
+  if (value.kind === "synchronization-result")
+    return (
+      hasExactKeys(value, ["kind", "result"]) &&
+      isF25SynchronizationResultReadModel(value.result)
+    );
+  if (value.kind === "synchronization-operation-cancelled")
+    return (
+      hasExactKeys(value, ["kind", "cancelled"]) &&
+      typeof value.cancelled === "boolean"
     );
   if (value.kind === "activity-query")
     return (
@@ -1432,7 +1490,8 @@ export function parseIpcRequest(
     value.type === "synchronization.selection.read" ||
     value.type === "synchronization.selection.reset" ||
     value.type === "synchronization.resolve" ||
-    value.type === "synchronization.intent.list"
+    value.type === "synchronization.intent.list" ||
+    value.type === "synchronization.batch.list"
   ) {
     if (Object.keys(value.payload).length !== 0)
       return invalidRequest("This read request does not accept a payload.");
@@ -1509,6 +1568,41 @@ export function parseIpcRequest(
         ...base,
         type: value.type,
         payload: { intentId: value.payload.intentId },
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.batch.read") {
+    if (
+      !hasExactKeys(value.payload, ["batchId"]) ||
+      !safeGithubIdentifier(value.payload.batchId)
+    )
+      return invalidRequest("The synchronization batch identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { batchId: value.payload.batchId },
+      } as IpcRequest,
+    };
+  }
+  if (
+    value.type === "synchronization.result.read" ||
+    value.type === "synchronization.operation.cancel"
+  ) {
+    if (
+      !hasExactKeys(value.payload, ["operationId"]) ||
+      !safeGithubIdentifier(value.payload.operationId)
+    )
+      return invalidRequest(
+        "The synchronization operation identifier is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { operationId: value.payload.operationId },
       } as IpcRequest,
     };
   }
@@ -2420,6 +2514,14 @@ export interface PrMonitorPreloadApi {
   readonly listSynchronizationIntents: () => Promise<IpcResponse>;
   readonly reconcileSynchronizationIntent: (
     intentId: string,
+  ) => Promise<IpcResponse>;
+  readonly listSynchronizationBatches: () => Promise<IpcResponse>;
+  readonly readSynchronizationBatch: (batchId: string) => Promise<IpcResponse>;
+  readonly readSynchronizationResult: (
+    operationId: string,
+  ) => Promise<IpcResponse>;
+  readonly cancelSynchronizationOperation: (
+    operationId: string,
   ) => Promise<IpcResponse>;
   readonly readActivity: (query?: ActivityQuery) => Promise<IpcResponse>;
   readonly subscribeActivity: (query?: ActivityQuery) => Promise<IpcResponse>;

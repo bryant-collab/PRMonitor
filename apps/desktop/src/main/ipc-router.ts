@@ -85,6 +85,10 @@ import type {
   F24SelectionSession,
   F24SynchronizationConfirmation,
 } from "../shared/f24-synchronization";
+import type {
+  F25SynchronizationBatchReadModel,
+  F25SynchronizationResultReadModel,
+} from "../shared/f25-synchronization";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -231,6 +235,16 @@ export interface IpcServices {
   readonly reconcileSynchronizationIntent?: (
     intentId: string,
   ) => Promise<F24PreparationIntent>;
+  readonly listSynchronizationBatches?: () => readonly F25SynchronizationBatchReadModel[];
+  readonly readSynchronizationBatch?: (
+    batchId: string,
+  ) => F25SynchronizationBatchReadModel | undefined;
+  readonly readSynchronizationResult?: (
+    operationId: string,
+  ) => F25SynchronizationResultReadModel | undefined;
+  readonly cancelSynchronizationOperation?: (
+    operationId: string,
+  ) => Promise<boolean>;
   readonly readActivity?: (query: ActivityQuery) => ActivityQuerySnapshot;
   readonly navigateActivity?: (eventId: string) => OpenTarget | undefined;
   readonly navigateManagedPr?: (
@@ -831,6 +845,66 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "synchronization-intents",
             intents: this.services.listSynchronizationIntents(),
+          }),
+        );
+      }
+      if (request.type === "synchronization.batch.list") {
+        if (this.services.listSynchronizationBatches === undefined)
+          throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-batches",
+            batches: this.services.listSynchronizationBatches(),
+          }),
+        );
+      }
+      if (request.type === "synchronization.batch.read") {
+        if (this.services.readSynchronizationBatch === undefined)
+          throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+        const batch = this.services.readSynchronizationBatch(
+          request.payload.batchId,
+        );
+        if (batch === undefined)
+          return errorResponse(
+            request.requestId,
+            "HANDLER_FAILED",
+            "The synchronization batch is not available.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-batch",
+            batch,
+          }),
+        );
+      }
+      if (request.type === "synchronization.result.read") {
+        if (this.services.readSynchronizationResult === undefined)
+          throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+        const result = this.services.readSynchronizationResult(
+          request.payload.operationId,
+        );
+        if (result === undefined)
+          return errorResponse(
+            request.requestId,
+            "HANDLER_FAILED",
+            "The synchronization result is not available.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-result",
+            result,
+          }),
+        );
+      }
+      if (request.type === "synchronization.operation.cancel") {
+        if (this.services.cancelSynchronizationOperation === undefined)
+          throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-operation-cancelled",
+            cancelled: await this.services.cancelSynchronizationOperation(
+              request.payload.operationId,
+            ),
           }),
         );
       }

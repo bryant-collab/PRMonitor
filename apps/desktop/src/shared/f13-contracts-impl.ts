@@ -45,6 +45,7 @@ export type F13SnapshotPhase =
   | "INSPECTION"
   | "BEFORE_AI"
   | "AFTER_AI"
+  | "AFTER_MERGE"
   | "CLEAR_BEFORE"
   | "CLEAR_AFTER";
 
@@ -231,6 +232,8 @@ export interface F13FileEvidence {
   /** Bounded content evidence used only for deterministic three-way removal. */
   readonly contentBase64?: string;
   readonly contentComplete?: boolean;
+  /** Porcelain status code when the evidence came from an actual worktree. */
+  readonly statusCode?: string;
 }
 
 export interface F13SnapshotManifest {
@@ -292,6 +295,42 @@ export interface F13DiffEvidence {
   readonly complete: boolean;
   readonly regenerationContract: string;
   readonly createdAt: string;
+}
+
+/**
+ * Deterministic, bounded change evidence for an exact three-way
+ * synchronization.  F13 owns the Git reads; consumers only receive this
+ * provider-neutral projection.
+ */
+export interface F13SynchronizationChangeEvidence {
+  readonly schemaVersion: 1;
+  readonly side: "SOURCE" | "DESTINATION";
+  readonly baseSha: string;
+  readonly tipSha: string;
+  readonly files: readonly F13FileEvidence[];
+  readonly evidenceHash: string;
+  readonly complete: boolean;
+}
+
+export interface F13SynchronizationEvidenceResult {
+  readonly ok: boolean;
+  readonly worktree: F13WorktreeRecord;
+  readonly mergeBaseSha?: string;
+  readonly sourceChangeEvidence?: F13SynchronizationChangeEvidence;
+  readonly destinationChangeEvidence?: F13SynchronizationChangeEvidence;
+  readonly reason?: F13SafeReason;
+}
+
+export type F13SynchronizationMergeOutcome =
+  "CLEAN_MERGE" | "CONFLICT_DETECTED" | "FAILED" | "UNCERTAIN";
+
+export interface F13SynchronizationMergeResult {
+  readonly ok: boolean;
+  readonly outcome: F13SynchronizationMergeOutcome;
+  readonly worktree: F13WorktreeRecord;
+  readonly inspection?: F13InspectionResult;
+  readonly conflictPaths: readonly string[];
+  readonly reason?: F13SafeReason;
 }
 
 export interface F13WorktreeRecord {

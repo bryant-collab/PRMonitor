@@ -243,6 +243,30 @@ export interface SynchronizationResultRecord<
   }[];
 }
 
+export interface SynchronizationBatchRecord<
+  T = unknown,
+> extends PersistedRecord<T> {
+  readonly status: string;
+}
+
+export interface SynchronizationAdmissionResultInput {
+  readonly synchronizationOperationId: string;
+  readonly synchronizationBatchId: string;
+  readonly managedPrId: string;
+  readonly status: string;
+  readonly sourceRepositoryId?: string;
+  readonly destinationRepositoryId?: string;
+  readonly sourceBranch?: string;
+  readonly destinationBranch?: string;
+  readonly syncSourceSha?: string;
+  readonly prHeadSha?: string;
+  readonly syncMergeBaseSha?: string;
+  readonly sourceChangeEvidence?: Payload;
+  readonly prHeadChangeEvidence?: Payload;
+  readonly reason?: Payload;
+  readonly payload: Payload;
+}
+
 export interface PublicationIntentRecord<
   T = unknown,
 > extends PersistedRecord<T> {
@@ -388,6 +412,21 @@ function jsonColumn(row: SqlRow, key: string): unknown {
   } catch {
     throw new Error(`F05_INVALID_JSON_${key}`);
   }
+}
+
+function synchronizationBatchFromRow(row: SqlRow): SynchronizationBatchRecord {
+  const payload = jsonColumn(row, "payload_json");
+  const encoded = encode(payload);
+  return {
+    id: rowString(row, "synchronization_batch_id"),
+    schemaVersion: encoded.schemaVersion,
+    version: 1,
+    createdAt: rowString(row, "created_at"),
+    updatedAt: rowString(row, "updated_at"),
+    payload,
+    payloadHash: rowString(row, "payload_hash"),
+    status: rowString(row, "status"),
+  };
 }
 
 function recordObject(value: unknown): value is Record<string, unknown> {
@@ -3468,6 +3507,26 @@ export class PersistenceRepositories {
     );
   }
 
+  public hasWorktree(worktreeId: string): boolean {
+    id(worktreeId, "worktree identifier");
+    return (
+      this.store.read(
+        "SELECT worktree_id FROM worktrees WHERE worktree_id = ?",
+        worktreeId,
+      ) !== undefined
+    );
+  }
+
+  public hasValidationRun(runId: string): boolean {
+    id(runId, "validation run identifier");
+    return (
+      this.store.read(
+        "SELECT run_id FROM validation_runs WHERE run_id = ?",
+        runId,
+      ) !== undefined
+    );
+  }
+
   public putDiff(input: {
     readonly diffId: string;
     readonly ownerType: string;
@@ -3493,6 +3552,101 @@ export class PersistenceRepositories {
         now(this.clock),
       ),
     );
+  }
+
+  public getSynchronizationBatch(
+    synchronizationBatchId: string,
+  ): SynchronizationBatchRecord | undefined {
+    id(synchronizationBatchId, "synchronization batch identifier");
+    const row = this.store.read(
+      "SELECT * FROM synchronization_batches WHERE synchronization_batch_id = ?",
+      synchronizationBatchId,
+    );
+    return row === undefined ? undefined : synchronizationBatchFromRow(row);
+  }
+
+  public listSynchronizationBatches(): readonly SynchronizationBatchRecord[] {
+    return this.store
+      .readAll(
+        "SELECT * FROM synchronization_batches ORDER BY updated_at DESC, synchronization_batch_id ASC LIMIT 250",
+      )
+      .map((row) => synchronizationBatchFromRow(row));
+  }
+
+  /**
+   * Commits the F25 admission batch and every initial per-PR result in one
+   * transaction.  No Git, filesystem, validation, or provider effect is
+   * allowed to begin before this method returns.
+   */
+  public persistSynchronizationAdmission(input: {
+    readonly synchronizationBatchId: string;
+    readonly status: string;
+    readonly payload: Payload;
+    readonly results: readonly SynchronizationAdmissionResultInput[];
+  }): { readonly created: boolean } {
+    id(input.synchronizationBatchId, "synchronization batch identifier");
+    const batch = encode(input.payload);
+    const encodedResults = input.results.map((result) => ({
+      ...result,
+      payload: encode(result.payload),
+      reason: encode(result.reason ?? {}),
+      sourceChangeEvidence: encode(result.sourceChangeEvidence ?? {}),
+      prHeadChangeEvidence: encode(result.prHeadChangeEvidence ?? {}),
+    }));
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const existing = transaction.get(
+        "SELECT synchronization_batch_id, payload_hash FROM synchronization_batches WHERE synchronization_batch_id = ?",
+        input.synchronizationBatchId,
+      );
+      if (existing !== undefined) {
+        if (rowString(existing, "payload_hash") !== batch.payloadHash)
+          throw repositoryError(
+            this.store,
+            "CONFLICT",
+            "A different synchronization admission already owns this batch identity.",
+          );
+        return { created: false };
+      }
+      transaction.run(
+        "INSERT INTO synchronization_batches (synchronization_batch_id, payload_json, payload_hash, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        input.synchronizationBatchId,
+        batch.payload,
+        batch.payloadHash,
+        input.status,
+        timestamp,
+        timestamp,
+      );
+      for (const result of encodedResults) {
+        id(
+          result.synchronizationOperationId,
+          "synchronization operation identifier",
+        );
+        id(result.synchronizationBatchId, "synchronization batch identifier");
+        id(result.managedPrId, "managed PR identifier");
+        transaction.run(
+          "INSERT INTO synchronization_results (synchronization_operation_id, synchronization_batch_id, managed_pr_id, status, source_repository_id, destination_repository_id, source_branch, destination_branch, sync_source_sha, pr_head_sha, sync_merge_base_sha, source_change_evidence_json, pr_head_change_evidence_json, user_consultation_json, worktree_id, ai_operation_id, reason_json, diff_id, validation_run_id, payload_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, ?, 1, ?, ?)",
+          result.synchronizationOperationId,
+          result.synchronizationBatchId,
+          result.managedPrId,
+          result.status,
+          result.sourceRepositoryId ?? null,
+          result.destinationRepositoryId ?? null,
+          result.sourceBranch ?? null,
+          result.destinationBranch ?? null,
+          result.syncSourceSha ?? null,
+          result.prHeadSha ?? null,
+          result.syncMergeBaseSha ?? null,
+          result.sourceChangeEvidence.payload,
+          result.prHeadChangeEvidence.payload,
+          result.reason.payload,
+          result.payload.payload,
+          timestamp,
+          timestamp,
+        );
+      }
+      return { created: true };
+    });
   }
 
   public putSynchronizationBatch(input: {
@@ -3598,14 +3752,20 @@ export class PersistenceRepositories {
         );
       else
         transaction.run(
-          "UPDATE synchronization_results SET status = ?, sync_source_sha = COALESCE(?, sync_source_sha), pr_head_sha = COALESCE(?, pr_head_sha), sync_merge_base_sha = COALESCE(?, sync_merge_base_sha), source_change_evidence_json = ?, pr_head_change_evidence_json = ?, user_consultation_json = ?, reason_json = ?, payload_json = ?, version = version + 1, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
+          "UPDATE synchronization_results SET status = ?, source_repository_id = COALESCE(?, source_repository_id), destination_repository_id = COALESCE(?, destination_repository_id), source_branch = COALESCE(?, source_branch), destination_branch = COALESCE(?, destination_branch), sync_source_sha = COALESCE(?, sync_source_sha), pr_head_sha = COALESCE(?, pr_head_sha), sync_merge_base_sha = COALESCE(?, sync_merge_base_sha), source_change_evidence_json = ?, pr_head_change_evidence_json = ?, user_consultation_json = ?, worktree_id = COALESCE(?, worktree_id), validation_run_id = COALESCE(?, validation_run_id), reason_json = ?, payload_json = ?, version = version + 1, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
           input.status,
+          input.sourceRepositoryId ?? null,
+          input.destinationRepositoryId ?? null,
+          input.sourceBranch ?? null,
+          input.destinationBranch ?? null,
           input.syncSourceSha ?? null,
           input.prHeadSha ?? null,
           input.syncMergeBaseSha ?? null,
           sourceEvidence.payload,
           headEvidence.payload,
           consultation?.payload ?? null,
+          input.worktreeId ?? null,
+          input.validationRunId ?? null,
           reasonPayload.payload,
           payload.payload,
           timestamp,

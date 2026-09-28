@@ -1125,6 +1125,7 @@ export class F24SynchronizationService {
       skippedManagedPrIds: intent.snapshot.ineligibleRows.map(
         (row) => row.managedPrId,
       ),
+      skipped: intent.snapshot.ineligibleRows,
       preparationOnly: true,
       capabilities: {
         prepareWorktree: true,

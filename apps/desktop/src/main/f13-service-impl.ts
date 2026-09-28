@@ -47,6 +47,9 @@ import type {
   F13SnapshotManifest,
   F13SnapshotPhase,
   F13SnapshotRecord,
+  F13SynchronizationChangeEvidence,
+  F13SynchronizationEvidenceResult,
+  F13SynchronizationMergeResult,
   F13SynchronizationOperationRequest,
   F13WorktreeCondition,
   F13WorktreeConditionKind,
@@ -119,6 +122,7 @@ interface DiffNameStatus {
   readonly path: string;
   readonly kind: F13FileEvidence["kind"];
   readonly oldPath?: string;
+  readonly statusCode?: string;
 }
 
 interface ContentValue {
@@ -359,6 +363,7 @@ function parseNameStatus(output: string): DiffNameStatus[] {
           path: newPath.replaceAll("\\", "/"),
           kind: code.startsWith("R") ? "renamed" : "copied",
           oldPath: filePath,
+          statusCode: code,
         });
         continue;
       }
@@ -380,6 +385,7 @@ function parseNameStatus(output: string): DiffNameStatus[] {
       path: filePath,
       kind,
       ...(old === undefined ? {} : { oldPath: old.replaceAll("\\", "/") }),
+      statusCode: code,
     });
   }
   result.sort((left, right) => left.path.localeCompare(right.path));
@@ -1316,6 +1322,364 @@ export class F13WorktreeService {
     return this.prepare(input);
   }
 
+  /**
+   * Reads both sides of the exact persisted synchronization graph.  The
+   * caller cannot replace either SHA or repository identity after F13 has
+   * reserved the operation.
+   */
+  public async readSynchronizationEvidence(input: {
+    readonly operationId: string;
+    readonly ownerId: string;
+  }): Promise<F13SynchronizationEvidenceResult> {
+    const intent = this.options.repositories.getOperation(input.operationId);
+    if (intent === undefined)
+      return {
+        ok: false,
+        worktree: this.placeholderWorktree(input.operationId),
+        reason: safeReason(
+          "WORKTREE_NOT_FOUND",
+          "NOT_FOUND",
+          "The synchronization worktree was not found in durable state.",
+          "The operation must be reconciled before its exact Git evidence can be read.",
+          "RECONCILE",
+          "f13-sync-evidence",
+        ),
+      };
+    if (intent.ownerId !== input.ownerId)
+      return {
+        ok: false,
+        worktree: this.worktreeRecord(intent),
+        reason: safeReason(
+          "WORKTREE_OWNER_CONFLICT",
+          "CONFLICT",
+          "The synchronization evidence request does not own the operation worktree.",
+          "F13 will not expose or mutate operation evidence to an unrelated owner.",
+          "RECONCILE",
+          intent.correlationId,
+        ),
+      };
+    if (intent.operationKind !== "SYNCHRONIZATION")
+      return {
+        ok: false,
+        worktree: this.worktreeRecord(intent),
+        reason: safeReason(
+          "OPERATION_KIND_MISMATCH",
+          "VALIDATION",
+          "The durable operation is not a synchronization operation.",
+          "F25 cannot reuse a review or conversation worktree for synchronization.",
+          "FIX_INPUT",
+          intent.correlationId,
+        ),
+      };
+    const refs = intent.refs as F13SynchronizationOperationRequest["refs"];
+    let operation = intent;
+    let mergeBaseSha = baseShaFromIntent(operation);
+    if (!isSafeF13Sha(mergeBaseSha) || mergeBaseSha === refs.prHeadSha) {
+      const mergeBase = await this.runGit(
+        ["merge-base", refs.syncSourceSha, refs.prHeadSha],
+        operation.canonicalPath,
+        operation,
+      );
+      mergeBaseSha = mergeBase.stdout.trim();
+      if (!mergeBase.ok || !isSafeF13Sha(mergeBaseSha))
+        return {
+          ok: false,
+          worktree: this.worktreeRecord(operation),
+          reason: safeReason(
+            "MERGE_BASE_UNAVAILABLE",
+            "GIT",
+            "The synchronization merge base could not be read from the operation-owned repository.",
+            "F25 will not compare source and destination changes without an exact common ancestor.",
+            "RETRY",
+            operation.correlationId,
+          ),
+        };
+      try {
+        operation = this.options.repositories.resolveSynchronizationMergeBase({
+          operationId: operation.operationId,
+          expectedVersion: operation.version,
+          mergeBaseSha,
+        });
+      } catch {
+        operation =
+          this.options.repositories.getOperation(operation.operationId) ??
+          operation;
+      }
+    }
+    const sourceChangeEvidence = await this.readSynchronizationSideEvidence(
+      operation,
+      mergeBaseSha,
+      refs.syncSourceSha,
+      "SOURCE",
+    );
+    if (sourceChangeEvidence === undefined)
+      return {
+        ok: false,
+        worktree: this.worktreeRecord(operation),
+        mergeBaseSha,
+        reason: safeReason(
+          "SYNC_SOURCE_EVIDENCE_UNAVAILABLE",
+          "GIT",
+          "The exact source-side change evidence could not be read.",
+          "F25 will not classify or merge a synchronization with incomplete source evidence.",
+          "RETRY",
+          operation.correlationId,
+        ),
+      };
+    const destinationChangeEvidence =
+      await this.readSynchronizationSideEvidence(
+        operation,
+        mergeBaseSha,
+        refs.prHeadSha,
+        "DESTINATION",
+      );
+    if (destinationChangeEvidence === undefined)
+      return {
+        ok: false,
+        worktree: this.worktreeRecord(operation),
+        mergeBaseSha,
+        sourceChangeEvidence,
+        reason: safeReason(
+          "SYNC_DESTINATION_EVIDENCE_UNAVAILABLE",
+          "GIT",
+          "The exact destination-side change evidence could not be read.",
+          "F25 will not classify or merge a synchronization with incomplete destination evidence.",
+          "RETRY",
+          operation.correlationId,
+        ),
+      };
+    return {
+      ok: true,
+      worktree: this.worktreeRecord(operation),
+      mergeBaseSha,
+      sourceChangeEvidence,
+      destinationChangeEvidence,
+    };
+  }
+
+  /**
+   * Performs only the deterministic, no-commit merge requested by F25.  A
+   * conflict or an uncertain Git process leaves the operation-owned worktree
+   * in place for F26; this method never selects ours/theirs and never commits.
+   */
+  public async mergeSynchronization(input: {
+    readonly operationId: string;
+    readonly ownerId: string;
+    readonly signal?: AbortSignal;
+  }): Promise<F13SynchronizationMergeResult> {
+    const intent = this.options.repositories.getOperation(input.operationId);
+    if (intent === undefined)
+      return {
+        ok: false,
+        outcome: "FAILED",
+        worktree: this.placeholderWorktree(input.operationId),
+        conflictPaths: [],
+        reason: safeReason(
+          "WORKTREE_NOT_FOUND",
+          "NOT_FOUND",
+          "The synchronization worktree was not found in durable state.",
+          "The operation must be reconciled before a no-commit merge can run.",
+          "RECONCILE",
+          "f13-sync-merge",
+        ),
+      };
+    if (intent.ownerId !== input.ownerId)
+      return {
+        ok: false,
+        outcome: "FAILED",
+        worktree: this.worktreeRecord(intent),
+        conflictPaths: [],
+        reason: safeReason(
+          "WORKTREE_OWNER_CONFLICT",
+          "CONFLICT",
+          "The synchronization merge request does not own the operation worktree.",
+          "F13 will not grant merge authority to an unrelated owner.",
+          "RECONCILE",
+          intent.correlationId,
+        ),
+      };
+    if (intent.operationKind !== "SYNCHRONIZATION")
+      return {
+        ok: false,
+        outcome: "FAILED",
+        worktree: this.worktreeRecord(intent),
+        conflictPaths: [],
+        reason: safeReason(
+          "OPERATION_KIND_MISMATCH",
+          "VALIDATION",
+          "The durable operation is not a synchronization operation.",
+          "F25 cannot merge a review or conversation worktree.",
+          "FIX_INPUT",
+          intent.correlationId,
+        ),
+      };
+    const before = await this.inspectOperation(
+      intent.operationId,
+      input.ownerId,
+      "INSPECTION",
+    );
+    if (!before.ok || before.condition.classification !== "CLEAN")
+      return {
+        ok: false,
+        outcome:
+          before.reason?.code === "GIT_CANCELLED" ? "UNCERTAIN" : "FAILED",
+        worktree: before.worktree,
+        inspection: before,
+        conflictPaths: [],
+        ...(before.reason === undefined
+          ? {
+              reason: safeReason(
+                "SYNC_WORKTREE_NOT_CLEAN",
+                "CONFLICT",
+                "The synchronization worktree was not clean before merge.",
+                "F25 will not overwrite or merge over pre-existing operation-owned changes.",
+                "RECONCILE",
+                intent.correlationId,
+              ),
+            }
+          : { reason: before.reason }),
+      };
+    const refs = intent.refs as F13SynchronizationOperationRequest["refs"];
+    const merge = await this.runGit(
+      ["merge", "--no-commit", "--no-ff", "--", refs.syncSourceSha],
+      intent.canonicalPath,
+      intent,
+      input.signal,
+    );
+    const after = await this.inspectOperation(
+      intent.operationId,
+      input.ownerId,
+      "AFTER_MERGE",
+    );
+    const conflictPaths = this.conflictPaths(after);
+    if (conflictPaths.length > 0) {
+      const reason = safeReason(
+        "SYNC_CONFLICT_DETECTED",
+        "CONFLICT",
+        "Git reported an unresolved synchronization conflict in the operation-owned worktree.",
+        "F25 preserved the conflicting worktree and will not choose either side or create a commit.",
+        "MANUAL_RESOLUTION",
+        intent.correlationId,
+      );
+      try {
+        this.options.repositories.updateLifecycle({
+          operationId: intent.operationId,
+          lifecycle: "CONFLICT",
+          reason,
+        });
+      } catch {
+        // The returned conflict evidence remains authoritative for F25/F26.
+      }
+      return {
+        ok: false,
+        outcome: "CONFLICT_DETECTED",
+        worktree: after.worktree,
+        inspection: after,
+        conflictPaths,
+        reason,
+      };
+    }
+    if (!merge.ok) {
+      const uncertain =
+        merge.cancelled || merge.timedOut || merge.outputLimitExceeded;
+      return {
+        ok: false,
+        outcome: uncertain ? "UNCERTAIN" : "FAILED",
+        worktree: after.worktree,
+        inspection: after,
+        conflictPaths,
+        reason: resultReason(merge, intent.correlationId, intent.operationId),
+      };
+    }
+    if (!after.ok || after.condition.classification === "STALE_OR_UNKNOWN")
+      return {
+        ok: false,
+        outcome: "UNCERTAIN",
+        worktree: after.worktree,
+        inspection: after,
+        conflictPaths,
+        ...(after.reason === undefined
+          ? {
+              reason: safeReason(
+                "SYNC_MERGE_STATE_UNCERTAIN",
+                "RECOVERY",
+                "The no-commit merge completed but its resulting worktree state could not be confirmed.",
+                "F25 preserved the operation-owned path and requires reconciliation before another effect.",
+                "RECONCILE",
+                intent.correlationId,
+              ),
+            }
+          : { reason: after.reason }),
+      };
+    return {
+      ok: true,
+      outcome: "CLEAN_MERGE",
+      worktree: after.worktree,
+      inspection: after,
+      conflictPaths: [],
+    };
+  }
+
+  private async readSynchronizationSideEvidence(
+    intent: F13OperationIntentRecord,
+    baseSha: string,
+    tipSha: string,
+    side: "SOURCE" | "DESTINATION",
+  ): Promise<F13SynchronizationChangeEvidence | undefined> {
+    const result = await this.runGit(
+      [
+        "diff",
+        "--name-status",
+        "-z",
+        "--find-renames",
+        "--find-copies",
+        baseSha,
+        tipSha,
+        "--",
+      ],
+      intent.canonicalPath,
+      intent,
+    );
+    if (!result.ok) return undefined;
+    const names = parseNameStatus(result.stdout);
+    if (
+      names.length > F13_MAX_FILE_COUNT ||
+      names.some((file) => !bytesWithin(file.path, F13_MAX_PATH_BYTES))
+    )
+      return undefined;
+    const files = names.map(
+      (file) =>
+        ({
+          path: file.path,
+          kind: file.kind,
+          staged: false,
+          worktreeChanged: true,
+          ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
+          ...(file.statusCode === undefined
+            ? {}
+            : { statusCode: file.statusCode }),
+        }) satisfies F13FileEvidence,
+    );
+    return {
+      schemaVersion: 1,
+      side,
+      baseSha,
+      tipSha,
+      files,
+      evidenceHash: hashText(stableJson({ side, baseSha, tipSha, files })),
+      complete: true,
+    };
+  }
+
+  private conflictPaths(inspection: F13InspectionResult): readonly string[] {
+    return (inspection.snapshot?.manifest.files ?? [])
+      .filter((file) =>
+        /^(?:DD|AU|UD|UA|DU|AA|UU)$/u.test(file.statusCode ?? ""),
+      )
+      .map((file) => file.path)
+      .sort((left, right) => left.localeCompare(right));
+  }
+
   private async continuePreparation(
     input: F13OperationRequest,
     intent: F13OperationIntentRecord,
@@ -2114,6 +2478,7 @@ export class F13WorktreeService {
     turnId?: string,
     captureTree = phase === "BEFORE_AI" ||
       phase === "AFTER_AI" ||
+      phase === "AFTER_MERGE" ||
       phase === "CLEAR_BEFORE" ||
       phase === "CLEAR_AFTER",
   ): Promise<F13InspectionResult> {

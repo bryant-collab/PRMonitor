@@ -832,4 +832,82 @@ describe("F13 operation-owned worktrees and change attribution", () => {
     expect(turn.ok).toBe(false);
     expect(turn.reason?.code).toBe("WORKTREE_MUTATION_NOT_ALLOWED");
   });
+
+  it("records exact two-sided evidence and preserves a real merge conflict", async () => {
+    const fixture = await createFixture();
+    const sourceClone = path.join(fixture.root, "source-clone");
+    await git(fixture.root, "clone", fixture.developerClone, sourceClone);
+    await git(sourceClone, "checkout", "--detach", fixture.baseSha);
+    await git(
+      sourceClone,
+      "config",
+      "user.email",
+      "f13-source@example.invalid",
+    );
+    await git(sourceClone, "config", "user.name", "F13 Source");
+    await writeFile(path.join(sourceClone, "tracked.txt"), "source\n", "utf8");
+    await git(sourceClone, "commit", "-am", "source");
+    const sourceSha = await git(sourceClone, "rev-parse", "HEAD");
+    await git(fixture.developerClone, "fetch", sourceClone, sourceSha);
+
+    const request = {
+      operationId: "sync-conflict-op",
+      idempotencyKey: "sync-conflict-key",
+      correlationId: "sync-conflict-correlation",
+      ownerType: "SYNCHRONIZATION",
+      ownerId: "sync-conflict-op",
+      operationKind: "SYNCHRONIZATION" as const,
+      developerClonePath: fixture.developerClone,
+      refs: {
+        sourceRepository: {
+          serverId: "server-1",
+          owner: "source-owner",
+          name: "source-repo",
+        },
+        destinationRepository: {
+          serverId: "server-1",
+          owner: "head-owner",
+          name: "head-repo",
+        },
+        sourceBranch: "main",
+        destinationBranch: "feature",
+        syncSourceSha: sourceSha,
+        prHeadSha: fixture.headSha,
+      },
+    };
+    const prepared = await fixture.service.prepareSynchronization(request);
+    expect(prepared.ok).toBe(true);
+    const evidence = await fixture.service.readSynchronizationEvidence({
+      operationId: request.operationId,
+      ownerId: request.ownerId,
+    });
+    expect(evidence.ok).toBe(true);
+    expect(evidence.mergeBaseSha).toBe(fixture.baseSha);
+    expect(
+      evidence.sourceChangeEvidence?.files.map((file) => file.path),
+    ).toContain("tracked.txt");
+    expect(
+      evidence.destinationChangeEvidence?.files.map((file) => file.path),
+    ).toContain("tracked.txt");
+
+    const merged = await fixture.service.mergeSynchronization({
+      operationId: request.operationId,
+      ownerId: request.ownerId,
+    });
+    expect(merged.ok).toBe(false);
+    expect(merged.outcome).toBe("CONFLICT_DETECTED");
+    expect(merged.conflictPaths).toContain("tracked.txt");
+    expect(merged.worktree.canonicalPath).not.toBe("");
+    expect(await git(merged.worktree.canonicalPath, "rev-parse", "HEAD")).toBe(
+      fixture.headSha,
+    );
+    expect(
+      await readNormalized(path.join(fixture.developerClone, "tracked.txt")),
+    ).toBe("feature\ndirty developer edit\n");
+    expect(
+      await readNormalized(
+        path.join(fixture.developerClone, "developer-only.txt"),
+      ),
+    ).toBe("must remain\n");
+  });
 });

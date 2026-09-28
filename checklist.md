@@ -194,7 +194,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** The user sees selected count, source provenance, repositories, branches, both SHAs, and all skipped/ineligible PRs before starting; missing/ambiguous refs can never choose an implicit same-named branch.
   - **Primary application criteria:** APP-AC-43, APP-AC-44, APP-AC-45.
 
-- [ ] **F25 - Independent deterministic synchronization and clean-merge results**
+- [x] **F25 - Independent deterministic synchronization and clean-merge results**
   - **Depends on:** F12-F14, F24.
   - **Deliver:** Persist batch/operation records; create a separate worktree per eligible PR at `prHeadSha`; compute and persist the exact merge base; perform explicit no-commit merges; distinguish already-up-to-date/no-op; record source-side and PR-head-side changes plus conflicts; inspect the actual merge; run validation; and continue other PRs after any skip/failure. Persist result, diff, reason, worktree, branch/repository/merge-base SHAs, validation, and statuses with plain-language next actions.
   - **Exit:** Clean merges reach `READY_TO_PUBLISH` using zero AI tokens, no-op merges create no empty merge commit, failures are isolated per PR, and every result survives window closure/restart.

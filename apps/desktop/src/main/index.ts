@@ -32,6 +32,7 @@ import {
   F21PersistenceRepositories,
   F22PersistenceRepositories,
   F24PersistenceRepositories,
+  F25PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -107,6 +108,7 @@ import {
   f24Reason,
   type F24F16ConfigurationReference,
 } from "../shared/f24-synchronization";
+import { F25SynchronizationService } from "./f25-synchronization-service";
 
 interface MainPrWatcher {
   readonly reconcileStartup: () => void;
@@ -173,6 +175,7 @@ let f23PublicationService: F23PublicationService | undefined;
 let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
 let f19Coordinator: TrayNotificationCoordinator | undefined;
 let f24SynchronizationService: F24SynchronizationService | undefined;
+let f25SynchronizationService: F25SynchronizationService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -562,6 +565,62 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedF11EligibilityService = f11EligibilityService;
   if (initializedF11EligibilityService === undefined)
     throw new Error("PRMONITOR_F11_ELIGIBILITY_SERVICE_NOT_READY");
+  f25SynchronizationService = new F25SynchronizationService({
+    persistence: new F25PersistenceRepositories(f03Repositories),
+    managedPrs: {
+      getManagedPr: (managedPrId) => f07Repositories.getManagedPr(managedPrId),
+    },
+    f13: initializedF13WorktreeService,
+    f14: initializedF14ValidationService,
+    validation: {
+      resolve: ({ repositoryId, operationId }) =>
+        resolveValidationProfile({ repositoryId, operationId }),
+    },
+    worktreeRoot: {
+      read: () => {
+        const root =
+          initializedF16PreferencesService.readPreferences().operational
+            .worktreeRoot;
+        return {
+          ...(root?.canonicalPath === undefined
+            ? {}
+            : { canonicalPath: root.canonicalPath }),
+          ...(root?.rootRevision === undefined
+            ? {}
+            : { rootRevision: root.rootRevision }),
+        };
+      },
+    },
+    activity:
+      activityService?.writer === undefined
+        ? undefined
+        : {
+            append: (event) =>
+              activityService?.writer.append({
+                eventId: `f25-activity-${randomUUID()}`,
+                eventType: "OPERATION_PROGRESS",
+                stage: "WORKTREE",
+                correlationId: event.correlationId,
+                ...(event.operationId === undefined
+                  ? {}
+                  : { operationId: event.operationId }),
+                ...(event.managedPrId === undefined
+                  ? {}
+                  : { managedPrId: event.managedPrId }),
+                occurrenceAt: new Date().toISOString(),
+                severity: "INFO",
+                reason: {
+                  code: "PROGRESS",
+                  what: event.summary,
+                  why: "F25 recorded a bounded deterministic synchronization outcome.",
+                  nextAction: "NONE",
+                },
+                summary: event.summary,
+                details: { f25ReasonCode: event.reasonCode },
+              }),
+          },
+  });
+  await f25SynchronizationService.reconcileStartup();
   const f24Persistence = new F24PersistenceRepositories(persistenceStore);
   f24SynchronizationService = new F24SynchronizationService({
     inbox: {
@@ -641,6 +700,49 @@ async function initializeMainProcessPersistence(): Promise<void> {
       },
     },
     persistence: f24Persistence,
+    handoff: {
+      accept: (authorization) => {
+        if (f25SynchronizationService === undefined)
+          return Promise.resolve({
+            status: "UNCERTAIN" as const,
+            reason: f24Reason({
+              code: "F25_NOT_READY",
+              category: "HANDOFF",
+              what: "The synchronization execution service is not ready.",
+              why: "F24 will retain the authorization until the downstream durable owner can acknowledge it.",
+              nextAction: "RECONCILE",
+              retryable: true,
+              correlationId: "f24-f25-not-ready",
+            }),
+          });
+        return f25SynchronizationService
+          .accept(authorization)
+          .then((result) => ({
+            status: result.status,
+            ...(result.authorizationId === undefined
+              ? {}
+              : { authorizationId: result.authorizationId }),
+            ...(result.reason === undefined
+              ? {}
+              : {
+                  reason: f24Reason({
+                    code: result.reason.code,
+                    category: "HANDOFF",
+                    what: result.reason.what,
+                    why: result.reason.why,
+                    nextAction:
+                      result.reason.nextAction === "NONE"
+                        ? "NONE"
+                        : result.reason.nextAction === "RECONCILE"
+                          ? "RECONCILE"
+                          : "RETRY_RESOLUTION",
+                    retryable: result.status !== "FAILED",
+                    correlationId: result.reason.correlationId,
+                  }),
+                }),
+          }));
+      },
+    },
   });
   const f17Persistence = new F17PersistenceRepositories(persistenceStore);
   automaticReviewAiAdapter = new F18AIWorkAdapter({
@@ -1200,6 +1302,11 @@ async function startMainProcess(): Promise<void> {
         boundedStop: () => f14ValidationService?.shutdown(),
       },
       {
+        name: "synchronization-execution",
+        stopAdmission: () => f25SynchronizationService?.shutdown(),
+        boundedStop: () => f25SynchronizationService?.shutdown(),
+      },
+      {
         name: "automatic-review-ai-work",
         stopAdmission: () => automaticReviewAiAdapter?.stopAdmission(),
         handoff: () => automaticReviewAiAdapter?.handoff(),
@@ -1550,6 +1657,26 @@ async function startMainProcess(): Promise<void> {
       if (f24SynchronizationService === undefined)
         return Promise.reject(new Error("PRMONITOR_F24_SERVICE_NOT_READY"));
       return f24SynchronizationService.reconcilePreparation(intentId);
+    },
+    listSynchronizationBatches: () => {
+      if (f25SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+      return f25SynchronizationService.listBatches();
+    },
+    readSynchronizationBatch: (batchId) => {
+      if (f25SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+      return f25SynchronizationService.readBatch(batchId);
+    },
+    readSynchronizationResult: (operationId) => {
+      if (f25SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+      return f25SynchronizationService.readResult(operationId);
+    },
+    cancelSynchronizationOperation: (operationId) => {
+      if (f25SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F25_SERVICE_NOT_READY"));
+      return f25SynchronizationService.cancelOperation(operationId);
     },
     navigateManagedPr: (managedPrId, destination) => {
       if (managedPrInboxService === undefined)

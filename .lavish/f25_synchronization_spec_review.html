@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>F25 · Deterministic synchronization</title>
+  <style>
+    :root { color-scheme: light; --ink:#18202a; --muted:#405a78; --subtle:#667b94; --line:#d8e1ec; --canvas:#f4f7fb; --surface:#fff; --blue:#0a4f9a; --blue-soft:#e9f2ff; --blue-pale:#f8fbff; --amber:#b66a00; --amber-soft:#fff7e8; --green:#226c3b; --green-soft:#ecf8ef; --violet:#3d2d72; --violet-soft:#f4f0ff; --shadow:0 8px 24px rgba(24,32,42,.07); }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--canvas); font:15px/1.55 "Segoe UI",system-ui,sans-serif; }
+    a { color:var(--blue); }
+    .wrap { width:min(1180px,calc(100% - 36px)); margin:0 auto; padding:34px 0 60px; }
+    .eyebrow { color:var(--blue); font-size:12px; font-weight:700; letter-spacing:.11em; text-transform:uppercase; }
+    h1,h2,h3,p { margin-top:0; } h1 { margin:8px 0 10px; font-size:clamp(30px,5vw,52px); line-height:1.04; letter-spacing:-.035em; } h2 { margin-bottom:10px; font-size:23px; line-height:1.2; letter-spacing:-.02em; } h3 { margin-bottom:5px; font-size:16px; }
+    .lede { max-width:780px; color:var(--muted); font-size:18px; }
+    .top { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(270px,.75fr); gap:22px; align-items:end; margin-bottom:24px; }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; } .pill { display:inline-flex; padding:5px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--surface); font-size:12px; font-weight:650; } .pill.blue { color:var(--blue); border-color:#b8d4f3; background:var(--blue-soft); } .pill.green { color:var(--green); border-color:#b8ddc4; background:var(--green-soft); } .pill.amber { color:#684000; border-color:#edc77e; background:var(--amber-soft); }
+    .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:18px; } .card { min-width:0; border:1px solid var(--line); border-radius:14px; background:var(--surface); box-shadow:var(--shadow); } .pad { padding:21px; } .span-8 { grid-column:span 8; } .span-4 { grid-column:span 4; } .span-12 { grid-column:1/-1; }
+    .decision { border-left:5px solid var(--amber); background:var(--amber-soft); } .decision strong { color:#684000; } .small { color:var(--subtle); font-size:12px; }
+    .flow { overflow:hidden; } .flow svg { display:block; width:100%; height:auto; min-height:260px; } .flow-note { margin-top:9px; color:var(--muted); font-size:13px; }
+    .boundary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } .boundary > div { min-width:0; padding:15px; border:1px solid var(--line); border-radius:11px; } .boundary strong { display:block; margin-bottom:4px; } .boundary p { margin:0; color:var(--muted); font-size:13px; }
+    .slice-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; } .slice { min-width:0; padding:15px; border:1px solid var(--line); border-radius:11px; background:var(--blue-pale); } .slice .num { color:var(--blue); font-weight:800; } .slice p { margin:7px 0 0; color:var(--muted); font-size:13px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; } th,td { padding:10px 9px; border-bottom:1px solid #edf1f5; text-align:left; vertical-align:top; } th { color:var(--subtle); font-size:11px; letter-spacing:.08em; text-transform:uppercase; } td { color:var(--muted); } td:first-child { color:var(--ink); font-weight:700; white-space:nowrap; }
+    .risk-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; } .risk { min-width:0; padding:14px; border-left:4px solid var(--amber); border-radius:8px; background:#fffaf0; } .risk p { margin:0; color:var(--muted); font-size:13px; }
+    code { overflow-wrap:anywhere; font:12px/1.35 Consolas,"Cascadia Code",monospace; color:#0a376b; } .refs { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; } .refs a { display:inline-block; padding:7px 10px; border:1px solid #b8d4f3; border-radius:8px; background:var(--blue-pale); text-decoration:none; font-size:13px; }
+    .footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; margin-top:18px; color:var(--subtle); font-size:12px; }
+    @media (max-width:820px) { .top,.boundary { grid-template-columns:1fr; } .meta { justify-content:flex-start; } .span-8,.span-4 { grid-column:1/-1; } .slice-grid,.risk-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:540px) { .wrap { width:min(100% - 22px,1180px); padding-top:23px; } .pad { padding:16px; } .slice-grid,.risk-grid { grid-template-columns:1fr; } th,td { padding:8px 5px; } }
+    @media (forced-colors:active) { .card,.pill,.boundary > div,.slice { border:1px solid CanvasText; box-shadow:none; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="top">
+      <div>
+        <div class="eyebrow">PRMonitor · F25 specification review</div>
+        <h1>Prepare every PR independently.</h1>
+        <p class="lede">F25 turns F24’s exact, preparation-only authorization into isolated deterministic merge results: one worktree per PR, no-op detection, no-commit clean merges, real validation evidence, and durable per-result recovery.</p>
+      </div>
+      <div class="meta" aria-label="document status">
+        <span class="pill blue">Architecture-stage draft</span>
+        <span class="pill green">0 definite linter misses</span>
+        <span class="pill amber">Needs-review items surfaced</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card span-8"><div class="pad flow">
+        <h2>Deterministic / AI boundary</h2>
+        <svg viewBox="0 0 920 300" role="img" aria-labelledby="flow-title flow-desc">
+          <title id="flow-title">F25 synchronization flow</title>
+          <desc id="flow-desc">F24 authorization flows into independent worktrees and deterministic merge inspection. No-op and clean paths validate without AI. A real conflict is handed to F26, and every result is handed to F27 for review and publication.</desc>
+          <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#0a4f9a"/></marker></defs>
+          <g font-family="Segoe UI, system-ui, sans-serif" font-size="14">
+            <rect x="18" y="106" width="140" height="66" rx="12" fill="#e9f2ff" stroke="#8ebbe7"/><text x="88" y="132" text-anchor="middle" fill="#18202a" font-weight="700">F24 exact</text><text x="88" y="153" text-anchor="middle" fill="#405a78">authorization</text>
+            <path d="M158 139 H218" stroke="#0a4f9a" stroke-width="2" marker-end="url(#arrow)"/>
+            <rect x="220" y="106" width="150" height="66" rx="12" fill="#e9f2ff" stroke="#8ebbe7"/><text x="295" y="132" text-anchor="middle" fill="#18202a" font-weight="700">one worktree</text><text x="295" y="153" text-anchor="middle" fill="#405a78">per eligible PR</text>
+            <path d="M370 139 H430" stroke="#0a4f9a" stroke-width="2" marker-end="url(#arrow)"/>
+            <rect x="432" y="106" width="150" height="66" rx="12" fill="#e9f2ff" stroke="#8ebbe7"/><text x="507" y="132" text-anchor="middle" fill="#18202a" font-weight="700">merge base +</text><text x="507" y="153" text-anchor="middle" fill="#405a78">both-side evidence</text>
+            <path d="M582 139 H634" stroke="#0a4f9a" stroke-width="2" marker-end="url(#arrow)"/>
+            <rect x="636" y="40" width="132" height="54" rx="10" fill="#ecf8ef" stroke="#9bcaa9"/><text x="702" y="63" text-anchor="middle" fill="#18202a" font-weight="700">NO_OP</text><text x="702" y="81" text-anchor="middle" fill="#405a78">no empty commit</text>
+            <rect x="636" y="106" width="132" height="66" rx="10" fill="#ecf8ef" stroke="#9bcaa9"/><text x="702" y="132" text-anchor="middle" fill="#18202a" font-weight="700">clean merge</text><text x="702" y="153" text-anchor="middle" fill="#405a78">no AI tokens</text>
+            <rect x="636" y="184" width="132" height="54" rx="10" fill="#fff7e8" stroke="#edc77e"/><text x="702" y="207" text-anchor="middle" fill="#18202a" font-weight="700">conflict</text><text x="702" y="225" text-anchor="middle" fill="#684000">handoff to F26</text>
+            <path d="M768 73 H832 M768 139 H832 M768 211 H832" stroke="#0a4f9a" stroke-width="2" marker-end="url(#arrow)"/>
+            <rect x="834" y="106" width="72" height="66" rx="12" fill="#f4f0ff" stroke="#c6b6ed"/><text x="870" y="132" text-anchor="middle" fill="#18202a" font-weight="700">F27</text><text x="870" y="153" text-anchor="middle" fill="#405a78">review</text>
+            <text x="490" y="278" text-anchor="middle" fill="#667b94" font-size="12">F25 owns deterministic preparation, merge evidence, validation handoff, and result truth — never publication.</text>
+          </g>
+        </svg>
+        <p class="flow-note">Clean and no-op paths never reach an AI adapter. Conflict resolution is a separate downstream capability, and F27 remains the only publication boundary.</p>
+      </div></article>
+
+      <article class="card span-4 decision"><div class="pad">
+        <h2>Review focus</h2>
+        <p><strong>No product decisions are unresolved.</strong> The PRD locks exact-snapshot preparation, no-commit merge, no-op semantics, zero-AI clean paths, visible <code>not_run</code> warnings, and preserved uncertain state.</p>
+        <p><strong>Human agreement still useful:</strong> the semantic linters flagged shared-boundary items for review, especially F25’s handoff edges with F13/F14/F26/F27 and Windows-first path/process behavior.</p>
+        <p class="small">These are review classifications, not implementation blockers.</p>
+      </div></article>
+
+      <article class="card span-12"><div class="pad">
+        <h2>Ownership at a glance</h2>
+        <div class="boundary">
+          <div><strong>F25 owns</strong><p>Batch/operation intake, independent per-PR execution, exact merge evidence, no-op/clean/conflict classification, post-change validation handoff, durable result and reason data.</p></div>
+          <div><strong>Downstream owns</strong><p>F26 owns semantic conflict resolution. F27 owns result review, stale detection, discard/re-evaluation, merge-commit creation, non-force push, and publication recovery.</p></div>
+          <div><strong>Never granted</strong><p>No commit, push, force push, GitHub response, conversation resolution, review approval, AI-provider publication, or automatic branch synchronization authority.</p></div>
+          <div><strong>Primary-state rule</strong><p>Synchronization remains an overlay. It never rewrites the PR’s primary review state or releases an active Review Bundle hold.</p></div>
+        </div>
+      </div></article>
+
+      <article class="card span-12"><div class="pad">
+        <h2>Implementation slices</h2>
+        <div class="slice-grid">
+          <div class="slice"><span class="num">01 · Intake</span><h3>Durable authorization</h3><p>Persist one batch and one operation per eligible PR before any local effect; retain skipped rows and make replay idempotent.</p></div>
+          <div class="slice"><span class="num">02 · Preparation</span><h3>Exact worktrees</h3><p>Materialize exact source/head commits, create distinct F13 worktrees, compute merge base, and persist both-side evidence.</p></div>
+          <div class="slice"><span class="num">03 · Git</span><h3>No-op / clean / conflict</h3><p>Classify ancestry, run an explicit no-commit merge, inspect actual state, and hand real conflicts to F26.</p></div>
+          <div class="slice"><span class="num">04 · Truth</span><h3>Validation + result</h3><p>Use F14 post-change evidence and produce ready, attention, failed, skipped, or conflict-aware read models.</p></div>
+          <div class="slice"><span class="num">05 · Recovery</span><h3>Sibling isolation</h3><p>Keep slow/failing PRs independent; reconcile restart, cancellation, and uncertain local effects without blind reruns.</p></div>
+          <div class="slice"><span class="num">06 · Handoff</span><h3>Conformance gate</h3><p>Prove no AI/publication capability leaks, accessibility semantics, exact coverage, and safe F26/F27 contracts.</p></div>
+        </div>
+      </div></article>
+
+      <article class="card span-8"><div class="pad">
+        <h2>Result semantics</h2>
+        <table>
+          <thead><tr><th>Outcome</th><th>Meaning</th><th>Next owner/action</th></tr></thead>
+          <tbody>
+            <tr><td><code>NO_OP</code></td><td>Source is already equal to or contained by PR head; no merge is left in progress.</td><td>F14 checks, then F27 review; no empty commit.</td></tr>
+            <tr><td><code>CLEAN_MERGE</code></td><td>No-commit merge has no unmerged paths; local result is inspectable.</td><td>F14 checks, then F27 review/publication decision.</td></tr>
+            <tr><td><code>CONFLICT_DETECTED</code></td><td>Git found a real conflict; exact paths, hunks, and both-side evidence are preserved.</td><td>F26 semantic-resolution handoff.</td></tr>
+            <tr><td><code>NEEDS_ATTENTION</code></td><td>Validation, worktree, cancellation, or uncertain local state blocks readiness.</td><td>Inspect, reconcile, retry, re-evaluate, or discard per F27.</td></tr>
+          </tbody>
+        </table>
+      </div></article>
+
+      <article class="card span-4"><div class="pad">
+        <h2>Verification status</h2>
+        <p><span class="pill green">PRD/PLAN: pass</span></p>
+        <p><span class="pill green">Coverage: pass</span></p>
+        <p><span class="pill">85 covered · 0 missing</span></p>
+        <p><span class="pill amber">2 requirement reviews</span></p>
+        <p><span class="pill amber">29 coverage reviews</span></p>
+        <p class="small">Needs-review results are preserved for human agreement and do not block the linter exit code.</p>
+      </div></article>
+
+      <article class="card span-12"><div class="pad">
+        <h2>Risks to validate before implementation</h2>
+        <div class="risk-grid">
+          <div class="risk"><h3>Uncertain local Git state</h3><p>Stop/reset boundaries must adopt only proven same-operation state and preserve ambiguous worktrees for inspection.</p></div>
+          <div class="risk"><h3>Validation meaning</h3><p><code>not_run</code> is a warning, never a pass; failed or interrupted commands must block readiness without hiding the merge evidence.</p></div>
+          <div class="risk"><h3>Fork and path identity</h3><p>Exact source/destination repository scopes, Windows path containment, and distinct worktree ownership must survive restart and replay.</p></div>
+        </div>
+      </div></article>
+
+      <article class="card span-12"><div class="pad">
+        <h2>Authoritative documents</h2>
+        <ul class="refs">
+          <li><a href="../Specs/independent_deterministic_synchronization_and_clean_merge_results_PRD.md">F25 PRD</a></li>
+          <li><a href="../Specs/independent_deterministic_synchronization_and_clean_merge_results_PLAN.md">F25 PLAN</a></li>
+          <li><a href="../checklist.md">Checklist (F25 remains unchecked)</a></li>
+        </ul>
+      </div></article>
+    </section>
+    <div class="footer"><span>Generated for local review · 2026-09-28</span><span>Markdown specs remain the source of truth.</span></div>
+  </main>
+</body>
+</html>
