@@ -7,6 +7,10 @@ import {
   type F24PreparationAuthorization,
   type F24ResolutionRow,
 } from "./f24-synchronization";
+import {
+  isF26ConflictResolutionReadModel,
+  type F26ConflictResolutionReadModel,
+} from "./f26-conflict-resolution";
 
 export const F25_SCHEMA_VERSION = 1 as const;
 export const F25_MAX_OPERATIONS = 250;
@@ -41,6 +45,7 @@ export type F25MergeOutcome =
   | "NO_OP"
   | "CLEAN_MERGE"
   | "CONFLICT_DETECTED"
+  | "CONFLICT_RESOLVED"
   | "PREPARATION_FAILED"
   | "VALIDATION_FAILED"
   | "CANCELLED"
@@ -93,6 +98,14 @@ export interface F25ChangeEvidence {
     readonly oldPath?: string;
     readonly statusCode?: string;
   }[];
+  readonly patch?: string;
+  readonly patchHash?: string;
+  readonly commitMetadata?: readonly {
+    readonly sha: string;
+    readonly message: string;
+    readonly author?: string;
+    readonly committedAt?: string;
+  }[];
   readonly evidenceHash: string;
   readonly complete: boolean;
 }
@@ -134,9 +147,17 @@ export interface F25ValidationEvidence {
 }
 
 export interface F25AiUsageSummary {
-  readonly providerInvoked: false;
-  readonly turns: 0;
-  readonly tokens: 0;
+  readonly providerInvoked: boolean;
+  readonly turns: number;
+  readonly tokens: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+  readonly unavailable?: boolean;
+  readonly providerId?: string;
+  readonly modelId?: string;
+  readonly profileRevision?: number;
+  readonly policyId?: string;
 }
 
 export interface F25Capabilities {
@@ -183,6 +204,8 @@ export interface F25SynchronizationResultReadModel {
   readonly conflicts: readonly F25ConflictEvidence[];
   readonly validation?: F25ValidationEvidence;
   readonly aiUsage: F25AiUsageSummary;
+  readonly aiOperationId?: string;
+  readonly conflictResolution?: F26ConflictResolutionReadModel;
   readonly reason: F25Reason;
   readonly nextAction: F25Reason["nextAction"];
   readonly capabilities: F25Capabilities;
@@ -281,6 +304,14 @@ function safeText(value: unknown, maximum = 4_096): value is string {
   );
 }
 
+function safeEvidenceText(value: unknown, maximum: number): value is string {
+  return (
+    typeof value === "string" &&
+    new TextEncoder().encode(value).byteLength <= maximum &&
+    !value.includes("\u0000")
+  );
+}
+
 function isReason(value: unknown): value is F25Reason {
   if (!record(value)) return false;
   return (
@@ -309,9 +340,34 @@ function isInput(value: unknown): value is F25InputSnapshot {
 function isAiUsage(value: unknown): value is F25AiUsageSummary {
   return (
     record(value) &&
-    value.providerInvoked === false &&
-    value.turns === 0 &&
-    value.tokens === 0
+    typeof value.providerInvoked === "boolean" &&
+    typeof value.turns === "number" &&
+    Number.isSafeInteger(value.turns) &&
+    value.turns >= 0 &&
+    typeof value.tokens === "number" &&
+    Number.isSafeInteger(value.tokens) &&
+    value.tokens >= 0 &&
+    (value.inputTokens === undefined ||
+      (typeof value.inputTokens === "number" &&
+        Number.isSafeInteger(value.inputTokens) &&
+        value.inputTokens >= 0)) &&
+    (value.outputTokens === undefined ||
+      (typeof value.outputTokens === "number" &&
+        Number.isSafeInteger(value.outputTokens) &&
+        value.outputTokens >= 0)) &&
+    (value.totalTokens === undefined ||
+      (typeof value.totalTokens === "number" &&
+        Number.isSafeInteger(value.totalTokens) &&
+        value.totalTokens >= 0)) &&
+    (value.unavailable === undefined ||
+      typeof value.unavailable === "boolean") &&
+    (value.providerId === undefined || f24SafeIdentifier(value.providerId)) &&
+    (value.modelId === undefined || f24SafeIdentifier(value.modelId)) &&
+    (value.profileRevision === undefined ||
+      (typeof value.profileRevision === "number" &&
+        Number.isSafeInteger(value.profileRevision) &&
+        value.profileRevision >= 0)) &&
+    (value.policyId === undefined || f24SafeIdentifier(value.policyId))
   );
 }
 
@@ -331,6 +387,20 @@ function isChangeEvidence(value: unknown): value is F25ChangeEvidence {
         (file.oldPath === undefined || safeText(file.oldPath)) &&
         (file.statusCode === undefined || safeText(file.statusCode, 16)),
     ) &&
+    (value.patch === undefined || safeEvidenceText(value.patch, 512 * 1024)) &&
+    (value.patchHash === undefined || safeText(value.patchHash, 128)) &&
+    (value.commitMetadata === undefined ||
+      (Array.isArray(value.commitMetadata) &&
+        value.commitMetadata.length <= 64 &&
+        value.commitMetadata.every(
+          (commit) =>
+            record(commit) &&
+            f24SafeSha(commit.sha) &&
+            safeText(commit.message, 64 * 1024) &&
+            (commit.author === undefined || safeText(commit.author, 512)) &&
+            (commit.committedAt === undefined ||
+              safeText(commit.committedAt, 128)),
+        ))) &&
     safeText(value.evidenceHash, 128) &&
     typeof value.complete === "boolean"
   );
@@ -443,6 +513,10 @@ export function isF25SynchronizationResultReadModel(
     ) &&
     (value.validation === undefined || isValidation(value.validation)) &&
     isAiUsage(value.aiUsage) &&
+    (value.aiOperationId === undefined ||
+      f24SafeIdentifier(value.aiOperationId)) &&
+    (value.conflictResolution === undefined ||
+      isF26ConflictResolutionReadModel(value.conflictResolution)) &&
     isReason(value.reason) &&
     typeof value.nextAction === "string" &&
     record(value.capabilities) &&
@@ -504,6 +578,14 @@ export function projectF25ChangeEvidence(evidence: {
     readonly oldPath?: string;
     readonly statusCode?: string;
   }[];
+  readonly patch?: string;
+  readonly patchHash?: string;
+  readonly commitMetadata?: readonly {
+    readonly sha: string;
+    readonly message: string;
+    readonly author?: string;
+    readonly committedAt?: string;
+  }[];
   readonly evidenceHash: string;
   readonly complete: boolean;
 }): F25ChangeEvidence {
@@ -518,6 +600,17 @@ export function projectF25ChangeEvidence(evidence: {
       ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
       ...(file.statusCode === undefined ? {} : { statusCode: file.statusCode }),
     })),
+    ...(evidence.patch === undefined ? {} : { patch: evidence.patch }),
+    ...(evidence.patchHash === undefined
+      ? {}
+      : { patchHash: evidence.patchHash }),
+    ...(evidence.commitMetadata === undefined
+      ? {}
+      : {
+          commitMetadata: evidence.commitMetadata.map((commit) => ({
+            ...commit,
+          })),
+        }),
     evidenceHash: evidence.evidenceHash,
     complete: evidence.complete,
   };

@@ -38,6 +38,7 @@ import type {
   F21UserIntent,
 } from "../shared/f21-conversation";
 import type { F24SelectionCommandInput } from "../shared/f24-synchronization";
+import type { F26RetryAction } from "../shared/f26-conflict-resolution";
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
 
@@ -114,7 +115,12 @@ function invoke(
       }
     | F24SelectionCommandInput
     | { readonly resolutionRevision: string }
-    | { readonly intentId: string },
+    | { readonly intentId: string }
+    | {
+        readonly operationId: string;
+        readonly action: F26RetryAction;
+        readonly expectedVersion?: number;
+      },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -206,6 +212,12 @@ const api: PrMonitorPreloadApi = {
     invoke("synchronization.batch.read", { batchId }),
   readSynchronizationResult: (operationId) =>
     invoke("synchronization.result.read", { operationId }),
+  retrySynchronizationConflict: (operationId, action, expectedVersion) =>
+    invoke("synchronization.conflict.retry", {
+      operationId,
+      action,
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    }),
   cancelSynchronizationOperation: (operationId) =>
     invoke("synchronization.operation.cancel", { operationId }),
   readActivity: (query = {}) => invoke("activity.query", query),

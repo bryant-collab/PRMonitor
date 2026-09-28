@@ -1111,6 +1111,14 @@ function readOnlyConversationPredicate(
 function conflictPredicate(
   context: AIWorkPredicateContext,
 ): AIWorkPredicateResult {
+  const structured = resultRecord(context.providerResult.structuredResult);
+  const semanticResolutionConfirmed =
+    context.providerResult.status === "completed" &&
+    structured?.status === "resolved" &&
+    typeof structured.sourceIntent === "string" &&
+    typeof structured.destinationIntent === "string" &&
+    structured.sourceIntent.length > 0 &&
+    structured.destinationIntent.length > 0;
   const validation = context.evidence.validation;
   const validationRequired =
     context.operation.taskSnapshot.buildValidation !== undefined;
@@ -1125,19 +1133,24 @@ function conflictPredicate(
     !context.evidence.worktree.forbiddenMutation &&
     context.evidence.worktree.unmergedPaths.length === 0 &&
     context.evidence.worktree.conflictMarkers.length === 0;
-  const valid = clean && validationComplete;
+  const valid = semanticResolutionConfirmed && clean && validationComplete;
   return {
     valid,
     complete: valid,
     materialProgress:
       context.evidence.materialProblemIds.length > 0 ||
       context.evidence.worktree.files.some((file) => file.material === true),
-    reason: !clean
-      ? "Unmerged paths or conflict markers remain in the operation worktree."
-      : !validationComplete
-        ? "Conflict-resolution validation is not passing."
-        : "The conflict-resolution predicate is satisfied by deterministic evidence.",
+    reason: !semanticResolutionConfirmed
+      ? "The provider did not confirm an intent-preserving resolution for both sides."
+      : !clean
+        ? "Unmerged paths or conflict markers remain in the operation worktree."
+        : !validationComplete
+          ? "Conflict-resolution validation is not passing."
+          : "The conflict-resolution predicate is satisfied by deterministic evidence.",
     remainingProblems: [
+      ...(!semanticResolutionConfirmed
+        ? ["semantic-resolution-unconfirmed"]
+        : []),
       ...(!clean ? ["unresolved-conflict-state"] : []),
       ...(!validationComplete ? ["validation-not-passed"] : []),
     ],

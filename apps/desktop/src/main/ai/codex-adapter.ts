@@ -376,6 +376,15 @@ function statusForAbort(
 }
 
 function promptFor(request: AIProviderRequest): string {
+  const instructions =
+    request.taskType === "MERGE_CONFLICT_RESOLUTION"
+      ? [
+          "Resolve only the recorded merge-conflict paths in the operation-owned synchronization worktree.",
+          "Preserve compatible intent from both source and destination; do not blindly choose ours or theirs.",
+          "Do not commit, push, publish, or modify unrelated paths.",
+          "Report ambiguity instead of guessing, and leave the worktree reviewable when intent is unclear.",
+        ]
+      : [];
   const payload = {
     taskType: request.taskType,
     interactionMode: request.interactionMode,
@@ -390,6 +399,7 @@ function promptFor(request: AIProviderRequest): string {
       buildAndValidationInstructions:
         request.profileSnapshot.buildAndValidationInstructions,
     },
+    instructions,
     worktreeEvidence: request.worktree?.actualState,
   };
   return [

@@ -142,6 +142,25 @@ function allowedCommandShape(args: readonly string[]): boolean {
           safeSha(args[6] ?? "") &&
           args[7] === "--") ||
         (args.length === 9 &&
+          args[1] === "--binary" &&
+          args[2] === "--no-ext-diff" &&
+          args[3] === "--no-color" &&
+          args[4] === "--full-index" &&
+          args[5] === "--find-renames" &&
+          safeSha(args[6] ?? "") &&
+          safeSha(args[7] ?? "") &&
+          args[8] === "--") ||
+        (args.length === 10 &&
+          args[1] === "--binary" &&
+          args[2] === "--no-ext-diff" &&
+          args[3] === "--no-color" &&
+          args[4] === "--full-index" &&
+          args[5] === "--find-renames" &&
+          args[6] === "--find-copies" &&
+          safeSha(args[7] ?? "") &&
+          safeSha(args[8] ?? "") &&
+          args[9] === "--") ||
+        (args.length === 9 &&
           args[1] === "--cached" &&
           args[2] === "--binary" &&
           args[3] === "--no-ext-diff" &&
@@ -251,8 +270,9 @@ function allowedCommandShape(args: readonly string[]): boolean {
       return (
         args.length === 4 &&
         args[1] === "-s" &&
-        args[2] === "--format=%s" &&
-        args[3] === "HEAD"
+        (args[2] === "--format=%s" ||
+          args[2] === "--format=%H%x00%s%x00%an%x00%aI") &&
+        (args[3] === "HEAD" || safeSha(args[3] ?? ""))
       );
     case "worktree":
       return (

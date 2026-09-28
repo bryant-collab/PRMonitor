@@ -389,6 +389,8 @@ export const aiProviderInputSnapshotSchema = z
       .optional(),
     validationEvidence: z.array(aiJsonValueSchema).max(32).optional(),
     contextReferences: z.array(identifierSchema).max(64).optional(),
+    /** F26's immutable two-sided merge context. */
+    conflictContext: aiJsonValueSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -815,6 +817,14 @@ export const aiConflictResolutionResultSchema = z
     summary: textSchema,
     remainingIssues: z.array(textSchema).max(64),
     competingIntents: z.array(textSchema).max(16).optional(),
+    possibleDirections: z.array(textSchema).max(16).optional(),
+    sourceIntent: textSchema.optional(),
+    destinationIntent: textSchema.optional(),
+    resolutionScope: z
+      .enum(["CONFLICT_ONLY", "CONFLICT_AND_REQUIRED_SUPPORTING"])
+      .optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    evidence: z.array(textSchema).max(64).optional(),
     userQuestion: textSchema.optional(),
     relatedFiles: relatedFilesSchema.optional(),
   })

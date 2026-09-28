@@ -29,6 +29,7 @@ import type {
   F13ChangeSummary,
   F13ClearChoice,
   F13ClearResult,
+  F13CommitMetadata,
   F13DiffEvidence,
   F13DiffKind,
   F13FileEvidence,
@@ -1647,6 +1648,27 @@ export class F13WorktreeService {
       names.some((file) => !bytesWithin(file.path, F13_MAX_PATH_BYTES))
     )
       return undefined;
+    const patchResult = await this.runGit(
+      [
+        "diff",
+        "--binary",
+        "--no-ext-diff",
+        "--no-color",
+        "--full-index",
+        "--find-renames",
+        "--find-copies",
+        baseSha,
+        tipSha,
+        "--",
+      ],
+      intent.canonicalPath,
+      intent,
+    );
+    if (
+      !patchResult.ok ||
+      !bytesWithin(patchResult.stdout, F13_MAX_PATCH_BYTES)
+    )
+      return undefined;
     const files = names.map(
       (file) =>
         ({
@@ -1660,13 +1682,55 @@ export class F13WorktreeService {
             : { statusCode: file.statusCode }),
         }) satisfies F13FileEvidence,
     );
+    const commitMetadata: F13CommitMetadata[] = [];
+    for (const sha of [...new Set([baseSha, tipSha])]) {
+      const commit = await this.runGit(
+        ["show", "-s", "--format=%H%x00%s%x00%an%x00%aI", sha],
+        intent.canonicalPath,
+        intent,
+      );
+      if (!commit.ok) continue;
+      const fields = commit.stdout.trim().split("\u0000");
+      const commitSha = fields[0]?.trim();
+      const message = fields[1]?.trim();
+      const author = fields[2]?.trim();
+      const committedAt = fields[3]?.trim();
+      if (
+        commitSha === undefined ||
+        message === undefined ||
+        !isSafeF13Sha(commitSha) ||
+        message.length === 0
+      )
+        continue;
+      commitMetadata.push({
+        sha: commitSha,
+        message,
+        ...(author === undefined || author.length === 0 ? {} : { author }),
+        ...(committedAt === undefined || committedAt.length === 0
+          ? {}
+          : { committedAt }),
+      });
+    }
+    const patchHash = hashText(patchResult.stdout);
     return {
       schemaVersion: 1,
       side,
       baseSha,
       tipSha,
       files,
-      evidenceHash: hashText(stableJson({ side, baseSha, tipSha, files })),
+      patch: patchResult.stdout,
+      patchHash,
+      ...(commitMetadata.length === 0 ? {} : { commitMetadata }),
+      evidenceHash: hashText(
+        stableJson({
+          side,
+          baseSha,
+          tipSha,
+          files,
+          patchHash,
+          commitMetadata,
+        }),
+      ),
       complete: true,
     };
   }
@@ -2141,7 +2205,11 @@ export class F13WorktreeService {
   private mutationBlockReason(
     intent: F13OperationIntentRecord,
   ): F13SafeReason | undefined {
-    if (intent.lifecycle === "ACTIVE" || intent.lifecycle === "DIRTY")
+    if (
+      intent.lifecycle === "ACTIVE" ||
+      intent.lifecycle === "DIRTY" ||
+      intent.lifecycle === "CONFLICT"
+    )
       return undefined;
     return safeReason(
       "WORKTREE_MUTATION_NOT_ALLOWED",
@@ -3082,7 +3150,8 @@ export class F13WorktreeService {
     if (!inspection.ok || inspection.snapshot === undefined)
       return { ok: false, reason: inspection.reason };
     const explicitlyAcknowledgedUnattributed =
-      inspection.condition.classification === "UNATTRIBUTED_CHANGES" &&
+      (inspection.condition.classification === "UNATTRIBUTED_CHANGES" ||
+        inspection.condition.classification === "MIXED_OR_OVERLAP") &&
       input.acknowledgeUnattributedChanges === true;
     if (
       !inspection.condition.permittedNextActions.includes("CONTINUE_AI_WORK") &&

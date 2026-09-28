@@ -279,6 +279,13 @@ export interface F13ChangeSummary {
   readonly hash: string;
 }
 
+export interface F13CommitMetadata {
+  readonly sha: string;
+  readonly message: string;
+  readonly author?: string;
+  readonly committedAt?: string;
+}
+
 export interface F13DiffEvidence {
   readonly diffId: string;
   readonly operationId: string;
@@ -308,6 +315,10 @@ export interface F13SynchronizationChangeEvidence {
   readonly baseSha: string;
   readonly tipSha: string;
   readonly files: readonly F13FileEvidence[];
+  /** Exact bounded patch evidence for the side of the three-way merge. */
+  readonly patch?: string;
+  readonly patchHash?: string;
+  readonly commitMetadata?: readonly F13CommitMetadata[];
   readonly evidenceHash: string;
   readonly complete: boolean;
 }

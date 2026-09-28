@@ -263,6 +263,8 @@ export interface SynchronizationAdmissionResultInput {
   readonly syncMergeBaseSha?: string;
   readonly sourceChangeEvidence?: Payload;
   readonly prHeadChangeEvidence?: Payload;
+  readonly userConsultation?: Payload;
+  readonly aiOperationId?: string;
   readonly reason?: Payload;
   readonly payload: Payload;
 }
@@ -3752,7 +3754,7 @@ export class PersistenceRepositories {
         );
       else
         transaction.run(
-          "UPDATE synchronization_results SET status = ?, source_repository_id = COALESCE(?, source_repository_id), destination_repository_id = COALESCE(?, destination_repository_id), source_branch = COALESCE(?, source_branch), destination_branch = COALESCE(?, destination_branch), sync_source_sha = COALESCE(?, sync_source_sha), pr_head_sha = COALESCE(?, pr_head_sha), sync_merge_base_sha = COALESCE(?, sync_merge_base_sha), source_change_evidence_json = ?, pr_head_change_evidence_json = ?, user_consultation_json = ?, worktree_id = COALESCE(?, worktree_id), validation_run_id = COALESCE(?, validation_run_id), reason_json = ?, payload_json = ?, version = version + 1, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
+          "UPDATE synchronization_results SET status = ?, source_repository_id = COALESCE(?, source_repository_id), destination_repository_id = COALESCE(?, destination_repository_id), source_branch = COALESCE(?, source_branch), destination_branch = COALESCE(?, destination_branch), sync_source_sha = COALESCE(?, sync_source_sha), pr_head_sha = COALESCE(?, pr_head_sha), sync_merge_base_sha = COALESCE(?, sync_merge_base_sha), source_change_evidence_json = ?, pr_head_change_evidence_json = ?, user_consultation_json = COALESCE(?, user_consultation_json), worktree_id = COALESCE(?, worktree_id), ai_operation_id = COALESCE(?, ai_operation_id), validation_run_id = COALESCE(?, validation_run_id), reason_json = ?, payload_json = ?, version = version + 1, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
           input.status,
           input.sourceRepositoryId ?? null,
           input.destinationRepositoryId ?? null,
@@ -3765,6 +3767,7 @@ export class PersistenceRepositories {
           headEvidence.payload,
           consultation?.payload ?? null,
           input.worktreeId ?? null,
+          input.aiOperationId ?? null,
           input.validationRunId ?? null,
           reasonPayload.payload,
           payload.payload,

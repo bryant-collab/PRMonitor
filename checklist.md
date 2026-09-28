@@ -200,7 +200,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Clean merges reach `READY_TO_PUBLISH` using zero AI tokens, no-op merges create no empty merge commit, failures are isolated per PR, and every result survives window closure/restart.
   - **Primary application criteria:** APP-AC-46, APP-AC-47, APP-AC-49.
 
-- [ ] **F26 - AI-assisted merge-conflict resolution**
+- [x] **F26 - AI-assisted merge-conflict resolution**
   - **Depends on:** F15-F17, F25.
   - **Deliver:** On actual conflicts only, invoke Merge Conflict Resolution inside the synchronization worktree with exact source/destination branch and repository identities, source/head/merge-base SHAs, both branch change sets, conflicted paths/hunks, available intent/context, and instructions. Require the AI to preserve compatible intent from both sides rather than blindly choosing `ours` or `theirs`; use bounded segments and turn reports; deterministically require no unmerged paths, no unintended conflict markers, and recorded validation. When intent is ambiguous, persist competing-intent analysis and a user question, alert the developer, preserve the worktree, and block publication until an explicit user-directed resolution is inspected and validated. Preserve stopped work for manual edits and expose explicitly confirmed **Retry Resolution** with prior history/usage.
   - **Exit:** Fixtures covering a clean merge, a semantically resolvable conflict, and an ambiguous conflict reach respectively zero-AI success, reviewable success, and actionable `NEEDS_ATTENTION`; provider claims alone cannot complete it; retry never resets or hides prior budget/evidence.

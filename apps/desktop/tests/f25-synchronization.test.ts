@@ -23,6 +23,7 @@ import {
 } from "../src/main/persistence";
 import {
   F25SynchronizationService,
+  type F25ConflictResolutionPort,
   type F25F13Port,
   type F25F14Port,
 } from "../src/main/f25-synchronization-service";
@@ -467,6 +468,14 @@ describe("F25 deterministic synchronization", () => {
     const persistence = new MemoryPersistence();
     const f13 = f13Port({ mergeBaseSha: BASE_SHA });
     const f14 = f14Port();
+    let conflictResolutionCalls = 0;
+    const conflictResolution: F25ConflictResolutionPort = {
+      resolve: async () => {
+        conflictResolutionCalls += 1;
+        throw new Error("F26_MUST_NOT_RUN_FOR_CLEAN_MERGE");
+      },
+      retry: async ({ result }) => result,
+    };
     const service = new F25SynchronizationService({
       persistence,
       managedPrs: { getManagedPr: () => managedPr() },
@@ -480,6 +489,7 @@ describe("F25 deterministic synchronization", () => {
       },
       f14,
       validation: { resolve: () => resolution() },
+      conflictResolution,
       now: () => NOW,
     });
     const auth = authorization();
@@ -496,6 +506,7 @@ describe("F25 deterministic synchronization", () => {
       turns: 0,
       tokens: 0,
     });
+    expect(conflictResolutionCalls).toBe(0);
     expect(f13.mergeCalls.count).toBe(1);
     expect(f14.calls.count).toBe(1);
     expect((await service.accept(auth)).status).toBe("ACKNOWLEDGED");

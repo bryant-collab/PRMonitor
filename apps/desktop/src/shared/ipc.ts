@@ -115,6 +115,10 @@ import {
   type F25SynchronizationBatchReadModel,
   type F25SynchronizationResultReadModel,
 } from "./f25-synchronization";
+import {
+  f26RetryActionSchema,
+  type F26RetryAction,
+} from "./f26-conflict-resolution";
 export type {
   F23ApprovalInput,
   F23PublicationInput,
@@ -179,6 +183,7 @@ export type IpcRequestType =
   | "synchronization.batch.list"
   | "synchronization.batch.read"
   | "synchronization.result.read"
+  | "synchronization.conflict.retry"
   | "synchronization.operation.cancel"
   | "inbox.navigate"
   | "activity.query"
@@ -384,6 +389,14 @@ export type IpcRequest =
       readonly type:
         "synchronization.result.read" | "synchronization.operation.cancel";
       readonly payload: { readonly operationId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.conflict.retry";
+      readonly payload: {
+        readonly operationId: string;
+        readonly action: F26RetryAction;
+        readonly expectedVersion?: number;
+      };
     })
   | (IpcRequestBase & {
       readonly type: "inbox.navigate";
@@ -1606,6 +1619,36 @@ export function parseIpcRequest(
       } as IpcRequest,
     };
   }
+  if (value.type === "synchronization.conflict.retry") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["operationId", "action"],
+        ["expectedVersion"],
+      ) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      !f26RetryActionSchema.safeParse(value.payload.action).success ||
+      (value.payload.expectedVersion !== undefined &&
+        !safeVersion(value.payload.expectedVersion))
+    )
+      return invalidRequest(
+        "The synchronization conflict retry request is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          operationId: value.payload.operationId,
+          action: f26RetryActionSchema.parse(value.payload.action),
+          ...(value.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: value.payload.expectedVersion }),
+        },
+      } as IpcRequest,
+    };
+  }
   if (
     value.type === "managed-pr.read" ||
     value.type === "managed-pr.retry" ||
@@ -2519,6 +2562,11 @@ export interface PrMonitorPreloadApi {
   readonly readSynchronizationBatch: (batchId: string) => Promise<IpcResponse>;
   readonly readSynchronizationResult: (
     operationId: string,
+  ) => Promise<IpcResponse>;
+  readonly retrySynchronizationConflict: (
+    operationId: string,
+    action: F26RetryAction,
+    expectedVersion?: number,
   ) => Promise<IpcResponse>;
   readonly cancelSynchronizationOperation: (
     operationId: string,

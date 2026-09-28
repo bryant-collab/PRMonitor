@@ -34,6 +34,10 @@ import {
   type F25ValidationEvidence,
   type F25WorktreeEvidence,
 } from "../shared/f25-synchronization";
+import type {
+  F26ConflictResolutionReadModel,
+  F26RetryAction,
+} from "../shared/f26-conflict-resolution";
 import type { ManagedPrReadModel } from "../shared/managed-pr";
 import type {
   F14ValidationExecutionResult,
@@ -116,6 +120,7 @@ export interface F25SynchronizationServiceOptions {
   readonly validation: F25ValidationPort;
   readonly worktreeRoot?: F25WorktreeRootPort;
   readonly activity?: F25ActivitySink;
+  readonly conflictResolution?: F25ConflictResolutionPort;
   readonly now?: () => string;
   readonly maxConcurrentOperations?: number;
 }
@@ -160,6 +165,31 @@ function f25FromF24(reason: F24ReasonValue, correlationId: string): F25Reason {
     nextAction: actionFromF24(reason),
     correlationId,
   });
+}
+
+export interface F25ConflictResolutionPort {
+  readonly resolve: (input: {
+    readonly result: F25SynchronizationResultReadModel;
+    readonly handoff: F25ConflictHandoff;
+    readonly signal?: AbortSignal;
+  }) => Promise<{
+    readonly status: "READY_TO_PUBLISH" | "NEEDS_ATTENTION";
+    readonly stage: F25OperationStage;
+    readonly mergeOutcome: F25MergeOutcome;
+    readonly worktree?: F25WorktreeEvidence;
+    readonly validation?: F25ValidationEvidence;
+    readonly aiUsage: F25SynchronizationResultReadModel["aiUsage"];
+    readonly aiOperationId?: string;
+    readonly conflictResolution?: F26ConflictResolutionReadModel;
+    readonly reason: F25Reason;
+    readonly nextAction: F25Reason["nextAction"];
+  }>;
+  readonly retry: (input: {
+    readonly result: F25SynchronizationResultReadModel;
+    readonly action: F26RetryAction;
+    readonly expectedVersion?: number;
+  }) => Promise<F25SynchronizationResultReadModel>;
+  readonly reconcileStartup?: () => Promise<unknown>;
 }
 
 function f25FromF13(
@@ -249,6 +279,17 @@ function projectChangeEvidence(
       ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
       ...(file.statusCode === undefined ? {} : { statusCode: file.statusCode }),
     })),
+    ...(evidence.patch === undefined ? {} : { patch: evidence.patch }),
+    ...(evidence.patchHash === undefined
+      ? {}
+      : { patchHash: evidence.patchHash }),
+    ...(evidence.commitMetadata === undefined
+      ? {}
+      : {
+          commitMetadata: evidence.commitMetadata.map((commit) => ({
+            ...commit,
+          })),
+        }),
     evidenceHash: evidence.evidenceHash,
     complete: evidence.complete,
   };
@@ -848,7 +889,51 @@ export class F25SynchronizationService {
               },
               nextAction: "MANUAL_RESOLUTION",
             };
-            await this.updateResult(current, { handoff });
+            current = await this.updateResult(current, { handoff });
+            if (this.options.conflictResolution !== undefined) {
+              try {
+                const resolution =
+                  await this.options.conflictResolution.resolve({
+                    result: current,
+                    handoff,
+                    signal,
+                  });
+                await this.updateResult(current, {
+                  status: resolution.status,
+                  stage: resolution.stage,
+                  mergeOutcome: resolution.mergeOutcome,
+                  ...(resolution.worktree === undefined
+                    ? {}
+                    : { worktree: resolution.worktree }),
+                  ...(resolution.validation === undefined
+                    ? {}
+                    : { validation: resolution.validation }),
+                  aiUsage: resolution.aiUsage,
+                  ...(resolution.aiOperationId === undefined
+                    ? {}
+                    : { aiOperationId: resolution.aiOperationId }),
+                  ...(resolution.conflictResolution === undefined
+                    ? {}
+                    : { conflictResolution: resolution.conflictResolution }),
+                  reason: resolution.reason,
+                  nextAction: resolution.nextAction,
+                });
+              } catch {
+                await this.updateResult(current, {
+                  status: "NEEDS_ATTENTION",
+                  stage: "ATTENTION",
+                  mergeOutcome: "CONFLICT_DETECTED",
+                  reason: f25Reason({
+                    code: "F26_RESOLUTION_UNCERTAIN",
+                    what: "AI conflict resolution stopped before a confirmed deterministic result.",
+                    why: "The operation-owned conflict worktree and prior evidence were preserved for explicit reconciliation.",
+                    nextAction: "RECONCILE",
+                    correlationId,
+                  }),
+                  nextAction: "RECONCILE",
+                });
+              }
+            }
           }
           return;
         }
@@ -1161,8 +1246,31 @@ export class F25SynchronizationService {
     return true;
   }
 
+  public async retryConflictResolution(input: {
+    readonly operationId: string;
+    readonly action: F26RetryAction;
+    readonly expectedVersion?: number;
+  }): Promise<F25SynchronizationResultReadModel | undefined> {
+    const result = this.options.persistence.getResult(input.operationId);
+    if (
+      result === undefined ||
+      result.status !== "NEEDS_ATTENTION" ||
+      result.handoff === undefined ||
+      this.options.conflictResolution === undefined
+    )
+      return undefined;
+    const saved = await this.options.conflictResolution.retry({
+      result,
+      action: input.action,
+      expectedVersion: input.expectedVersion,
+    });
+    await this.updateBatch(saved.batchId);
+    return saved;
+  }
+
   public async reconcileStartup(): Promise<void> {
     await this.options.f14.reconcileStartup?.();
+    await this.options.conflictResolution?.reconcileStartup?.();
     for (const batch of this.options.persistence.listBatches()) {
       for (const result of batch.results) {
         if (isF25Terminal(result) || this.active.has(result.operationId))

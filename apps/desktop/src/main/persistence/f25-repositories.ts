@@ -161,6 +161,8 @@ function resultInput(
     syncMergeBaseSha: result.mergeBaseSha,
     sourceChangeEvidence: result.sourceChangeEvidence,
     prHeadChangeEvidence: result.prHeadChangeEvidence,
+    userConsultation: result.conflictResolution?.consultationHistory,
+    aiOperationId: result.aiOperationId,
     reason: result.reason,
     payload: storedResult(result),
   };

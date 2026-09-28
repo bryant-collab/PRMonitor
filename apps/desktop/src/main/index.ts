@@ -86,6 +86,8 @@ import {
 } from "./automatic-review-coordinator";
 import { F18AIWorkAdapter } from "./automatic-review-ai-adapter";
 import { F21AIWorkAdapter } from "./f21-ai-work-adapter";
+import { F26AIWorkAdapter } from "./f26-ai-work-adapter";
+import { F26ConflictResolutionService } from "./f26-conflict-resolution-service";
 import { F21ConversationService } from "./f21-conversation-service";
 import { F20WorkspaceService } from "./f20-workspace-service";
 import { F22Coordinator } from "./f22-coordinator";
@@ -169,6 +171,8 @@ let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
 let f22Coordinator: F22Coordinator | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
 let f21AiWorkAdapter: F21AIWorkAdapter | undefined;
+let f26AiWorkAdapter: F26AIWorkAdapter | undefined;
+let f26ConflictResolutionService: F26ConflictResolutionService | undefined;
 let f21ConversationService: F21ConversationService | undefined;
 let f20WorkspaceService: F20WorkspaceService | undefined;
 let f23PublicationService: F23PublicationService | undefined;
@@ -565,8 +569,59 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedF11EligibilityService = f11EligibilityService;
   if (initializedF11EligibilityService === undefined)
     throw new Error("PRMONITOR_F11_ELIGIBILITY_SERVICE_NOT_READY");
+  const f17Persistence = new F17PersistenceRepositories(persistenceStore);
+  const f25Persistence = new F25PersistenceRepositories(f03Repositories);
+  f26AiWorkAdapter = new F26AIWorkAdapter({
+    persistence: f17Persistence,
+    provider: f15ProviderRegistry,
+    f13: initializedF13WorktreeService,
+    f14: initializedF14ValidationService,
+    validation: {
+      resolve: ({ repositoryId, operationId }) =>
+        resolveValidationProfile({ repositoryId, operationId }),
+    },
+  });
+  const initializedF26AiWorkAdapter = f26AiWorkAdapter;
+  if (initializedF26AiWorkAdapter === undefined)
+    throw new Error("PRMONITOR_F26_AI_ADAPTER_NOT_READY");
+  f26ConflictResolutionService = new F26ConflictResolutionService({
+    persistence: f25Persistence,
+    managedPrs: {
+      getManagedPr: (managedPrId) => f07Repositories.getManagedPr(managedPrId),
+    },
+    f16: initializedF16PreferencesService,
+    f13: initializedF13WorktreeService,
+    aiWork: initializedF26AiWorkAdapter,
+    activity:
+      activityService?.writer === undefined
+        ? undefined
+        : {
+            append: (event) =>
+              activityService?.writer.append({
+                eventId: `f26-activity-${randomUUID()}`,
+                eventType: "OPERATION_PROGRESS",
+                stage: "WORKTREE",
+                correlationId: event.correlationId,
+                operationId: event.operationId,
+                managedPrId: event.managedPrId,
+                occurrenceAt: new Date().toISOString(),
+                severity: "INFO",
+                reason: {
+                  code: "PROGRESS",
+                  what: event.summary,
+                  why: "F26 recorded bounded conflict-resolution evidence without publication authority.",
+                  nextAction: "NONE",
+                },
+                summary: event.summary,
+                details: {},
+              }),
+          },
+  });
+  const initializedF26ConflictResolutionService = f26ConflictResolutionService;
+  if (initializedF26ConflictResolutionService === undefined)
+    throw new Error("PRMONITOR_F26_SERVICE_NOT_READY");
   f25SynchronizationService = new F25SynchronizationService({
-    persistence: new F25PersistenceRepositories(f03Repositories),
+    persistence: f25Persistence,
     managedPrs: {
       getManagedPr: (managedPrId) => f07Repositories.getManagedPr(managedPrId),
     },
@@ -576,6 +631,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
       resolve: ({ repositoryId, operationId }) =>
         resolveValidationProfile({ repositoryId, operationId }),
     },
+    conflictResolution: initializedF26ConflictResolutionService,
     worktreeRoot: {
       read: () => {
         const root =
@@ -744,7 +800,6 @@ async function initializeMainProcessPersistence(): Promise<void> {
       },
     },
   });
-  const f17Persistence = new F17PersistenceRepositories(persistenceStore);
   automaticReviewAiAdapter = new F18AIWorkAdapter({
     persistence: f17Persistence,
     provider: f15ProviderRegistry,
@@ -1302,6 +1357,12 @@ async function startMainProcess(): Promise<void> {
         boundedStop: () => f14ValidationService?.shutdown(),
       },
       {
+        name: "merge-conflict-ai-work",
+        stopAdmission: () => f26AiWorkAdapter?.stopAdmission(),
+        handoff: () => f26AiWorkAdapter?.handoff(),
+        boundedStop: () => f26AiWorkAdapter?.boundedStop(),
+      },
+      {
         name: "synchronization-execution",
         stopAdmission: () => f25SynchronizationService?.shutdown(),
         boundedStop: () => f25SynchronizationService?.shutdown(),
@@ -1672,6 +1733,11 @@ async function startMainProcess(): Promise<void> {
       if (f25SynchronizationService === undefined)
         throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
       return f25SynchronizationService.readResult(operationId);
+    },
+    retrySynchronizationConflict: (input) => {
+      if (f25SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F25_SERVICE_NOT_READY"));
+      return f25SynchronizationService.retryConflictResolution(input);
     },
     cancelSynchronizationOperation: (operationId) => {
       if (f25SynchronizationService === undefined)

@@ -89,6 +89,7 @@ import type {
   F25SynchronizationBatchReadModel,
   F25SynchronizationResultReadModel,
 } from "../shared/f25-synchronization";
+import type { F26RetryAction } from "../shared/f26-conflict-resolution";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -242,6 +243,11 @@ export interface IpcServices {
   readonly readSynchronizationResult?: (
     operationId: string,
   ) => F25SynchronizationResultReadModel | undefined;
+  readonly retrySynchronizationConflict?: (input: {
+    readonly operationId: string;
+    readonly action: F26RetryAction;
+    readonly expectedVersion?: number;
+  }) => Promise<F25SynchronizationResultReadModel | undefined>;
   readonly cancelSynchronizationOperation?: (
     operationId: string,
   ) => Promise<boolean>;
@@ -888,6 +894,29 @@ export class IpcRouter {
             request.requestId,
             "HANDLER_FAILED",
             "The synchronization result is not available.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-result",
+            result,
+          }),
+        );
+      }
+      if (request.type === "synchronization.conflict.retry") {
+        if (this.services.retrySynchronizationConflict === undefined)
+          throw new Error("PRMONITOR_F25_SERVICE_NOT_READY");
+        const result = await this.services.retrySynchronizationConflict({
+          operationId: request.payload.operationId,
+          action: request.payload.action,
+          ...(request.payload.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: request.payload.expectedVersion }),
+        });
+        if (result === undefined)
+          return errorResponse(
+            request.requestId,
+            "HANDLER_FAILED",
+            "The synchronization conflict cannot be retried from its current durable state.",
           );
         return boundedIpcResponse(
           successResponse(request.requestId, {
