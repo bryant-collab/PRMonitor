@@ -90,6 +90,16 @@ import type {
   F25SynchronizationResultReadModel,
 } from "../shared/f25-synchronization";
 import type { F26RetryAction } from "../shared/f26-conflict-resolution";
+import type {
+  F27ActionResult,
+  F27ApprovalInput,
+  F27BatchReview,
+  F27FreshnessInput,
+  F27PublicationInput,
+  F27ReevaluationInput,
+  F27ResultReview,
+  F27WorktreeActionInput,
+} from "../shared/f27-synchronization";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import {
   isActivityEvent,
@@ -251,6 +261,42 @@ export interface IpcServices {
   readonly cancelSynchronizationOperation?: (
     operationId: string,
   ) => Promise<boolean>;
+  readonly listSynchronizationReviews?: () => readonly F27BatchReview[];
+  readonly readSynchronizationReviewBatch?: (
+    batchId: string,
+  ) => F27BatchReview | undefined;
+  readonly readSynchronizationReviewResult?: (
+    operationId: string,
+  ) => F27ResultReview | undefined;
+  readonly refreshSynchronizationWorktree?: (
+    operationId: string,
+    expectedRevision?: number,
+  ) => Promise<F27ResultReview>;
+  readonly actOnSynchronizationWorktree?: (
+    input: F27WorktreeActionInput,
+  ) => Promise<F27ActionResult>;
+  readonly refreshSynchronizationFreshness?: (
+    input: F27FreshnessInput,
+  ) => Promise<F27ResultReview>;
+  readonly reevaluateSynchronization?: (
+    input: F27ReevaluationInput,
+  ) => Promise<F27ActionResult>;
+  readonly discardSynchronizationResult?: (input: {
+    readonly operationId: string;
+    readonly expectedRevision: number;
+  }) => F27ResultReview;
+  readonly readSynchronizationPublication?: (
+    operationId: string,
+  ) => F27ResultReview | undefined;
+  readonly approveSynchronizationPublication?: (
+    input: F27ApprovalInput,
+  ) => Promise<F27ResultReview>;
+  readonly publishSynchronizationPublication?: (
+    input: F27PublicationInput,
+  ) => Promise<F27ResultReview>;
+  readonly reconcileSynchronizationPublication?: (
+    input: F27PublicationInput,
+  ) => Promise<F27ResultReview>;
   readonly readActivity?: (query: ActivityQuery) => ActivityQuerySnapshot;
   readonly navigateActivity?: (eventId: string) => OpenTarget | undefined;
   readonly navigateManagedPr?: (
@@ -934,6 +980,162 @@ export class IpcRouter {
             cancelled: await this.services.cancelSynchronizationOperation(
               request.payload.operationId,
             ),
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.batch.list") {
+        if (this.services.listSynchronizationReviews === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-batches",
+            batches: this.services.listSynchronizationReviews(),
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.batch.read") {
+        if (this.services.readSynchronizationReviewBatch === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const batch = this.services.readSynchronizationReviewBatch(
+          request.payload.batchId,
+        );
+        if (batch === undefined)
+          return errorResponse(
+            request.requestId,
+            "HANDLER_FAILED",
+            "The synchronization review batch is not available.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-batch",
+            batch,
+          }),
+        );
+      }
+      if (
+        request.type === "synchronization.review.result.read" ||
+        request.type === "synchronization.review.publication.read"
+      ) {
+        const read =
+          request.type === "synchronization.review.result.read"
+            ? this.services.readSynchronizationReviewResult
+            : this.services.readSynchronizationPublication;
+        if (read === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = read(request.payload.operationId);
+        if (result === undefined)
+          return errorResponse(
+            request.requestId,
+            "HANDLER_FAILED",
+            "The synchronization review result is not available.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind:
+              request.type === "synchronization.review.result.read"
+                ? "synchronization-review-result"
+                : "synchronization-review-publication",
+            result,
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.worktree.refresh") {
+        if (this.services.refreshSynchronizationWorktree === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = await this.services.refreshSynchronizationWorktree(
+          request.payload.operationId,
+          request.payload.expectedRevision,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-result",
+            result,
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.worktree.action") {
+        if (this.services.actOnSynchronizationWorktree === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = await this.services.actOnSynchronizationWorktree(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-action",
+            outcome: result.outcome,
+            result: result.review,
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.freshness.refresh") {
+        if (this.services.refreshSynchronizationFreshness === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = await this.services.refreshSynchronizationFreshness(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-result",
+            result,
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.reevaluate") {
+        if (this.services.reevaluateSynchronization === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = await this.services.reevaluateSynchronization(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-action",
+            outcome: result.outcome,
+            result: result.review,
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.discard") {
+        if (this.services.discardSynchronizationResult === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = this.services.discardSynchronizationResult(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-action",
+            outcome: "COMPLETED",
+            result,
+          }),
+        );
+      }
+      if (request.type === "synchronization.review.publication.approve") {
+        if (this.services.approveSynchronizationPublication === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = await this.services.approveSynchronizationPublication(
+          request.payload,
+        );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-publication",
+            result,
+          }),
+        );
+      }
+      if (
+        request.type === "synchronization.review.publication.publish" ||
+        request.type === "synchronization.review.publication.reconcile"
+      ) {
+        const publish =
+          request.type === "synchronization.review.publication.publish"
+            ? this.services.publishSynchronizationPublication
+            : this.services.reconcileSynchronizationPublication;
+        if (publish === undefined)
+          throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+        const result = await publish(request.payload);
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "synchronization-review-publication",
+            result,
           }),
         );
       }

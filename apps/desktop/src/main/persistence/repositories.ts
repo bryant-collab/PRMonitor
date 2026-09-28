@@ -27,6 +27,10 @@ import type {
   GithubServerKind,
   GithubServerStatus,
 } from "../../shared/github-server";
+import type {
+  F27HeadAdvanceInvalidation,
+  F27StateRecord,
+} from "../../shared/f27-synchronization";
 import { isGithubSafeReason } from "../../shared/github-server";
 import {
   assertAIProviderConversationHandoff,
@@ -3941,6 +3945,128 @@ export class PersistenceRepositories {
       .filter(
         (result): result is SynchronizationResultRecord => result !== undefined,
       );
+  }
+
+  public getF27State(
+    synchronizationOperationId: string,
+  ): F27StateRecord | undefined {
+    id(synchronizationOperationId, "F27 synchronization operation identifier");
+    const row = this.store.read(
+      "SELECT payload_json FROM f27_synchronization_states WHERE synchronization_operation_id = ?",
+      synchronizationOperationId,
+    );
+    if (row === undefined) return undefined;
+    return JSON.parse(rowString(row, "payload_json")) as F27StateRecord;
+  }
+
+  public listF27States(): readonly F27StateRecord[] {
+    return this.store
+      .readAll(
+        "SELECT payload_json FROM f27_synchronization_states ORDER BY updated_at DESC, synchronization_operation_id ASC LIMIT 250",
+      )
+      .map(
+        (row) => JSON.parse(rowString(row, "payload_json")) as F27StateRecord,
+      );
+  }
+
+  public putF27State(input: {
+    readonly state: F27StateRecord;
+    readonly expectedVersion?: number;
+  }): F27StateRecord {
+    const state = input.state;
+    id(state.operationId, "F27 synchronization operation identifier");
+    id(state.batchId, "F27 synchronization batch identifier");
+    id(state.managedPrId, "F27 managed PR identifier");
+    const encoded = encode(state);
+    const timestamp = now(this.clock);
+    return this.store.transaction((transaction) => {
+      const existing = transaction.get(
+        "SELECT version FROM f27_synchronization_states WHERE synchronization_operation_id = ?",
+        state.operationId,
+      );
+      const current =
+        existing === undefined ? 0 : rowNumber(existing, "version");
+      if (
+        input.expectedVersion !== undefined &&
+        current !== input.expectedVersion
+      )
+        throw repositoryError(
+          this.store,
+          "CONFLICT",
+          "The F27 synchronization review state changed before this update was committed.",
+        );
+      if (existing === undefined)
+        transaction.run(
+          "INSERT INTO f27_synchronization_states (synchronization_operation_id, synchronization_batch_id, managed_pr_id, status, schema_version, payload_json, payload_hash, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          state.operationId,
+          state.batchId,
+          state.managedPrId,
+          state.status,
+          encoded.schemaVersion,
+          encoded.payload,
+          encoded.payloadHash,
+          state.version,
+          timestamp,
+          timestamp,
+        );
+      else {
+        transaction.run(
+          "UPDATE f27_synchronization_states SET synchronization_batch_id = ?, managed_pr_id = ?, status = ?, schema_version = ?, payload_json = ?, payload_hash = ?, version = ?, updated_at = ? WHERE synchronization_operation_id = ? AND version = ?",
+          state.batchId,
+          state.managedPrId,
+          state.status,
+          encoded.schemaVersion,
+          encoded.payload,
+          encoded.payloadHash,
+          state.version,
+          timestamp,
+          state.operationId,
+          current,
+        );
+      }
+      return state;
+    });
+  }
+
+  public putF27HeadAdvanceInvalidation(
+    input: F27HeadAdvanceInvalidation,
+  ): F27HeadAdvanceInvalidation {
+    id(input.invalidationId, "F27 invalidation identifier");
+    id(input.operationId, "F27 synchronization operation identifier");
+    id(input.managedPrId, "F27 managed PR identifier");
+    id(input.publicationId, "F27 publication identifier");
+    const payload = encode(input);
+    this.store.transaction((transaction) =>
+      transaction.run(
+        "INSERT OR IGNORE INTO f27_head_advance_invalidations (invalidation_id, synchronization_operation_id, managed_pr_id, old_head_sha, new_head_sha, publication_id, schema_version, payload_json, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        input.invalidationId,
+        input.operationId,
+        input.managedPrId,
+        input.oldHeadSha,
+        input.newHeadSha,
+        input.publicationId,
+        payload.schemaVersion,
+        payload.payload,
+        payload.payloadHash,
+        input.createdAt,
+      ),
+    );
+    return input;
+  }
+
+  public getF27HeadAdvanceInvalidation(
+    operationId: string,
+  ): F27HeadAdvanceInvalidation | undefined {
+    id(operationId, "F27 synchronization operation identifier");
+    const row = this.store.read(
+      "SELECT payload_json FROM f27_head_advance_invalidations WHERE synchronization_operation_id = ? ORDER BY created_at ASC LIMIT 1",
+      operationId,
+    );
+    return row === undefined
+      ? undefined
+      : (JSON.parse(
+          rowString(row, "payload_json"),
+        ) as F27HeadAdvanceInvalidation);
   }
 
   public createPublicationIntent(

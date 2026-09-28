@@ -1508,6 +1508,48 @@ CREATE INDEX IF NOT EXISTS idx_f24_preparation_intents_status
 PRAGMA user_version = 17;
 `;
 
+const MIGRATION_18 = `
+/* F27 keeps the review/publication overlay separate from the authoritative
+   F25 operation payload.  This lets F27 advance monotonically without
+   rewriting or weakening F25's deterministic evidence contract. */
+CREATE TABLE IF NOT EXISTS f27_synchronization_states (
+  synchronization_operation_id TEXT PRIMARY KEY,
+  synchronization_batch_id TEXT NOT NULL,
+  managed_pr_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_f27_states_batch
+  ON f27_synchronization_states(synchronization_batch_id, updated_at, synchronization_operation_id);
+CREATE INDEX IF NOT EXISTS idx_f27_states_status
+  ON f27_synchronization_states(status, updated_at, synchronization_operation_id);
+
+CREATE TABLE IF NOT EXISTS f27_head_advance_invalidations (
+  invalidation_id TEXT PRIMARY KEY,
+  synchronization_operation_id TEXT NOT NULL,
+  managed_pr_id TEXT NOT NULL,
+  old_head_sha TEXT NOT NULL,
+  new_head_sha TEXT NOT NULL,
+  publication_id TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (synchronization_operation_id, old_head_sha, new_head_sha)
+);
+
+CREATE INDEX IF NOT EXISTS idx_f27_invalidations_pr
+  ON f27_head_advance_invalidations(managed_pr_id, created_at, invalidation_id);
+
+PRAGMA user_version = 18;
+`;
+
 function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
@@ -1614,6 +1656,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = [
     id: "F24-001-synchronization-preparation-intents",
     sql: MIGRATION_17,
     checksum: checksum(MIGRATION_17),
+  },
+  {
+    version: 18,
+    id: "F27-001-synchronization-review-publication-overlay",
+    sql: MIGRATION_18,
+    checksum: checksum(MIGRATION_18),
   },
 ];
 

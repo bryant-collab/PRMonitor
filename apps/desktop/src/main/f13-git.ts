@@ -62,7 +62,7 @@ function safeSha(value: string): boolean {
 }
 
 function safeCommitExpression(value: string): boolean {
-  return /^[0-9a-f]{7,64}\^\{commit\}$/iu.test(value);
+  return /^[0-9a-f]{7,64}\^\{(?:commit|tree)\}$/iu.test(value);
 }
 
 function positional(value: string): boolean {
@@ -229,7 +229,8 @@ function allowedCommandShape(args: readonly string[]): boolean {
           (args[1] === "--show-toplevel" ||
             args[1] === "--is-bare-repository" ||
             args[1] === "HEAD" ||
-            args[1] === "HEAD^")) ||
+            args[1] === "HEAD^" ||
+            args[1] === "MERGE_HEAD")) ||
         (args.length === 4 &&
           args[1] === "--verify" &&
           args[2] === "--quiet" &&
@@ -271,6 +272,7 @@ function allowedCommandShape(args: readonly string[]): boolean {
         args.length === 4 &&
         args[1] === "-s" &&
         (args[2] === "--format=%s" ||
+          args[2] === "--format=%P" ||
           args[2] === "--format=%H%x00%s%x00%an%x00%aI") &&
         (args[3] === "HEAD" || safeSha(args[3] ?? ""))
       );

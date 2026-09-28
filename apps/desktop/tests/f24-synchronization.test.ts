@@ -541,7 +541,7 @@ describe("F24 synchronization selection and resolution", () => {
         },
         { clock: { now: () => NOW }, applicationBuild: "f24-test" },
       );
-      expect(store.health.schemaVersion).toBe(17);
+      expect(store.health.schemaVersion).toBe(18);
       const repositories = new F24PersistenceRepositories(store, {
         clock: { now: () => NOW },
       });

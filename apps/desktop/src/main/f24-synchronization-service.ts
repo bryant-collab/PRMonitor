@@ -449,6 +449,54 @@ export class F24SynchronizationService {
     );
   }
 
+  /**
+   * F27 uses the same exact resolver for a single-result re-evaluation.  This
+   * deliberately stops at an F24 preparation authorization; F25 remains the
+   * only downstream handoff and the old result is never rewritten.
+   */
+  public async resolveForReevaluation(
+    managedPrId: string,
+  ): Promise<F24PreparationAuthorization> {
+    const projection = this.options.inbox.read();
+    const confirmation = await this.resolveSelection(
+      [managedPrId],
+      0,
+      projection.version,
+    );
+    if (!confirmation.confirmEnabled || confirmation.rows.length !== 1) {
+      const row = confirmation.rows[0];
+      throw new F24SynchronizationError(
+        "F24_REEVALUATION_NOT_ELIGIBLE",
+        "The current pull-request identity is not eligible for re-evaluation.",
+        row?.reason ??
+          genericReason(
+            "REEVALUATION_NOT_ELIGIBLE",
+            "NO_ELIGIBLE",
+            "The current synchronization target is not eligible.",
+            "F27 preserves the old result and will not guess a replacement source, repository, branch, or SHA.",
+            "RETRY_RESOLUTION",
+            safeCorrelation(managedPrId, "reevaluation"),
+          ),
+      );
+    }
+    const snapshot = this.createIntentSnapshot(confirmation);
+    const existing =
+      this.options.persistence.getPreparationIntentByIdempotencyKey(
+        snapshot.idempotencyKey,
+      );
+    const intent =
+      existing ??
+      this.options.persistence.persistIntent({
+        snapshot,
+        handoff: {
+          status: "PENDING",
+          authorizationId: `f24-auth-${f24Fingerprint(snapshot.intentId)}`,
+          updatedAt: snapshot.createdAt,
+        },
+      });
+    return this.authorizationFor(intent);
+  }
+
   private async resolveSelection(
     selectedManagedPrIds: readonly string[],
     selectionSessionVersion: number,

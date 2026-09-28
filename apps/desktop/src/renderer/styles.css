@@ -1912,6 +1912,140 @@ h1 {
   margin-top: 0.75rem;
 }
 
+.synchronization-review {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #d6dfeb;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.synchronization-review-layout {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+
+.synchronization-batch-list,
+.synchronization-result-list,
+.synchronization-review-content,
+.synchronization-result-card {
+  min-width: 0;
+}
+
+.synchronization-batch-list {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.synchronization-result-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.review-row {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.7rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.review-row.selected {
+  outline: 2px solid #175cd3;
+}
+
+.synchronization-result-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.synchronization-evidence {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.synchronization-evidence dd,
+.synchronization-evidence dt {
+  overflow-wrap: anywhere;
+}
+
+.synchronization-conflicts {
+  padding: 0.75rem;
+  border-left: 4px solid #b42318;
+  background: #fff3f2;
+}
+
+.synchronization-conflicts h4 {
+  margin: 0 0 0.35rem;
+}
+
+.synchronization-conflicts ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.synchronization-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.synchronization-choice {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid #cdd9e8;
+  border-radius: 0.45rem;
+}
+
+.synchronization-choice label {
+  min-width: 0;
+}
+
+.synchronization-review-content details {
+  min-width: 0;
+  margin: 0.7rem 0;
+}
+
+.synchronization-review-content summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.synchronization-diff {
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid #cdd9e8;
+  background: #f8fbff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+@media (max-width: 760px) {
+  .synchronization-review-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (forced-colors: active) {
   .activity-viewer,
   .activity-entry,
@@ -1925,6 +2059,26 @@ h1 {
 
   .activity-entry pre {
     border: 1px solid ButtonText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .synchronization-review,
+  .synchronization-result-card,
+  .synchronization-choice,
+  .review-row {
+    border-color: ButtonText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+
+  .review-row.selected {
+    outline-color: Highlight;
+  }
+
+  .synchronization-conflicts {
+    border-color: ButtonText;
     background: Canvas;
     color: CanvasText;
   }

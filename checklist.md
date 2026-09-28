@@ -207,7 +207,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Primary application criteria:** APP-AC-48, APP-AC-54 through APP-AC-64, APP-AC-70, APP-AC-76, and APP-AC-77.
   - **F15 handoff:** F26 supplies exact conflict context and consumes the structured conflict result. F15 provides the adapter boundary only; F13 remains authoritative for actual unmerged paths/diffs, F14 for validation, F17 for bounded progress, and F26/F27 for ambiguity and publication decisions.
 
-- [ ] **F27 - Synchronization result review, staleness, and publication**
+- [x] **F27 - Synchronization result review, staleness, and publication**
   - **Depends on:** F19-F20, F23-F26.
   - **Deliver:** Add batch/result review UI with status overlays, deterministic explanations, full diff/validation/worktree/AI evidence, competing-intent summaries and required user questions for ambiguous conflicts, discard/re-evaluate/dirty-worktree handling, and per-result **Publish Merge**. Re-fetch and verify PR openness, source/head/merge-base SHAs, exact merge state, and non-force feasibility; persist/reconcile publication; mark older bundles stale after head movement; keep each PR outcome isolated.
   - **Exit:** Every merge is individually reviewable and explicitly approved; either SHA movement blocks publication; retry/resume cannot duplicate merge commits or pushes; successful publication preserves historical bundles and marks affected ones stale.

@@ -119,11 +119,32 @@ import {
   f26RetryActionSchema,
   type F26RetryAction,
 } from "./f26-conflict-resolution";
+import {
+  F27_MAX_ROWS,
+  isF27BatchReview,
+  isF27ResultReview,
+  type F27ApprovalInput,
+  type F27BatchReview,
+  type F27FreshnessInput,
+  type F27PublicationInput,
+  type F27ReevaluationInput,
+  type F27ResultReview,
+  type F27WorktreeActionInput,
+} from "./f27-synchronization";
 export type {
   F23ApprovalInput,
   F23PublicationInput,
   F23PublicationReadModel,
 } from "./f23-release";
+export type {
+  F27ApprovalInput,
+  F27BatchReview,
+  F27FreshnessInput,
+  F27PublicationInput,
+  F27ReevaluationInput,
+  F27ResultReview,
+  F27WorktreeActionInput,
+} from "./f27-synchronization";
 
 export const IPC_SCHEMA_VERSION = 1 as const;
 // F07 permits a 32 KiB per-PR context. Keep enough envelope headroom for the
@@ -185,6 +206,18 @@ export type IpcRequestType =
   | "synchronization.result.read"
   | "synchronization.conflict.retry"
   | "synchronization.operation.cancel"
+  | "synchronization.review.batch.list"
+  | "synchronization.review.batch.read"
+  | "synchronization.review.result.read"
+  | "synchronization.review.worktree.refresh"
+  | "synchronization.review.worktree.action"
+  | "synchronization.review.freshness.refresh"
+  | "synchronization.review.reevaluate"
+  | "synchronization.review.discard"
+  | "synchronization.review.publication.read"
+  | "synchronization.review.publication.approve"
+  | "synchronization.review.publication.publish"
+  | "synchronization.review.publication.reconcile"
   | "inbox.navigate"
   | "activity.query"
   | "activity.subscribe"
@@ -389,6 +422,53 @@ export type IpcRequest =
       readonly type:
         "synchronization.result.read" | "synchronization.operation.cancel";
       readonly payload: { readonly operationId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.batch.list";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.batch.read";
+      readonly payload: { readonly batchId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        | "synchronization.review.result.read"
+        | "synchronization.review.publication.read";
+      readonly payload: { readonly operationId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.worktree.refresh";
+      readonly payload: F27FreshnessInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.freshness.refresh";
+      readonly payload: F27FreshnessInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.worktree.action";
+      readonly payload: F27WorktreeActionInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.reevaluate";
+      readonly payload: F27ReevaluationInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.discard";
+      readonly payload: {
+        readonly operationId: string;
+        readonly expectedRevision: number;
+      };
+    })
+  | (IpcRequestBase & {
+      readonly type: "synchronization.review.publication.approve";
+      readonly payload: F27ApprovalInput;
+    })
+  | (IpcRequestBase & {
+      readonly type:
+        | "synchronization.review.publication.publish"
+        | "synchronization.review.publication.reconcile";
+      readonly payload: F27PublicationInput;
     })
   | (IpcRequestBase & {
       readonly type: "synchronization.conflict.retry";
@@ -670,6 +750,27 @@ export type IpcResponseValue =
   | {
       readonly kind: "synchronization-result";
       readonly result: F25SynchronizationResultReadModel;
+    }
+  | {
+      readonly kind: "synchronization-review-batches";
+      readonly batches: readonly F27BatchReview[];
+    }
+  | {
+      readonly kind: "synchronization-review-batch";
+      readonly batch: F27BatchReview;
+    }
+  | {
+      readonly kind: "synchronization-review-result";
+      readonly result: F27ResultReview;
+    }
+  | {
+      readonly kind: "synchronization-review-action";
+      readonly outcome: string;
+      readonly result: F27ResultReview;
+    }
+  | {
+      readonly kind: "synchronization-review-publication";
+      readonly result: F27ResultReview;
     }
   | {
       readonly kind: "synchronization-operation-cancelled";
@@ -1062,6 +1163,31 @@ function parseResponseValue(value: unknown): boolean {
     return (
       hasExactKeys(value, ["kind", "result"]) &&
       isF25SynchronizationResultReadModel(value.result)
+    );
+  if (value.kind === "synchronization-review-batches")
+    return (
+      hasExactKeys(value, ["kind", "batches"]) &&
+      Array.isArray(value.batches) &&
+      value.batches.length <= F27_MAX_ROWS &&
+      value.batches.every(isF27BatchReview)
+    );
+  if (value.kind === "synchronization-review-batch")
+    return (
+      hasExactKeys(value, ["kind", "batch"]) && isF27BatchReview(value.batch)
+    );
+  if (value.kind === "synchronization-review-result")
+    return (
+      hasExactKeys(value, ["kind", "result"]) && isF27ResultReview(value.result)
+    );
+  if (value.kind === "synchronization-review-action")
+    return (
+      hasExactKeys(value, ["kind", "outcome", "result"]) &&
+      typeof value.outcome === "string" &&
+      isF27ResultReview(value.result)
+    );
+  if (value.kind === "synchronization-review-publication")
+    return (
+      hasExactKeys(value, ["kind", "result"]) && isF27ResultReview(value.result)
     );
   if (value.kind === "synchronization-operation-cancelled")
     return (
@@ -1504,7 +1630,8 @@ export function parseIpcRequest(
     value.type === "synchronization.selection.reset" ||
     value.type === "synchronization.resolve" ||
     value.type === "synchronization.intent.list" ||
-    value.type === "synchronization.batch.list"
+    value.type === "synchronization.batch.list" ||
+    value.type === "synchronization.review.batch.list"
   ) {
     if (Object.keys(value.payload).length !== 0)
       return invalidRequest("This read request does not accept a payload.");
@@ -1596,6 +1723,220 @@ export function parseIpcRequest(
         ...base,
         type: value.type,
         payload: { batchId: value.payload.batchId },
+      } as IpcRequest,
+    };
+  }
+  if (
+    value.type === "synchronization.review.batch.read" ||
+    value.type === "synchronization.review.publication.read"
+  ) {
+    const key =
+      value.type === "synchronization.review.batch.read"
+        ? "batchId"
+        : "operationId";
+    if (
+      !hasExactKeys(value.payload, [key]) ||
+      !safeGithubIdentifier(value.payload[key])
+    )
+      return invalidRequest(
+        "The synchronization review identifier is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: { [key]: value.payload[key] },
+      } as IpcRequest,
+    };
+  }
+  if (
+    value.type === "synchronization.review.result.read" ||
+    value.type === "synchronization.review.worktree.refresh" ||
+    value.type === "synchronization.review.freshness.refresh"
+  ) {
+    if (
+      !hasExactKeys(value.payload, ["operationId"], ["expectedRevision"]) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      (value.payload.expectedRevision !== undefined &&
+        !safeVersion(value.payload.expectedRevision))
+    )
+      return invalidRequest(
+        "The synchronization review operation input is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          operationId: value.payload.operationId,
+          ...(value.payload.expectedRevision === undefined
+            ? {}
+            : { expectedRevision: value.payload.expectedRevision }),
+        },
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.review.worktree.action") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["operationId", "actionId", "choice", "expectedRevision"],
+        ["confirmed", "beforeSnapshotId", "afterSnapshotId"],
+      ) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      !safeGithubIdentifier(value.payload.actionId) ||
+      !["CLEAR_ALL", "CLEAR_AI_ONLY", "KEEP_AND_CANCEL"].includes(
+        String(value.payload.choice),
+      ) ||
+      !safeVersion(value.payload.expectedRevision) ||
+      (value.payload.confirmed !== undefined &&
+        typeof value.payload.confirmed !== "boolean") ||
+      (value.payload.beforeSnapshotId !== undefined &&
+        !safeGithubIdentifier(value.payload.beforeSnapshotId)) ||
+      (value.payload.afterSnapshotId !== undefined &&
+        !safeGithubIdentifier(value.payload.afterSnapshotId))
+    )
+      return invalidRequest("The synchronization worktree action is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          operationId: value.payload.operationId,
+          actionId: value.payload.actionId,
+          choice: value.payload.choice,
+          expectedRevision: value.payload.expectedRevision,
+          ...(value.payload.confirmed === undefined
+            ? {}
+            : { confirmed: value.payload.confirmed }),
+          ...(value.payload.beforeSnapshotId === undefined
+            ? {}
+            : { beforeSnapshotId: value.payload.beforeSnapshotId }),
+          ...(value.payload.afterSnapshotId === undefined
+            ? {}
+            : { afterSnapshotId: value.payload.afterSnapshotId }),
+        },
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.review.reevaluate") {
+    if (
+      !hasExactKeys(
+        value.payload,
+        ["operationId", "expectedRevision", "actionId", "choice"],
+        ["confirmed"],
+      ) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      !safeGithubIdentifier(value.payload.actionId) ||
+      !safeVersion(value.payload.expectedRevision) ||
+      !["CLEAR_ALL", "CLEAR_AI_ONLY", "KEEP_AND_CANCEL"].includes(
+        String(value.payload.choice),
+      ) ||
+      (value.payload.confirmed !== undefined &&
+        typeof value.payload.confirmed !== "boolean")
+    )
+      return invalidRequest(
+        "The synchronization re-evaluation input is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          operationId: value.payload.operationId,
+          expectedRevision: value.payload.expectedRevision,
+          actionId: value.payload.actionId,
+          choice: value.payload.choice,
+          ...(value.payload.confirmed === undefined
+            ? {}
+            : { confirmed: value.payload.confirmed }),
+        },
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.review.discard") {
+    if (
+      !hasExactKeys(value.payload, ["operationId", "expectedRevision"]) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      !safeVersion(value.payload.expectedRevision)
+    )
+      return invalidRequest("The synchronization discard input is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: value.payload,
+      } as IpcRequest,
+    };
+  }
+  if (value.type === "synchronization.review.publication.approve") {
+    if (
+      !hasExactKeys(value.payload, [
+        "operationId",
+        "expectedRevision",
+        "approvalId",
+        "idempotencyKey",
+        "candidateHash",
+        "commitMessage",
+        "completeDiffAcknowledged",
+        "noCodeChangeAcknowledged",
+      ]) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      !safeVersion(value.payload.expectedRevision) ||
+      !safeGithubIdentifier(value.payload.approvalId) ||
+      !safeGithubIdentifier(value.payload.idempotencyKey) ||
+      !safeGithubIdentifier(value.payload.candidateHash) ||
+      !safeManagedMultilineText(value.payload.commitMessage, 512) ||
+      value.payload.completeDiffAcknowledged !== true ||
+      typeof value.payload.noCodeChangeAcknowledged !== "boolean"
+    )
+      return invalidRequest(
+        "The synchronization publication approval is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          operationId: value.payload.operationId,
+          expectedRevision: value.payload.expectedRevision,
+          approvalId: value.payload.approvalId,
+          idempotencyKey: value.payload.idempotencyKey,
+          candidateHash: value.payload.candidateHash,
+          commitMessage: value.payload.commitMessage,
+          completeDiffAcknowledged: true,
+          noCodeChangeAcknowledged: value.payload.noCodeChangeAcknowledged,
+        },
+      } as IpcRequest,
+    };
+  }
+  if (
+    value.type === "synchronization.review.publication.publish" ||
+    value.type === "synchronization.review.publication.reconcile"
+  ) {
+    if (
+      !hasExactKeys(value.payload, ["operationId", "idempotencyKey"]) ||
+      !safeGithubIdentifier(value.payload.operationId) ||
+      !safeGithubIdentifier(value.payload.idempotencyKey)
+    )
+      return invalidRequest(
+        "The synchronization publication input is invalid.",
+      );
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          operationId: value.payload.operationId,
+          idempotencyKey: value.payload.idempotencyKey,
+        },
       } as IpcRequest,
     };
   }
@@ -2570,6 +2911,42 @@ export interface PrMonitorPreloadApi {
   ) => Promise<IpcResponse>;
   readonly cancelSynchronizationOperation: (
     operationId: string,
+  ) => Promise<IpcResponse>;
+  readonly listSynchronizationReviews: () => Promise<IpcResponse>;
+  readonly readSynchronizationReviewBatch: (
+    batchId: string,
+  ) => Promise<IpcResponse>;
+  readonly readSynchronizationReviewResult: (
+    operationId: string,
+  ) => Promise<IpcResponse>;
+  readonly refreshSynchronizationWorktree: (
+    operationId: string,
+    expectedRevision: number,
+  ) => Promise<IpcResponse>;
+  readonly actOnSynchronizationWorktree: (
+    input: F27WorktreeActionInput,
+  ) => Promise<IpcResponse>;
+  readonly refreshSynchronizationFreshness: (
+    input: F27FreshnessInput,
+  ) => Promise<IpcResponse>;
+  readonly reevaluateSynchronization: (
+    input: F27ReevaluationInput,
+  ) => Promise<IpcResponse>;
+  readonly discardSynchronizationResult: (
+    operationId: string,
+    expectedRevision: number,
+  ) => Promise<IpcResponse>;
+  readonly readSynchronizationPublication: (
+    operationId: string,
+  ) => Promise<IpcResponse>;
+  readonly approveSynchronizationPublication: (
+    input: F27ApprovalInput,
+  ) => Promise<IpcResponse>;
+  readonly publishSynchronizationPublication: (
+    input: F27PublicationInput,
+  ) => Promise<IpcResponse>;
+  readonly reconcileSynchronizationPublication: (
+    input: F27PublicationInput,
   ) => Promise<IpcResponse>;
   readonly readActivity: (query?: ActivityQuery) => Promise<IpcResponse>;
   readonly subscribeActivity: (query?: ActivityQuery) => Promise<IpcResponse>;

@@ -36,6 +36,7 @@ import { ManagedPrInbox } from "./ManagedPrInbox";
 import { ActivityViewer } from "./ActivityViewer";
 import { Preferences } from "./Preferences";
 import { ReviewBundleWorkspace } from "./ReviewBundleWorkspace";
+import { SynchronizationReview } from "./SynchronizationReview";
 
 function operationNeedsAction(
   operation: GithubCredentialOperationView,
@@ -60,6 +61,10 @@ export function StartupApp() {
   >();
   const [targetLabel, setTargetLabel] = useState("home");
   const [reviewBundleId, setReviewBundleId] = useState<string>();
+  const [synchronizationBatchId, setSynchronizationBatchId] =
+    useState<string>();
+  const [synchronizationResultId, setSynchronizationResultId] =
+    useState<string>();
   const [displayName, setDisplayName] = useState("");
   const [serverUrl, setServerUrl] = useState("https://github.com");
   const [selectedProfileId, setSelectedProfileId] = useState<
@@ -199,6 +204,14 @@ export function StartupApp() {
       if (!active) return;
       if (target.kind === "REVIEW_BUNDLE" && target.id !== undefined)
         setReviewBundleId(target.id);
+      if (target.kind === "SYNCHRONIZATION_BATCH" && target.id !== undefined) {
+        setSynchronizationBatchId(target.id);
+        setSynchronizationResultId(undefined);
+      }
+      if (target.kind === "SYNCHRONIZATION_RESULT" && target.id !== undefined) {
+        setSynchronizationResultId(target.id);
+        setSynchronizationBatchId(undefined);
+      }
       setTargetLabel(
         target.kind === "HOME"
           ? "home"
@@ -760,6 +773,10 @@ export function StartupApp() {
         {reviewBundleId !== undefined ? (
           <ReviewBundleWorkspace bundleId={reviewBundleId} />
         ) : null}
+        <SynchronizationReview
+          batchId={synchronizationBatchId}
+          resultId={synchronizationResultId}
+        />
         <ActivityViewer
           enabled={state !== undefined}
           onNavigate={(target) => {

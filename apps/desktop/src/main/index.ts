@@ -33,6 +33,7 @@ import {
   F22PersistenceRepositories,
   F24PersistenceRepositories,
   F25PersistenceRepositories,
+  F27PersistenceRepositories,
 } from "./persistence";
 import {
   createPersistenceLifecyclePersistence,
@@ -93,6 +94,8 @@ import { F20WorkspaceService } from "./f20-workspace-service";
 import { F22Coordinator } from "./f22-coordinator";
 import { F23PublicationService } from "./f23-release-service";
 import { F23DeterministicGitPublisher } from "./f23-release-git";
+import { F27DeterministicGitPublisher } from "./f27-release-git";
+import { F27SynchronizationService } from "./f27-synchronization-service";
 import { createF23GithubResponsePublisher } from "./f23-release-github";
 import { TrayNotificationCoordinator } from "./f19-coordinator";
 import { ElectronF19NativeSurfaceAdapter } from "./f19-native-adapter";
@@ -107,6 +110,7 @@ import {
 } from "./f24-synchronization-service";
 import {
   f24Fingerprint,
+  f24BranchRefIdentity,
   f24Reason,
   type F24F16ConfigurationReference,
 } from "../shared/f24-synchronization";
@@ -180,6 +184,7 @@ let f19PersistenceRepositories: F19PersistenceRepositories | undefined;
 let f19Coordinator: TrayNotificationCoordinator | undefined;
 let f24SynchronizationService: F24SynchronizationService | undefined;
 let f25SynchronizationService: F25SynchronizationService | undefined;
+let f27SynchronizationService: F27SynchronizationService | undefined;
 const pendingTargets = new OpenTargetQueue();
 
 const rendererEntry = path.join(
@@ -800,6 +805,170 @@ async function initializeMainProcessPersistence(): Promise<void> {
       },
     },
   });
+  const initializedF24SynchronizationService = f24SynchronizationService;
+  if (initializedF24SynchronizationService === undefined)
+    throw new Error("PRMONITOR_F24_SERVICE_NOT_READY");
+  const f27Persistence = new F27PersistenceRepositories(f03Repositories);
+  f27SynchronizationService = new F27SynchronizationService({
+    f25: {
+      readBatch: (batchId) => f25SynchronizationService?.readBatch(batchId),
+      listBatches: () => f25SynchronizationService?.listBatches() ?? [],
+      readResult: (operationId) =>
+        f25SynchronizationService?.readResult(operationId),
+    },
+    persistence: f27Persistence,
+    publication: f03Repositories,
+    worktrees: initializedF13WorktreeService,
+    freshness: {
+      read: async (input) => {
+        const checkedAt = new Date().toISOString();
+        const managed = f07Repositories.getManagedPr(input.managedPrId);
+        if (
+          managed === undefined ||
+          !managed.baseRepository.available ||
+          !managed.headRepository.available ||
+          managed.baseRepository.key !== input.sourceRepositoryKey ||
+          managed.headRepository.key !== input.destinationRepositoryKey ||
+          managed.prHeadBranch !== input.destinationBranch
+        )
+          return {
+            outcome: "IDENTITY_MISMATCH" as const,
+            checkedAt,
+            ...(managed === undefined
+              ? {}
+              : {
+                  sourceRepositoryKey: managed.baseRepository.key,
+                  destinationRepositoryKey: managed.headRepository.key,
+                  destinationBranch: managed.prHeadBranch,
+                }),
+          };
+        const client = githubServerService?.getReadClient(managed.serverId);
+        if (client === undefined)
+          return { outcome: "UNAVAILABLE" as const, checkedAt };
+        const sourceRepository = managed.baseRepository;
+        const destinationRepository = managed.headRepository;
+        const stateIdentity = {
+          schemaVersion: 1 as const,
+          server: sourceRepository.server,
+          repository: sourceRepository,
+          number: managed.number,
+          key: managed.pullRequestKey,
+        };
+        const sourceRef = f24BranchRefIdentity(
+          sourceRepository,
+          input.sourceBranch,
+        );
+        const destinationRef = f24BranchRefIdentity(
+          destinationRepository,
+          input.destinationBranch,
+        );
+        let prState: Awaited<ReturnType<typeof client.getPullRequestState>>;
+        let sourceRefResult: Awaited<ReturnType<typeof client.getBranchRef>>;
+        let destinationRefResult: Awaited<
+          ReturnType<typeof client.getBranchRef>
+        >;
+        try {
+          [prState, sourceRefResult, destinationRefResult] = await Promise.all([
+            client.getPullRequestState({
+              serverId: managed.serverId,
+              identity: stateIdentity,
+              correlationId: `f27-${input.operationId}-pr`,
+            }),
+            client.getBranchRef({
+              serverId: managed.serverId,
+              ref: sourceRef,
+              correlationId: `f27-${input.operationId}-source`,
+            }),
+            client.getBranchRef({
+              serverId: managed.serverId,
+              ref: destinationRef,
+              correlationId: `f27-${input.operationId}-destination`,
+            }),
+          ]);
+        } catch {
+          return { outcome: "UNAVAILABLE" as const, checkedAt };
+        }
+        if (
+          !prState.ok ||
+          prState.outcome !== "UPDATED" ||
+          !sourceRefResult.ok ||
+          sourceRefResult.outcome !== "UPDATED" ||
+          !destinationRefResult.ok ||
+          destinationRefResult.outcome !== "UPDATED"
+        )
+          return { outcome: "UNAVAILABLE" as const, checkedAt };
+        const observedSourceSha = sourceRefResult.value.sha;
+        const observedHeadSha = destinationRefResult.value.sha;
+        const identityMismatch =
+          prState.value.identity.key !== managed.pullRequestKey ||
+          sourceRefResult.value.identity.key !== sourceRef.key ||
+          destinationRefResult.value.identity.key !== destinationRef.key;
+        const moved =
+          observedSourceSha !== input.expectedSourceSha ||
+          observedHeadSha !== input.expectedHeadSha;
+        return {
+          outcome: identityMismatch
+            ? ("IDENTITY_MISMATCH" as const)
+            : prState.value.merged
+              ? ("MERGED" as const)
+              : prState.value.state !== "OPEN"
+                ? ("CLOSED" as const)
+                : moved
+                  ? ("MOVED" as const)
+                  : ("CURRENT" as const),
+          checkedAt,
+          sourceSha: observedSourceSha,
+          headSha: observedHeadSha,
+          state: prState.value.state,
+          merged: prState.value.merged,
+          sourceRepositoryKey: sourceRepository.key,
+          destinationRepositoryKey: destinationRepository.key,
+          sourceBranch: input.sourceBranch,
+          destinationBranch: input.destinationBranch,
+        };
+      },
+    },
+    reevaluation: {
+      start: async (input) => {
+        const authorization =
+          await initializedF24SynchronizationService.resolveForReevaluation(
+            input.managedPrId,
+          );
+        const accepted = await f25SynchronizationService!.accept(authorization);
+        const batch = f25SynchronizationService!
+          .listBatches()
+          .find(
+            (candidate) =>
+              candidate.idempotencyKey === authorization.idempotencyKey,
+          );
+        return {
+          status: accepted.status,
+          ...(batch === undefined ? {} : { batchId: batch.batchId }),
+          ...(accepted.reason === undefined
+            ? {}
+            : {
+                reason: {
+                  code: accepted.reason.code,
+                  what: accepted.reason.what,
+                  why: accepted.reason.why,
+                  nextAction:
+                    accepted.reason.nextAction === "RECONCILE"
+                      ? ("RECONCILE" as const)
+                      : ("RETRY" as const),
+                  correlationId: accepted.reason.correlationId,
+                },
+              }),
+        };
+      },
+    },
+    git: new F27DeterministicGitPublisher(),
+    invalidation: {
+      invalidatePublishedResult: async (invalidation) => {
+        if (f22Coordinator === undefined) return;
+        await f22Coordinator.observeManagedPr(invalidation.managedPrId);
+      },
+    },
+  });
   automaticReviewAiAdapter = new F18AIWorkAdapter({
     persistence: f17Persistence,
     provider: f15ProviderRegistry,
@@ -1224,6 +1393,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
     },
   });
   await f23PublicationService.reconcileStartup();
+  await f27SynchronizationService?.reconcileStartup();
   reviewScheduler = new ReviewScheduler({
     managedPrs: {
       listManagedPrs: () => f07Repositories.listManagedPrs(),
@@ -1743,6 +1913,69 @@ async function startMainProcess(): Promise<void> {
       if (f25SynchronizationService === undefined)
         return Promise.reject(new Error("PRMONITOR_F25_SERVICE_NOT_READY"));
       return f25SynchronizationService.cancelOperation(operationId);
+    },
+    listSynchronizationReviews: () => {
+      if (f27SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+      return f27SynchronizationService.listBatches();
+    },
+    readSynchronizationReviewBatch: (batchId) => {
+      if (f27SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+      return f27SynchronizationService.readBatch(batchId);
+    },
+    readSynchronizationReviewResult: (operationId) => {
+      if (f27SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+      return f27SynchronizationService.readResult(operationId);
+    },
+    refreshSynchronizationWorktree: (operationId, expectedRevision) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.refreshWorktree(
+        operationId,
+        expectedRevision,
+      );
+    },
+    actOnSynchronizationWorktree: (input) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.actOnWorktree(input);
+    },
+    refreshSynchronizationFreshness: (input) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.refreshFreshness(input);
+    },
+    reevaluateSynchronization: (input) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.reevaluate(input);
+    },
+    discardSynchronizationResult: (input) => {
+      if (f27SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+      return f27SynchronizationService.discard(input);
+    },
+    readSynchronizationPublication: (operationId) => {
+      if (f27SynchronizationService === undefined)
+        throw new Error("PRMONITOR_F27_SERVICE_NOT_READY");
+      return f27SynchronizationService.readResult(operationId);
+    },
+    approveSynchronizationPublication: (input) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.approvePublication(input);
+    },
+    publishSynchronizationPublication: (input) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.publish(input);
+    },
+    reconcileSynchronizationPublication: (input) => {
+      if (f27SynchronizationService === undefined)
+        return Promise.reject(new Error("PRMONITOR_F27_SERVICE_NOT_READY"));
+      return f27SynchronizationService.reconcile(input);
     },
     navigateManagedPr: (managedPrId, destination) => {
       if (managedPrInboxService === undefined)

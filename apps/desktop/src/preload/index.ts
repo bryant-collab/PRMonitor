@@ -39,6 +39,13 @@ import type {
 } from "../shared/f21-conversation";
 import type { F24SelectionCommandInput } from "../shared/f24-synchronization";
 import type { F26RetryAction } from "../shared/f26-conflict-resolution";
+import type {
+  F27ApprovalInput,
+  F27FreshnessInput,
+  F27PublicationInput,
+  F27ReevaluationInput,
+  F27WorktreeActionInput,
+} from "../shared/f27-synchronization";
 let requestSequence = 0;
 const sessionId = `renderer-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
 
@@ -120,7 +127,13 @@ function invoke(
         readonly operationId: string;
         readonly action: F26RetryAction;
         readonly expectedVersion?: number;
-      },
+      }
+    | F27ApprovalInput
+    | F27PublicationInput
+    | F27FreshnessInput
+    | F27ReevaluationInput
+    | F27WorktreeActionInput
+    | { readonly operationId: string; readonly expectedRevision: number },
 ): Promise<IpcResponse> {
   return ipcRenderer.invoke(IPC_CHANNELS.request, {
     schemaVersion: 1,
@@ -220,6 +233,36 @@ const api: PrMonitorPreloadApi = {
     }),
   cancelSynchronizationOperation: (operationId) =>
     invoke("synchronization.operation.cancel", { operationId }),
+  listSynchronizationReviews: () =>
+    invoke("synchronization.review.batch.list", {}),
+  readSynchronizationReviewBatch: (batchId) =>
+    invoke("synchronization.review.batch.read", { batchId }),
+  readSynchronizationReviewResult: (operationId) =>
+    invoke("synchronization.review.result.read", { operationId }),
+  refreshSynchronizationWorktree: (operationId, expectedRevision) =>
+    invoke("synchronization.review.worktree.refresh", {
+      operationId,
+      expectedRevision,
+    }),
+  actOnSynchronizationWorktree: (input) =>
+    invoke("synchronization.review.worktree.action", input),
+  refreshSynchronizationFreshness: (input) =>
+    invoke("synchronization.review.freshness.refresh", input),
+  reevaluateSynchronization: (input) =>
+    invoke("synchronization.review.reevaluate", input),
+  discardSynchronizationResult: (operationId, expectedRevision) =>
+    invoke("synchronization.review.discard", {
+      operationId,
+      expectedRevision,
+    }),
+  readSynchronizationPublication: (operationId) =>
+    invoke("synchronization.review.publication.read", { operationId }),
+  approveSynchronizationPublication: (input) =>
+    invoke("synchronization.review.publication.approve", input),
+  publishSynchronizationPublication: (input) =>
+    invoke("synchronization.review.publication.publish", input),
+  reconcileSynchronizationPublication: (input) =>
+    invoke("synchronization.review.publication.reconcile", input),
   readActivity: (query = {}) => invoke("activity.query", query),
   subscribeActivity: (query = {}) => invoke("activity.subscribe", query),
   navigateActivity: (eventId) => invoke("activity.navigate", { eventId }),
