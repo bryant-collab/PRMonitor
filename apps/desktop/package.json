@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
+  "description": "Deterministic pull-request monitoring for Windows.",
+  "author": "PRMonitor",
   "engines": {
     "node": "24.19.0",
     "npm": "11.17.0"
   },
   "scripts": {
     "build": "electron-vite build",
+    "generate:icon": "node scripts/generate-icon.mjs",
     "typecheck": "npm run typecheck:shared && npm run typecheck:main && npm run typecheck:preload && npm run typecheck:renderer && npm run typecheck:tests",
     "typecheck:shared": "tsc -p tsconfig.shared.json --noEmit",
     "typecheck:main": "tsc -p tsconfig.main.json --noEmit",
@@ -18,7 +21,8 @@
     "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
     "lint": "eslint .",
     "format:check": "prettier --check electron.vite.config.ts electron-builder.yml eslint.config.mjs package.json src tests scripts tsconfig.json tsconfig.shared.json tsconfig.main.json tsconfig.preload.json tsconfig.renderer.json tsconfig.tests.json",
-    "package": "electron-builder --dir --config electron-builder.yml",
+    "package": "npm run generate:icon && electron-builder --dir --config electron-builder.yml",
+    "package:installer": "npm run generate:icon && electron-builder --win nsis --x64 --config electron-builder.yml",
     "build:artifact": "npm run build && npm run package",
     "smoke": "node scripts/smoke.mjs",
     "test": "vitest run",

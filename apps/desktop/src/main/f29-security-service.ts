@@ -62,6 +62,7 @@ const privilegedRequestTypes = new Set<IpcRequest["type"]>([
   "scheduler.pause",
   "scheduler.resume",
   "lifecycle.shutdown",
+  "support-diagnostics.export",
   "github.credential.submit",
   "github.operation.retry",
   "github.operation.cleanup",

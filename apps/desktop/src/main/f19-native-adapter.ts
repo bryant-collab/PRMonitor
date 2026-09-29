@@ -1,4 +1,5 @@
 import { Menu, Notification, Tray, nativeImage } from "electron";
+import { existsSync } from "node:fs";
 import type {
   F19NativeDeliveryResult,
   F19NativeNotificationAction,
@@ -60,6 +61,8 @@ function nativeAction(action: F19NativeNotificationAction): {
  * platform-neutral adapter and therefore remains deterministic in tests.
  */
 export class ElectronF19NativeSurfaceAdapter implements F19NativeSurfaceAdapter {
+  public constructor(private readonly iconPath?: string) {}
+
   public readonly capabilities: F19NativeSurfaceCapabilities = {
     tray: true,
     notifications:
@@ -71,7 +74,11 @@ export class ElectronF19NativeSurfaceAdapter implements F19NativeSurfaceAdapter 
   };
 
   public createTray(callbacks: F19NativeSurfaceCallbacks): F19TrayHandle {
-    const tray = new Tray(nativeImage.createFromDataURL(TRANSPARENT_TRAY_ICON));
+    const icon =
+      this.iconPath !== undefined && existsSync(this.iconPath)
+        ? nativeImage.createFromPath(this.iconPath)
+        : nativeImage.createFromDataURL(TRANSPARENT_TRAY_ICON);
+    const tray = new Tray(icon);
     tray.setToolTip("PRMonitor");
     tray.on("click", () => callbacks.onCommand("OPEN_APP"));
     let destroyed = false;

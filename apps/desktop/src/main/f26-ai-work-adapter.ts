@@ -670,7 +670,8 @@ export class F26AIWorkAdapter {
         ownerType: operation.worktree?.ownerType ?? "SYNCHRONIZATION",
         ownerId: context.data.ownerId,
         operationKind: "SYNCHRONIZATION",
-        canonicalPath: operation.worktree?.canonicalPath ?? "C:\\unknown",
+        canonicalPath:
+          operation.worktree?.canonicalPath ?? "<unknown-worktree>",
         access: "WORKTREE_WRITE",
         ownership: {
           kind: "OPERATION_OWNED",

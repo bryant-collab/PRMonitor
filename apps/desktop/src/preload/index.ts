@@ -147,6 +147,7 @@ const api: PrMonitorPreloadApi = {
   ready: () => invoke("renderer.ready", { sessionId }),
   readCurrentState: () => invoke("app.read-current-state", {}),
   getLifecycleStatus: () => invoke("lifecycle.status", {}),
+  exportSupportDiagnostics: () => invoke("support-diagnostics.export", {}),
   requestShutdown: () =>
     invoke("lifecycle.shutdown", { command: "Shutdown PRMonitor" }),
   readRecovery: () => invoke("recovery.read", {}),

@@ -27,8 +27,19 @@ The root check verifies runtime versions, typechecks/lints/formats/builds and
 smoke-launches the desktop artifact, verifies the read-only F00 schema,
 executes F00 tests, and builds/tests the standalone spec-linter. It does not
 require product-service credentials or run the credentialed semantic linters.
-The unpacked artifact is written to ignored `release/`; no installer or signing
-operation is produced.
+The unpacked artifact is written to ignored `release/`. F30 also defines the
+Windows 11 x64 internal-preview installer workflow. From a clean checkout,
+package the unsigned, manually distributed NSIS installer and its release
+manifest with:
+
+```powershell
+npm run f30:package
+```
+
+See [docs/windows-release.md](docs/windows-release.md) for the clean-machine,
+upgrade, uninstall, support-diagnostics, and release-evidence procedure. The
+installer is intentionally unsigned and has no updater; it is not a public
+distribution artifact.
 
 The standalone semantic linters remain explicit commands and accept repository-
 relative or absolute paths. Their credential is resolved by the linter only

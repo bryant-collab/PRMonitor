@@ -59,6 +59,8 @@ export function StartupApp() {
   const [state, setState] = useState<CurrentState | undefined>();
   const [recovery, setRecovery] = useState<F28RecoveryProjection>();
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [supportBusy, setSupportBusy] = useState(false);
+  const [supportMessage, setSupportMessage] = useState("");
   const [settings, setSettings] = useState<
     GithubServerSettingsView | undefined
   >();
@@ -244,6 +246,31 @@ export function StartupApp() {
       setRecoveryBusy(false);
     }
   }, [recoveryBusy]);
+
+  const exportSupportDiagnostics = useCallback(async () => {
+    const bridge = window.prmonitor;
+    if (bridge === undefined || supportBusy) return;
+    setSupportBusy(true);
+    try {
+      const response = await bridge.exportSupportDiagnostics();
+      if (response.ok && response.value.kind === "support-diagnostics")
+        setSupportMessage(
+          `Diagnostics saved as ${response.value.fileName} (${response.value.bytes} bytes).`,
+        );
+      else
+        setSupportMessage(
+          response.ok
+            ? "Diagnostics were not exported safely."
+            : response.error.message,
+        );
+    } catch {
+      setSupportMessage(
+        "Diagnostics could not be exported safely. Choose another destination and retry.",
+      );
+    } finally {
+      setSupportBusy(false);
+    }
+  }, [supportBusy]);
 
   const retryInbox = useCallback(async () => {
     const bridge = window.prmonitor;
@@ -818,6 +845,36 @@ export function StartupApp() {
             </button>
           </section>
         ) : null}
+        <section
+          className="server-settings support-panel"
+          aria-labelledby="support-diagnostics-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Support</p>
+              <h2 id="support-diagnostics-heading">Safe support diagnostics</h2>
+            </div>
+          </div>
+          <p className="section-help">
+            Export a bounded report with runtime, migration, lifecycle,
+            recovery, feature-health, and safe activity summaries. Credentials,
+            prompts, source, diffs, and local paths are omitted.
+          </p>
+          <button
+            type="button"
+            onClick={() => void exportSupportDiagnostics()}
+            disabled={supportBusy || state === undefined}
+          >
+            {supportBusy
+              ? "Preparing diagnostics…"
+              : "Export Support Diagnostics"}
+          </button>
+          {supportMessage !== "" ? (
+            <p className="form-message" role="status" aria-live="polite">
+              {supportMessage}
+            </p>
+          ) : null}
+        </section>
         <ManagedPrInbox
           snapshot={inboxSnapshot}
           loading={inboxLoading}

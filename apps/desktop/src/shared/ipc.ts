@@ -168,6 +168,7 @@ export type IpcRequestType =
   | "lifecycle.shutdown"
   | "recovery.read"
   | "recovery.request"
+  | "support-diagnostics.export"
   | "scheduler.read"
   | "scheduler.configuration.save"
   | "scheduler.check-now"
@@ -275,6 +276,10 @@ export type IpcRequest =
     })
   | (IpcRequestBase & {
       readonly type: "recovery.read" | "recovery.request";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "support-diagnostics.export";
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
@@ -693,6 +698,14 @@ export type IpcResponseValue =
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
   | { readonly kind: "recovery"; readonly projection: F28RecoveryProjection }
   | {
+      readonly kind: "support-diagnostics";
+      readonly exported: true;
+      readonly correlationId: string;
+      readonly fileName: string;
+      readonly bytes: number;
+      readonly digest: string;
+    }
+  | {
       readonly kind: "scheduler-snapshot";
       readonly snapshot: F12SchedulerSnapshot;
     }
@@ -1082,6 +1095,25 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "projection"]) &&
       isF28RecoveryProjection(value.projection)
     );
+  if (value.kind === "support-diagnostics")
+    return (
+      hasExactKeys(value, [
+        "kind",
+        "exported",
+        "correlationId",
+        "fileName",
+        "bytes",
+        "digest",
+      ]) &&
+      value.exported === true &&
+      safeRequestId(value.correlationId) &&
+      safeRequestId(value.fileName) &&
+      typeof value.bytes === "number" &&
+      Number.isSafeInteger(value.bytes) &&
+      value.bytes >= 0 &&
+      typeof value.digest === "string" &&
+      /^[a-f0-9]{64}$/u.test(value.digest)
+    );
   if (value.kind === "scheduler-snapshot")
     return (
       hasExactKeys(value, ["kind", "snapshot"]) &&
@@ -1340,7 +1372,8 @@ export function parseIpcRequest(
     value.type === "app.read-current-state" ||
     value.type === "lifecycle.status" ||
     value.type === "recovery.read" ||
-    value.type === "recovery.request"
+    value.type === "recovery.request" ||
+    value.type === "support-diagnostics.export"
   ) {
     if (Object.keys(value.payload).length !== 0)
       return invalidRequest("This IPC request does not accept a payload.");
@@ -2842,6 +2875,7 @@ export interface PrMonitorPreloadApi {
   readonly requestShutdown: () => Promise<IpcResponse>;
   readonly readRecovery: () => Promise<IpcResponse>;
   readonly requestRecovery: () => Promise<IpcResponse>;
+  readonly exportSupportDiagnostics: () => Promise<IpcResponse>;
   readonly readScheduler: () => Promise<IpcResponse>;
   readonly saveSchedulerConfiguration: (
     input: F12SchedulerConfigurationInput & {

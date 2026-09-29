@@ -1,4 +1,5 @@
 export const APPLICATION_TITLE = "PRMonitor";
+export const APPLICATION_ID = "com.prmonitor.desktop";
 export const STARTUP_STATUS_ID = "startup-status";
 export const SMOKE_READY_PREFIX = "PRMONITOR_SMOKE_READY:";
 

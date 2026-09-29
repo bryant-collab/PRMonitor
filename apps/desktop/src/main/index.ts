@@ -6,11 +6,13 @@ import {
   powerMonitor,
   safeStorage,
 } from "electron";
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  APPLICATION_ID,
   APPLICATION_TITLE,
   SMOKE_READY_PREFIX,
   STARTUP_STATUS_ID,
@@ -132,6 +134,7 @@ import {
   createF29SecurityService,
   type F29SecurityService,
 } from "./f29-security-service";
+import { F30SupportDiagnosticsService } from "./f30-support-diagnostics";
 import {
   F28_SCHEMA_VERSION,
   type F28OwnerOutcome,
@@ -173,6 +176,13 @@ interface MainReviewScheduler {
 }
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+function applicationIconPath(): string | undefined {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, "prmonitor.png")]
+    : [path.join(currentDirectory, "..", "..", "build", "prmonitor.png")];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 const smokeMode = process.env.PRMONITOR_SMOKE === "1";
 const smokeNonce = process.env.PRMONITOR_SMOKE_NONCE;
 const smokeTimeoutMs = 29_000;
@@ -210,6 +220,7 @@ let f25SynchronizationService: F25SynchronizationService | undefined;
 let f27SynchronizationService: F27SynchronizationService | undefined;
 let f28RecoveryCoordinator: F28RecoveryCoordinator | undefined;
 let f29SecurityService: F29SecurityService | undefined;
+let f30SupportDiagnostics: F30SupportDiagnosticsService | undefined;
 let f28LifecycleListenersAttached = false;
 let f28ResumeHandler: (() => void) | undefined;
 let f28NetworkPollTimer: NodeJS.Timeout | undefined;
@@ -506,6 +517,9 @@ try {
 } catch (error) {
   smokeFailure("SMOKE_RUNTIME_PATHS_INVALID", error);
 }
+
+app.setName(APPLICATION_TITLE);
+if (process.platform === "win32") app.setAppUserModelId(APPLICATION_ID);
 
 async function initializeMainProcessPersistence(): Promise<void> {
   const userDataDirectory = app.getPath("userData");
@@ -1946,6 +1960,90 @@ async function startMainProcess(): Promise<void> {
   });
   await f28RecoveryCoordinator.startup(`f28-startup-${randomUUID()}`);
 
+  f30SupportDiagnostics = new F30SupportDiagnosticsService({
+    applicationVersion: app.getVersion(),
+    sourceRevision: "runtime-build",
+    readRuntime: () => ({
+      node: process.versions.node,
+      electron: process.versions.electron,
+      platform: process.platform,
+      architecture: process.arch,
+    }),
+    readPersistence: () => ({
+      status: persistenceStore?.health.status ?? "recovery_required",
+      schemaVersion: persistenceStore?.health.schemaVersion ?? 0,
+    }),
+    readLifecycle: () => {
+      const status = lifecycle?.getStatus();
+      return {
+        phase: status?.phase ?? "RECOVERY_REQUIRED",
+        incompleteHandoff: status?.incompleteHandoff ?? true,
+        ...(status?.reasonCode === undefined
+          ? {}
+          : { reasonCode: status.reasonCode }),
+      };
+    },
+    readRecovery: () => {
+      const projection = f28RecoveryCoordinator?.read();
+      return {
+        status: projection?.status ?? "PARTIAL",
+        scopes: projection?.summary.scopes ?? 0,
+        completed: projection?.summary.completed ?? 0,
+        attention: projection?.summary.attention ?? 0,
+        retrying: projection?.summary.retrying ?? 0,
+      };
+    },
+    readFeatureHealth: () => {
+      const persistenceHealth = persistenceStore?.health;
+      const recovery = f28RecoveryCoordinator?.read();
+      return [
+        {
+          featureId: "F03",
+          status:
+            persistenceHealth?.status === "recovery_required"
+              ? ("attention" as const)
+              : ("healthy" as const),
+          ...(persistenceHealth?.reasonCode === undefined
+            ? {}
+            : { reasonCode: persistenceHealth.reasonCode }),
+        },
+        {
+          featureId: "F28",
+          status:
+            (recovery?.summary.attention ?? 0) > 0
+              ? ("attention" as const)
+              : ("healthy" as const),
+        },
+        {
+          featureId: "F29",
+          status: "healthy" as const,
+        },
+      ];
+    },
+    readActivity: () => {
+      try {
+        return (
+          activityService?.query({ limit: 100, direction: "desc" }).events ?? []
+        ).map((event) => ({
+          eventId: event.eventId,
+          eventType: event.eventType,
+          stage: event.stage,
+          severity: event.severity,
+          reasonCode: event.reason.code,
+          correlationId: event.correlationId,
+          ...(event.operationId === undefined
+            ? {}
+            : { operationId: event.operationId }),
+          occurrenceAt: event.occurrenceAt,
+          recordedAt: event.recordedAt,
+          summary: event.summary,
+        }));
+      } catch {
+        return [];
+      }
+    },
+  });
+
   ipcRouter = new IpcRouter(ipcMain, {
     security: f29SecurityService,
     readCurrentState: () => createCurrentState(),
@@ -1976,6 +2074,44 @@ async function startMainProcess(): Promise<void> {
           requestId: `f28-explicit-${randomUUID()}`,
         })
         .then((result) => result.projection);
+    },
+    exportSupportDiagnostics: async () => {
+      if (f30SupportDiagnostics === undefined)
+        return {
+          ok: false as const,
+          correlationId: `support-unavailable-${randomUUID().slice(0, 12)}`,
+          code: "WRITE_FAILED" as const,
+          message: "Support diagnostics are not ready yet.",
+        };
+      const owner = windowManager?.visibleWindow as BrowserWindow | undefined;
+      const defaultPath = path.join(
+        app.getPath("downloads"),
+        `PRMonitor-support-${new Date().toISOString().replace(/[:.]/gu, "-")}.json`,
+      );
+      const selection =
+        owner === undefined
+          ? await dialog.showSaveDialog({
+              title: "Export Support Diagnostics",
+              defaultPath,
+              filters: [
+                { name: "PRMonitor diagnostics", extensions: ["json"] },
+              ],
+            })
+          : await dialog.showSaveDialog(owner, {
+              title: "Export Support Diagnostics",
+              defaultPath,
+              filters: [
+                { name: "PRMonitor diagnostics", extensions: ["json"] },
+              ],
+            });
+      if (selection.canceled || selection.filePath === undefined)
+        return {
+          ok: false as const,
+          correlationId: `support-cancelled-${randomUUID().slice(0, 12)}`,
+          code: "WRITE_FAILED" as const,
+          message: "Support diagnostics export was cancelled.",
+        };
+      return f30SupportDiagnostics.exportTo(selection.filePath);
     },
     readScheduler: () => {
       if (reviewScheduler === undefined)
@@ -2573,6 +2709,9 @@ async function startMainProcess(): Promise<void> {
         height: 480,
         show,
         title: APPLICATION_TITLE,
+        ...(applicationIconPath() === undefined
+          ? {}
+          : { icon: applicationIconPath() }),
         webPreferences: {
           contextIsolation: true,
           nodeIntegration: false,
@@ -2611,7 +2750,7 @@ async function startMainProcess(): Promise<void> {
   const initializedLifecycle = lifecycle;
   f19Coordinator = new TrayNotificationCoordinator({
     persistence: initializedF19PersistenceRepositories,
-    surface: new ElectronF19NativeSurfaceAdapter(),
+    surface: new ElectronF19NativeSurfaceAdapter(applicationIconPath()),
     inbox: {
       read: () => initializedManagedPrInboxService.read(),
       subscribe: (listener) =>

@@ -103,6 +103,7 @@ import type {
 } from "../shared/f27-synchronization";
 import { F16ConfigurationError } from "./f16-preferences-service";
 import type { F29IpcSecurityGate } from "./f29-security-service";
+import type { F30SupportDiagnosticsExportResult } from "./f30-support-diagnostics";
 import { redactF29Text } from "../shared/f29-security";
 import {
   isActivityEvent,
@@ -135,6 +136,7 @@ export interface IpcServices {
   readonly getLifecycleStatus: () => LifecycleStatus;
   readonly readRecovery?: () => F28RecoveryProjection;
   readonly requestRecovery?: () => Promise<F28RecoveryProjection>;
+  readonly exportSupportDiagnostics?: () => Promise<F30SupportDiagnosticsExportResult>;
   readonly requestShutdown: () => Promise<{
     readonly status: LifecycleStatus;
     readonly ok: boolean;
@@ -569,6 +571,25 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "recovery",
             projection: await this.services.requestRecovery(),
+          }),
+        );
+      }
+      if (request.type === "support-diagnostics.export") {
+        if (this.services.exportSupportDiagnostics === undefined)
+          throw new Error("PRMONITOR_SUPPORT_DIAGNOSTICS_NOT_READY");
+        const result = await this.services.exportSupportDiagnostics();
+        if (!result.ok)
+          return boundedIpcResponse(
+            errorResponse(request.requestId, "HANDLER_FAILED", result.message),
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "support-diagnostics",
+            exported: true,
+            correlationId: result.correlationId,
+            fileName: result.fileName,
+            bytes: result.bytes,
+            digest: result.digest,
           }),
         );
       }

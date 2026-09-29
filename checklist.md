@@ -227,7 +227,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Security tests and review demonstrate least-privilege IPC, safe process invocation, no secret persistence/leakage, no path escape from operation ownership, and fail-closed policy/capability behavior.
   - **Primary application criteria:** Hardens APP-AC-01, APP-AC-28, APP-AC-29, APP-AC-50, APP-AC-63, APP-AC-64, and APP-AC-70.
 
-- [ ] **F30 - Windows packaging, end-to-end acceptance, and release readiness**
+- [x] **F30 - Windows packaging, end-to-end acceptance, and release readiness**
   - **Depends on:** F00-F29.
   - **Deliver:** Produce the installable Windows MVP with application identity/icons, upgrade-safe data paths, startup/shutdown behavior, signing/update decisions documented, clean-machine installation instructions, accessibility/keyboard/focus/error-state review, performance bounds, and support diagnostics. Run a requirements trace against all 77 application acceptance criteria plus the full workflow on GitHub.com and supported GHES test configurations.
   - **Exit:** A clean Windows machine can install, configure, run in the tray, monitor multiple PRs, prepare/revise/discard/publish Review Bundles, synchronize branches, recover from restart/network faults, and uninstall without losing externally published history. Every APP-AC has recorded passing evidence or the MVP is not complete.
