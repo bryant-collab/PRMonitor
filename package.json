@@ -22,6 +22,7 @@
     "generate:validation-schema": "npm --workspace @prmonitor/validation-contract run generate:schema",
     "verify:validation-schema": "npm --workspace @prmonitor/validation-contract run verify:schema",
     "report:validation-contract": "npm --workspace @prmonitor/validation-contract run conformance:report",
+    "security:gate": "node scripts/f29-security-gate.mjs",
     "test:desktop": "npm --workspace @prmonitor/desktop run test",
     "test:validation-contract": "npm --workspace @prmonitor/validation-contract run test",
     "test:spec-linter": "npm --workspace @prmonitor/spec-linter run test",

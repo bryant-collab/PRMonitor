@@ -17,6 +17,7 @@ import {
   type AIProviderTurnResult,
   type AIProviderUsage,
 } from "../../shared/ai/provider-contracts";
+import { redactF29Text } from "../../shared/f29-security";
 import type { AIProvider, AIProviderInvokeOptions } from "./registry";
 
 export interface CodexThreadOptions {
@@ -172,14 +173,11 @@ function bounded(value: string, maximum = 1_024): string {
 }
 
 function redact(value: string): string {
-  return bounded(
-    value
-      .replace(/(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)/gu, "<redacted>")
-      .replace(
-        /\b(?:token|secret|password|api[_-]?key|authorization|credential)\b\s*[:=]\s*[^\s,;]+/giu,
-        "<redacted>",
-      ),
-  );
+  const redacted = redactF29Text(value, {
+    replacement: "<redacted>",
+    maximumBytes: 8_192,
+  });
+  return bounded(redacted.ok ? redacted.text : "<redacted>");
 }
 
 function safeEnvironment(

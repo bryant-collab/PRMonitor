@@ -649,7 +649,8 @@ export interface IpcError {
     | "SERVICE_STOP_FAILED"
     | "SERVICE_STOP_TIMEOUT"
     | "SERVICE_HANDOFF_TIMEOUT"
-    | "CONFIGURATION_ERROR";
+    | "CONFIGURATION_ERROR"
+    | "SECURITY_BLOCKED";
   readonly message: string;
   readonly correlationId: string;
 }
@@ -2772,6 +2773,7 @@ export function parseIpcResponse(value: unknown): value is IpcResponse {
       "SERVICE_STOP_TIMEOUT",
       "SERVICE_HANDOFF_TIMEOUT",
       "CONFIGURATION_ERROR",
+      "SECURITY_BLOCKED",
     ].includes(String(value.error.code)) &&
     safeText(value.error.message, 1_024) &&
     safeRequestId(value.error.correlationId)

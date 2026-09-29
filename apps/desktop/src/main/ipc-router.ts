@@ -102,6 +102,8 @@ import type {
   F27WorktreeActionInput,
 } from "../shared/f27-synchronization";
 import { F16ConfigurationError } from "./f16-preferences-service";
+import type { F29IpcSecurityGate } from "./f29-security-service";
+import { redactF29Text } from "../shared/f29-security";
 import {
   isActivityEvent,
   matchesActivityQuery,
@@ -127,6 +129,8 @@ export interface IpcMainLike {
 }
 
 export interface IpcServices {
+  /** F29 runs after schema/session parsing and before any feature service. */
+  readonly security?: F29IpcSecurityGate;
   readonly readCurrentState: (sessionId: string) => CurrentState;
   readonly getLifecycleStatus: () => LifecycleStatus;
   readonly readRecovery?: () => F28RecoveryProjection;
@@ -514,6 +518,21 @@ export class IpcRouter {
           request.requestId,
           "UNAUTHORIZED",
           "The renderer session is no longer active.",
+        );
+      }
+
+      const security = this.services.security?.authorizeRequest({
+        request,
+        senderId: sender.id,
+        sessionId: session.sessionId,
+      });
+      if (security !== undefined && !security.ok) {
+        return boundedIpcResponse(
+          errorResponse(
+            request.requestId,
+            security.error.code,
+            security.error.message,
+          ),
         );
       }
 
@@ -1664,10 +1683,16 @@ export class IpcRouter {
           `${error.message}${detail} Next action: ${error.userAction}`,
         );
       }
-      const safeMessage =
+      const candidateMessage =
         error instanceof Error && error.message.length <= 512
           ? error.message
           : "The main-process handler failed safely.";
+      const redactedMessage = redactF29Text(candidateMessage, {
+        maximumBytes: 1_024,
+      });
+      const safeMessage = redactedMessage.ok
+        ? redactedMessage.text
+        : "The main-process handler failed safely.";
       return errorResponse(request.requestId, "HANDLER_FAILED", safeMessage);
     }
   }

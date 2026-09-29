@@ -14,6 +14,10 @@ import {
   type AIProviderSafeError,
   type AIProviderTurnResult,
 } from "../../shared/ai/provider-contracts";
+import {
+  evaluateF29Capability,
+  type F29SandboxMode,
+} from "../../shared/f29-security";
 
 export interface AIProviderInvokeOptions {
   readonly signal?: AbortSignal;
@@ -297,6 +301,40 @@ export function admitAIProviderRequest(
         "POLICY",
         "REVIEW_POLICY",
         "The provider cannot run with an explicit controlled environment.",
+      ),
+    };
+  const f29Admission = evaluateF29Capability({
+    operationId: normalized.operationId,
+    worktreeOperationId: normalized.worktree?.operationId,
+    policy: {
+      taskType: normalized.taskType,
+      interactionMode: normalized.interactionMode,
+      sandboxMode: requestedSandbox as F29SandboxMode,
+      networkAccess: networkMode,
+      approvalPolicy: normalized.executionPolicySnapshot.approvalPolicy,
+      controlledEnvironment: descriptor.controlledEnvironment,
+      ...(normalized.worktree?.access === "WORKTREE_WRITE"
+        ? { writableRoot: normalized.worktree.canonicalPath }
+        : {}),
+      publicationAuthority: false,
+      snapshotHash: normalized.executionPolicySnapshot.snapshotHash,
+    },
+    requestedWritableRoot: normalized.executionPolicySnapshot.writableRoot,
+    requestedNetworkAccess: networkMode,
+    requestedSandboxMode: requestedSandbox as F29SandboxMode,
+    requestedApprovalPolicy: normalized.executionPolicySnapshot.approvalPolicy,
+    requestedPublicationAuthority:
+      normalized.worktree?.permittedCapabilities.publication,
+    mutating: normalized.interactionMode === "worktree_write",
+  });
+  if (!f29Admission.ok)
+    return {
+      ok: false,
+      error: error(
+        f29Admission.error.code,
+        "SECURITY",
+        "REVIEW_POLICY",
+        f29Admission.error.message,
       ),
     };
   if (normalized.conversationContinuation !== undefined) {

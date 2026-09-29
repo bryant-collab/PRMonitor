@@ -68,6 +68,7 @@ import {
   type F13GitCommandResult,
   type F13GitCommandRunner,
 } from "./f13-git";
+import { validateF29OwnedPath } from "../shared/f29-security";
 
 export interface F13OsPathAdapter {
   openDirectory(
@@ -4042,6 +4043,38 @@ export class F13WorktreeService {
         "FILESYSTEM",
         "The recorded operation target is missing or moved.",
         "F13 preserved Git state and will not open an arbitrary replacement path.",
+        "RECONCILE",
+        intent.correlationId,
+      );
+      this.options.repositories.savePathAction({
+        actionId,
+        operationId,
+        worktreeId: intent.worktreeId,
+        action,
+        ...(relativePath === undefined
+          ? {}
+          : { requestedRelativePath: relativePath }),
+        resolvedPath: target,
+        outcome: "REJECTED",
+        reason,
+      });
+      return { ok: false, action, resolvedPath: target, reason };
+    }
+    const securityPath = validateF29OwnedPath({
+      operationId,
+      ownerOperationId: intent.operationId,
+      operationRoot: intent.canonicalPath,
+      canonicalPath: target,
+      expectedType: action === "OPEN_WORKTREE" ? "directory" : "file",
+      actualType: action === "OPEN_WORKTREE" ? "directory" : "file",
+      platform: process.platform === "win32" ? "win32" : "posix",
+    });
+    if (!securityPath.ok) {
+      const reason = safeReason(
+        securityPath.error.code,
+        "FILESYSTEM",
+        securityPath.error.message,
+        "F29 kept the target inside the current operation-owned path boundary.",
         "RECONCILE",
         intent.correlationId,
       );

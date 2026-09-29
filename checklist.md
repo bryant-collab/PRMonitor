@@ -221,7 +221,7 @@ These apply to every item and should be copied into each PRD when relevant:
   - **Exit:** Fault-injection tests kill/restart the app at every durable phase and demonstrate no lost feedback, reset budget, duplicate external effect, overwritten worktree, or falsely successful result.
   - **Primary application criteria:** Hardens APP-AC-04, APP-AC-17, APP-AC-24, APP-AC-25, APP-AC-49, APP-AC-53, APP-AC-55, and APP-AC-68.
 
-- [ ] **F29 - Security and trust-boundary hardening**
+- [x] **F29 - Security and trust-boundary hardening**
   - **Depends on:** F05-F28.
   - **Deliver:** Threat-model preload/IPC, URL parsing, shell/file opening, Git arguments, validation commands, database paths, credential handling, provider environments, sandbox/policy translation, log/output redaction, and dependency supply chain. Enforce renderer isolation and schema validation at boundaries; verify AI has no application publication credentials; document the MVP's defense-in-depth limits.
   - **Exit:** Security tests and review demonstrate least-privilege IPC, safe process invocation, no secret persistence/leakage, no path escape from operation ownership, and fail-closed policy/capability behavior.

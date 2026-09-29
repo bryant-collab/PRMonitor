@@ -129,6 +129,10 @@ import {
 } from "./f28-recovery-service";
 import { readOnlineState } from "./f28-connectivity";
 import {
+  createF29SecurityService,
+  type F29SecurityService,
+} from "./f29-security-service";
+import {
   F28_SCHEMA_VERSION,
   type F28OwnerOutcome,
   type F28LifecycleSnapshot,
@@ -205,6 +209,7 @@ let f24SynchronizationService: F24SynchronizationService | undefined;
 let f25SynchronizationService: F25SynchronizationService | undefined;
 let f27SynchronizationService: F27SynchronizationService | undefined;
 let f28RecoveryCoordinator: F28RecoveryCoordinator | undefined;
+let f29SecurityService: F29SecurityService | undefined;
 let f28LifecycleListenersAttached = false;
 let f28ResumeHandler: (() => void) | undefined;
 let f28NetworkPollTimer: NodeJS.Timeout | undefined;
@@ -217,6 +222,46 @@ const rendererEntry = path.join(
   "index.html",
 );
 const preloadEntry = path.join(currentDirectory, "..", "preload", "index.cjs");
+
+const F29_RENDERER_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none';";
+
+function configureF29BrowserWindowSecurity(window: BrowserWindow): void {
+  const rendererRoot = path.resolve(path.dirname(rendererEntry));
+  window.webContents.on("will-navigate", (event, url) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "file:") {
+        event.preventDefault();
+        return;
+      }
+      const target = path.resolve(fileURLToPath(parsed));
+      const relative = path.relative(rendererRoot, target);
+      if (
+        relative === ".." ||
+        relative.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relative)
+      )
+        event.preventDefault();
+    } catch {
+      event.preventDefault();
+    }
+  });
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-attach-webview", (event) => {
+    event.preventDefault();
+  });
+  window.webContents.session.webRequest.onHeadersReceived(
+    { urls: ["file://*/*"] },
+    (details, callback) => {
+      const responseHeaders = { ...(details.responseHeaders ?? {}) };
+      responseHeaders["Content-Security-Policy"] = [
+        F29_RENDERER_CONTENT_SECURITY_POLICY,
+      ];
+      callback({ responseHeaders });
+    },
+  );
+}
 
 function requestF28RendererReplacement(): void {
   const coordinator = f28RecoveryCoordinator;
@@ -464,8 +509,22 @@ try {
 
 async function initializeMainProcessPersistence(): Promise<void> {
   const userDataDirectory = app.getPath("userData");
+  f29SecurityService = createF29SecurityService({
+    applicationDataRoot: userDataDirectory,
+    platform: process.platform === "win32" ? "win32" : "posix",
+  });
+  const databasePath = path.join(
+    userDataDirectory,
+    "database",
+    "prmonitor.sqlite",
+  );
+  const databaseAdmission = f29SecurityService.validateDatabasePath({
+    databasePath,
+  });
+  if (!databaseAdmission.ok)
+    throw new Error(`F29_${databaseAdmission.error.code}`);
   persistenceStore = await initializePersistence({
-    databasePath: path.join(userDataDirectory, "database", "prmonitor.sqlite"),
+    databasePath,
     backupRoot: path.join(userDataDirectory, "backups"),
   });
   activityService = new ActivityService(persistenceStore);
@@ -1888,6 +1947,7 @@ async function startMainProcess(): Promise<void> {
   await f28RecoveryCoordinator.startup(`f28-startup-${randomUUID()}`);
 
   ipcRouter = new IpcRouter(ipcMain, {
+    security: f29SecurityService,
     readCurrentState: () => createCurrentState(),
     getLifecycleStatus: () =>
       lifecycle?.getStatus() ?? {
@@ -2516,10 +2576,15 @@ async function startMainProcess(): Promise<void> {
         webPreferences: {
           contextIsolation: true,
           nodeIntegration: false,
+          webSecurity: true,
+          allowRunningInsecureContent: false,
+          webviewTag: false,
+          navigateOnDragDrop: false,
           sandbox: true,
           preload,
         },
       });
+      configureF29BrowserWindowSecurity(created);
       return created as unknown as ManagedWindowLike;
     },
     sendTarget: (contents, target) =>
