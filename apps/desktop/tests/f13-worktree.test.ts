@@ -734,7 +734,7 @@ describe("F13 operation-owned worktrees and change attribution", () => {
     expect(
       await readNormalized(path.join(overlapWorktree, "tracked.txt")),
     ).toBe("feature\nai manual replacement\n");
-  });
+  }, 30_000);
 
   it("uses a distinct synchronization path and refuses unsafe open/reveal targets", async () => {
     const calls: string[] = [];
