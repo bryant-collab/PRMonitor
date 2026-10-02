@@ -61,8 +61,10 @@ describe("generated validation schema preservation", () => {
   });
 
   it("refuses a disposable verifier-output cleanup when ownership changes", async () => {
-    const disposableRoot = await mkdtemp(
-      join(os.tmpdir(), "prmonitor-schema-verify-"),
+    // Windows temporary paths may use an 8.3 alias. Record the canonical
+    // directory before ownership checks so aliases do not look like a swap.
+    const disposableRoot = await realpath(
+      await mkdtemp(join(os.tmpdir(), "prmonitor-schema-verify-")),
     );
     const markerPath = join(disposableRoot, ".owner.json");
     const marker = {
