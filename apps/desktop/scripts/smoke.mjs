@@ -15,6 +15,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifySmokeFailure } from "./smoke-failure.mjs";
 
 const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -289,7 +290,7 @@ async function launchSmoke(executable, environment) {
   if (outcome.code !== 0) {
     const signal = outcome.signal ? ` signal=${outcome.signal}` : "";
     throw new Error(
-      `SMOKE_CHILD_EXIT_FAILED: code=${String(outcome.code)}${signal}`,
+      `SMOKE_CHILD_EXIT_FAILED: code=${String(outcome.code)}${signal} category=${classifySmokeFailure(stderr.bytes.toString("utf8"))}`,
     );
   }
   if (readyLines.length !== 1 || readyLines[0] !== `${readyPrefix}${nonce}`) {
