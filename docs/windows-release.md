@@ -88,3 +88,18 @@ F30 evidence is tiered and must not be silently substituted:
 The final release trace contains one row for every `APP-AC-01` through
 `APP-AC-77`. Missing, contradictory, unredactable, or unapproved evidence
 blocks the release gate.
+
+## Opt-in trial prereleases
+
+The manually dispatched **Windows unsigned preview** Actions workflow accepts
+an unused `v<desktop-version>-preview.<number>` tag, runs automated checks, and
+publishes the NSIS installer and verified hashes as a GitHub prerelease. It
+never replaces an existing preview tag. The release notes list the missing
+Windows 11 and controlled acceptance evidence; this trial does not establish
+F30 release eligibility. Public hosting does not make the unsigned artifact a
+generally supported or trusted release. No npm package is published.
+
+CI and preview builds install Git 2.55.0 explicitly from checksum-verified
+upstream archives rather than relying on the hosted runner's Git version.
+The normal F30 final gate and its individual acceptance evidence requirements
+remain unchanged.

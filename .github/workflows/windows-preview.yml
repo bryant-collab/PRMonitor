@@ -1,0 +1,114 @@
+name: Windows unsigned preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New preview tag matching the desktop version (for example v0.1.0-preview.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-preview-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check and package Windows x64
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-git
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm install --global npm@11.17.0
+      - name: Validate preview identity
+        id: identity
+        shell: pwsh
+        env:
+          PREVIEW_TAG: ${{ inputs.tag }}
+        run: |
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $pattern = '^v' + [regex]::Escape($version) + '-preview\.[1-9][0-9]*$'
+          if ($env:PREVIEW_TAG -notmatch $pattern) { throw 'Tag must match v<desktop-version>-preview.<positive number>' }
+          "tag=$env:PREVIEW_TAG" >> $env:GITHUB_OUTPUT
+      - run: npm ci
+      - run: npm run check
+      - run: npm run security:gate
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run f30:package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Stage and verify preview assets
+        shell: pwsh
+        env:
+          PREVIEW_TAG: ${{ inputs.tag }}
+        run: |
+          $manifests = @(Get-ChildItem release/f30/*/release-manifest.json)
+          if ($manifests.Count -ne 1) { throw 'Expected exactly one fresh release manifest' }
+          $manifest = Get-Content $manifests[0].FullName -Raw | ConvertFrom-Json
+          if ($manifest.source.dirty -or $manifest.source.revision -ne $env:GITHUB_SHA) { throw 'Source identity mismatch' }
+          $stage = Join-Path $env:RUNNER_TEMP 'prmonitor-preview'
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          foreach ($artifact in $manifest.artifacts) {
+            Copy-Item (Join-Path release $artifact.name) $stage
+          }
+          Copy-Item $manifests[0].FullName $stage
+          Copy-Item (Join-Path $manifests[0].DirectoryName 'checksums.sha256') $stage
+          Copy-Item (Join-Path $manifests[0].DirectoryName 'packaging-checks.json') $stage
+          Copy-Item docs/windows-release.md $stage
+          foreach ($line in Get-Content (Join-Path $stage 'checksums.sha256')) {
+            if ($line -notmatch '^([0-9a-f]{64})  ([^/\\]+)$') { throw 'Invalid checksum row' }
+            $expected = $Matches[1]
+            $file = Join-Path $stage $Matches[2]
+            if ((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw "Checksum mismatch: $file" }
+          }
+          $notes = Get-Content docs/preview-release-notes.md -Raw
+          $notes += "`nSource commit: $env:GITHUB_SHA`n"
+          $notes += "Build workflow: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID`n"
+          $notes += "Build host: $([System.Environment]::OSVersion.VersionString) ($env:RUNNER_ARCH)`n"
+          $notes | Set-Content (Join-Path $stage 'preview-notes.md') -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-preview
+          path: ${{ runner.temp }}/prmonitor-preview/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish experimental prerelease
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-unsigned-preview
+          path: preview
+      - name: Publish a new prerelease without replacing existing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PREVIEW_TAG: ${{ needs.build.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd preview
+          sha256sum --check --strict checksums.sha256
+          # Atomic creation fails if the tag already exists or the API is unavailable.
+          created_sha=$(gh api "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$PREVIEW_TAG" -f "sha=$GITHUB_SHA" --jq '.object.sha')
+          test "$created_sha" = "$GITHUB_SHA"
+          gh release create "$PREVIEW_TAG" --verify-tag --prerelease --latest=false \
+            --title "PRMonitor $PREVIEW_TAG — unsigned experimental preview" \
+            --notes-file preview-notes.md \
+            PRMonitor-*-x64.exe release-manifest.json checksums.sha256 packaging-checks.json windows-release.md

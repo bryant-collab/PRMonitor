@@ -38,8 +38,9 @@ npm run f30:package
 
 See [docs/windows-release.md](docs/windows-release.md) for the clean-machine,
 upgrade, uninstall, support-diagnostics, and release-evidence procedure. The
-installer is intentionally unsigned and has no updater; it is not a public
-distribution artifact.
+installer is intentionally unsigned and has no updater. An opt-in trial can
+be hosted as a clearly labeled GitHub prerelease through the manual Windows
+preview workflow; it is not a generally supported or release-certified build.
 
 The standalone semantic linters remain explicit commands and accept repository-
 relative or absolute paths. Their credential is resolved by the linter only

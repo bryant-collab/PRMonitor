@@ -13,6 +13,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-git
       - uses: actions/setup-node@v6
         with:
           node-version: 24.19.0
@@ -26,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-git
       - uses: actions/setup-node@v6
         with:
           node-version: 24.19.0

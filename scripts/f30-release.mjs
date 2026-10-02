@@ -99,6 +99,7 @@ async function generateIcon() {
 }
 
 async function packageInstaller() {
+  run("npm", ["run", "build:validation-contract"], { capture: false });
   await generateIcon();
   run("npm", ["--workspace", "@prmonitor/desktop", "run", "build"], {
     capture: false,
@@ -185,7 +186,7 @@ async function installerArtifact() {
   const candidate = files.find(
     (file) =>
       path.dirname(file) === releaseRoot &&
-      /^PRMonitor-[^/]+-x64\.exe$/iu.test(path.basename(file)),
+      path.basename(file) === `PRMonitor-${desktopPackageJson.version}-x64.exe`,
   );
   if (candidate === undefined)
     throw new Error(
@@ -268,14 +269,11 @@ async function createManifest({ allowDirty = false } = {}) {
   };
   const manifestPath = path.join(outputDirectory, "release-manifest.json");
   const checksumPath = path.join(outputDirectory, "checksums.sha256");
-  await writeFile(
-    manifestPath,
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    "utf8",
-  );
+  const manifestBytes = `${JSON.stringify(manifest, null, 2)}\n`;
+  await writeFile(manifestPath, manifestBytes, "utf8");
   await writeFile(
     checksumPath,
-    `${installer.sha256}  ${installer.name}\n${sha256(JSON.stringify(manifest))}  release-manifest.json\n`,
+    `${installer.sha256}  ${installer.name}\n${sha256(manifestBytes)}  release-manifest.json\n`,
     "utf8",
   );
   await writeFile(

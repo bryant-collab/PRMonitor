@@ -890,10 +890,23 @@ describe("F13 operation-owned worktrees and change attribution", () => {
       evidence.destinationChangeEvidence?.files.map((file) => file.path),
     ).toContain("tracked.txt");
 
+    // The isolated clone deliberately has no configured committer identity.
+    // Analysis must still reach conflict detection without persisting one.
+    const worktreePath = prepared.worktree!.canonicalPath;
+    for (const key of ["user.name", "user.email"]) {
+      await expect(
+        git(worktreePath, "config", "--local", "--get", key),
+      ).rejects.toMatchObject({ code: 1 });
+    }
     const merged = await fixture.service.mergeSynchronization({
       operationId: request.operationId,
       ownerId: request.ownerId,
     });
+    for (const key of ["user.name", "user.email"]) {
+      await expect(
+        git(worktreePath, "config", "--local", "--get", key),
+      ).rejects.toMatchObject({ code: 1 });
+    }
     expect(merged.ok).toBe(false);
     expect(merged.outcome).toBe("CONFLICT_DETECTED");
     expect(merged.conflictPaths).toContain("tracked.txt");

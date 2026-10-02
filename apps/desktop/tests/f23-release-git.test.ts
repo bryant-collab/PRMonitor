@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   F23DeterministicGitPublisher,
@@ -50,7 +52,7 @@ function candidate(): F23PublicationCandidate {
     expectedHeadSha: "b".repeat(40),
     currentHeadSha: BASE_SHA,
     headBranch: "feature",
-    worktreePath: "C:\\PRMonitor\\review-f23-git",
+    worktreePath: path.join(os.tmpdir(), "prmonitor-review-f23-git"),
     condition: "AI_ATTRIBUTED_ONLY",
     conditionFingerprint: "fingerprint-f23-git",
     conditionEvidenceComplete: true,

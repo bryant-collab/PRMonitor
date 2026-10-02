@@ -344,7 +344,7 @@ function allowedArguments(args: readonly string[]): boolean {
   );
 }
 
-function controlledEnvironment(): NodeJS.ProcessEnv {
+function controlledEnvironment(args: readonly string[]): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,
     Path: process.env.Path,
@@ -356,6 +356,14 @@ function controlledEnvironment(): NodeJS.ProcessEnv {
     GIT_OPTIONAL_LOCKS: "0",
     LC_ALL: "C",
     LANG: "C",
+    // Git requires a committer identity even for a noncommitting merge. Keep
+    // this synthetic identity local to analysis; never use it for publication.
+    ...(args[0] === "merge" && args[1] === "--no-commit"
+      ? {
+          GIT_COMMITTER_NAME: "PRMonitor merge analysis",
+          GIT_COMMITTER_EMAIL: "prmonitor-merge-analysis@example.invalid",
+        }
+      : {}),
   };
 }
 
@@ -396,7 +404,7 @@ export class DefaultF13GitCommandRunner implements F13GitCommandRunner {
       try {
         child = spawn("git", [...args], {
           cwd: options.cwd,
-          env: controlledEnvironment(),
+          env: controlledEnvironment(args),
           shell: false,
           windowsHide: true,
           stdio: ["ignore", "pipe", "pipe"],
