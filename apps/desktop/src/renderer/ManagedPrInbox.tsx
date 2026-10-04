@@ -296,7 +296,7 @@ export function ManagedPrInbox({
       snapshot !== undefined &&
       snapshot.cards.length === 0 ? (
         <div className="inbox-empty" role="status">
-          <strong>No managed pull requests yet.</strong>
+          <strong>No pull requests yet</strong>
           <span>Add a pull request to begin watching it.</span>
           <button type="button" onClick={onAddPr}>
             Add PR

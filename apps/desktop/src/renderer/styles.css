@@ -2111,3 +2111,32 @@ h1 {
     color: CanvasText;
   }
 }
+/* Readiness is a landing destination; existing editors stay mounted. */
+[hidden] {
+  display: none !important;
+}
+.setup-screen {
+  margin-block: 1.5rem;
+}
+.setup-checks {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+}
+.setup-check {
+  padding: 1rem;
+  border: 1px solid currentColor;
+  margin-block: 0.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.setup-check button,
+.setup-attention button {
+  max-width: 100%;
+  white-space: normal;
+}
+.setup-screen h2:focus,
+.setup-screen [role="alert"]:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}

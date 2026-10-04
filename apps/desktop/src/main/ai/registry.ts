@@ -25,6 +25,12 @@ export interface AIProviderInvokeOptions {
   readonly now?: () => string;
 }
 
+/** Nonsecret local presence only; this never proves remote service access. */
+export interface AIProviderLocalReadiness {
+  readonly runtimeAvailable: boolean;
+  readonly authenticationAvailable: boolean;
+}
+
 /**
  * Provider-neutral invocation boundary. There are deliberately no Git,
  * GitHub, commit, push, publication, or conversation-resolution methods.
@@ -32,6 +38,8 @@ export interface AIProviderInvokeOptions {
 export interface AIProvider {
   readonly id: string;
   readonly capabilities: AIProviderCapabilities;
+  readonly readLocalReadiness?: () =>
+    AIProviderLocalReadiness | Promise<AIProviderLocalReadiness>;
   invoke(
     request: AIProviderRequest,
     options?: AIProviderInvokeOptions,

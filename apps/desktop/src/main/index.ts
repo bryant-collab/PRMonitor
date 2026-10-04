@@ -17,7 +17,11 @@ import {
   SMOKE_READY_PREFIX,
   STARTUP_STATUS_ID,
 } from "../shared/startup";
-import { OPEN_TARGET_QUEUE_MAX, OpenTargetQueue } from "../shared/routing";
+import {
+  OPEN_TARGET_QUEUE_MAX,
+  OpenTargetQueue,
+  type OpenTarget,
+} from "../shared/routing";
 import type { CurrentState, IpcError } from "../shared/ipc";
 import { IPC_MAX_REQUEST_BYTES, IPC_MAX_RESPONSE_BYTES } from "../shared/ipc";
 import {
@@ -51,6 +55,15 @@ import {
   DEFAULT_SERVICE_HANDOFF_TIMEOUT_MS,
 } from "./lifecycle";
 import { IpcRouter } from "./ipc-router";
+import {
+  SetupReadinessService,
+  setupGitHubAccess,
+} from "./setup-readiness-service";
+import { createSetupLocalPrerequisitesReader } from "./setup-local-prerequisites";
+import {
+  startupRecoveryReadiness,
+  startupRecoveryRelaunchArguments,
+} from "./setup-startup-recovery";
 import { FetchGithubHttpTransport } from "./github-connection-test";
 import { GithubServerService } from "./github-server-service";
 import { ElectronSecureCredentialStore } from "./secure-credential-store";
@@ -193,6 +206,8 @@ let persistenceStore: PersistenceStore | undefined;
 let persistenceRepositories: PersistenceRepositories | undefined;
 let lifecycle: LifecycleCoordinator | undefined;
 let ipcRouter: IpcRouter | undefined;
+let setupReadinessService: SetupReadinessService | undefined;
+let setupReadinessTimer: NodeJS.Timeout | undefined;
 let windowManager: WindowManager | undefined;
 let githubServerService: GithubServerService | undefined;
 let managedPrService: ManagedPrService | undefined;
@@ -225,6 +240,7 @@ let f28LifecycleListenersAttached = false;
 let f28ResumeHandler: (() => void) | undefined;
 let f28NetworkPollTimer: NodeJS.Timeout | undefined;
 const pendingTargets = new OpenTargetQueue();
+let lastAcceptedOpenTarget: OpenTarget | undefined;
 
 const rendererEntry = path.join(
   currentDirectory,
@@ -689,6 +705,40 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedF16PreferencesService = f16PreferencesService;
   if (initializedF16PreferencesService === undefined)
     throw new Error("PRMONITOR_F16_PREFERENCES_SERVICE_NOT_READY");
+  setupReadinessService = new SetupReadinessService({
+    providers: f15ProviderRegistry,
+    readPreferences: () => initializedF16PreferencesService.readPreferences(),
+    readGitHubAccess: () => {
+      if (githubServerService === undefined)
+        throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+      return setupGitHubAccess(githubServerService.readSettings());
+    },
+    readLocalPrerequisites: createSetupLocalPrerequisitesReader({
+      resolveRoot: (input) => initializedF13WorktreeService.resolveRoot(input),
+      readWorktreeRoot: () => {
+        const root =
+          initializedF16PreferencesService.readPreferences().operational
+            .worktreeRoot;
+        return {
+          worktreeRoot: root?.canonicalPath ?? f13Root,
+          rootRevision: root?.rootRevision ?? 0,
+        };
+      },
+      persistenceHealthy: () =>
+        persistenceStore !== undefined &&
+        persistenceStore.health.status !== "recovery_required",
+      protectedRoots: [
+        path.join(userDataDirectory, "database"),
+        path.join(userDataDirectory, "secure-credentials"),
+      ],
+      developerClonePaths: () =>
+        managedPrService
+          ?.list()
+          .managedPrs.flatMap((pr) =>
+            pr.localClone === undefined ? [] : [pr.localClone.canonicalRoot],
+          ) ?? [],
+    }),
+  });
   const initializedF14ValidationService = f14ValidationService;
   if (initializedF14ValidationService === undefined)
     throw new Error("PRMONITOR_F14_VALIDATION_SERVICE_NOT_READY");
@@ -1611,6 +1661,32 @@ async function initializeMainProcessPersistence(): Promise<void> {
   });
 }
 
+function refreshSetupReadiness(): void {
+  const service = setupReadinessService;
+  if (service === undefined) return;
+  service.invalidate();
+  void service
+    .read()
+    .then((projection) => {
+      ipcRouter?.publishSetupReadiness(projection);
+    })
+    .catch(() => undefined);
+}
+
+function setupChange<T>(change: () => T): T {
+  try {
+    const result = change();
+    if (result instanceof Promise) {
+      return result.finally(refreshSetupReadiness) as T;
+    }
+    refreshSetupReadiness();
+    return result;
+  } catch (error) {
+    refreshSetupReadiness();
+    throw error;
+  }
+}
+
 function createCurrentState(): CurrentState {
   if (lifecycle === undefined || persistenceStore === undefined) {
     throw new Error("PRMONITOR_MAIN_NOT_READY");
@@ -1700,8 +1776,120 @@ function f28ManagedPrScopes(
   }));
 }
 
+function createApplicationWindowManager(): void {
+  const platform =
+    process.platform === "win32"
+      ? new WindowsWindowPlatformAdapter()
+      : new ElectronWindowPlatformAdapter();
+  windowManager = new WindowManager({
+    rendererEntry,
+    preloadEntry,
+    platform,
+    rendererReadyTimeoutMs: smokeMode ? 12_000 : 10_000,
+    createWindow: ({ preload, show }) => {
+      const created = new BrowserWindow({
+        width: 720,
+        height: 480,
+        show,
+        title: APPLICATION_TITLE,
+        ...(applicationIconPath() === undefined
+          ? {}
+          : { icon: applicationIconPath() }),
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          webSecurity: true,
+          allowRunningInsecureContent: false,
+          webviewTag: false,
+          navigateOnDragDrop: false,
+          sandbox: true,
+          preload,
+        },
+      });
+      configureF29BrowserWindowSecurity(created);
+      return created as unknown as ManagedWindowLike;
+    },
+    sendTarget: (contents, target) =>
+      ipcRouter?.deliverOpenTarget(contents.id, target) ?? false,
+    onRendererAttached: (contents) => ipcRouter?.attachRenderer(contents),
+    onRendererDetached: (contentsId) => {
+      ipcRouter?.detachRenderer(contentsId);
+      requestF28RendererReplacement();
+    },
+  });
+}
+
+async function openStartupRecoveryShell(error: unknown): Promise<void> {
+  // No lifecycle service has started. Keep the failed database and all
+  // committed configuration intact, and expose no domain action handlers.
+  persistenceStore?.close();
+  persistenceStore = undefined;
+  const startedAt = new Date().toISOString();
+  const status = {
+    schemaVersion: 1 as const,
+    phase: "RECOVERY_REQUIRED" as const,
+    sessionId: `startup-recovery-${randomUUID()}`,
+    correlationId: "startup-recovery",
+    startedAt,
+    updatedAt: startedAt,
+    reasonCode: "LOCAL_INITIALIZATION_FAILED",
+    incompleteHandoff: true,
+  };
+  let revision = 0;
+  let retryRequested = false;
+  ipcRouter = new IpcRouter(ipcMain, {
+    security: f29SecurityService,
+    readCurrentState: () => ({
+      schemaVersion: 1,
+      applicationTitle: "PRMonitor",
+      lifecycle: status,
+      persistence: { status: "recovery_required", schemaVersion: 0 },
+    }),
+    getLifecycleStatus: () => status,
+    readSetupReadiness: async () => startupRecoveryReadiness(error, ++revision),
+    retrySetupReadiness: async () => {
+      if (!retryRequested) {
+        retryRequested = true;
+        setImmediate(() => {
+          app.relaunch({
+            args: startupRecoveryRelaunchArguments(
+              process.argv.slice(1),
+              lastAcceptedOpenTarget,
+            ),
+          });
+          app.exit(0);
+        });
+      }
+      return startupRecoveryReadiness(error, ++revision);
+    },
+    requestShutdown: async () => {
+      setImmediate(() => app.quit());
+      return { ok: true, status };
+    },
+    onRendererReady: (senderId) => windowManager?.markRendererReady(senderId),
+  });
+  ipcRouter.install();
+  createApplicationWindowManager();
+  const target = pendingTargets.dequeue();
+  const openWork = windowManager?.open(target);
+  for (
+    let queued = pendingTargets.dequeue();
+    queued !== undefined;
+    queued = pendingTargets.dequeue()
+  ) {
+    void windowManager?.open(queued);
+  }
+  await openWork;
+}
+
 async function startMainProcess(): Promise<void> {
-  await initializeMainProcessPersistence();
+  try {
+    await initializeMainProcessPersistence();
+  } catch (error) {
+    if (smokeMode) throw error;
+    await openStartupRecoveryShell(error);
+    return;
+  }
   if (persistenceRepositories === undefined)
     throw new Error("PRMONITOR_REPOSITORIES_MISSING");
   lifecycle = new LifecycleCoordinator({
@@ -2047,6 +2235,16 @@ async function startMainProcess(): Promise<void> {
   ipcRouter = new IpcRouter(ipcMain, {
     security: f29SecurityService,
     readCurrentState: () => createCurrentState(),
+    readSetupReadiness: () => {
+      if (setupReadinessService === undefined)
+        return Promise.reject(new Error("PRMONITOR_SETUP_SERVICE_NOT_READY"));
+      return setupReadinessService.read();
+    },
+    retrySetupReadiness: () => {
+      if (setupReadinessService === undefined)
+        return Promise.reject(new Error("PRMONITOR_SETUP_SERVICE_NOT_READY"));
+      return setupReadinessService.read();
+    },
     getLifecycleStatus: () =>
       lifecycle?.getStatus() ?? {
         schemaVersion: 1,
@@ -2155,19 +2353,19 @@ async function startMainProcess(): Promise<void> {
     saveTaskProfile: (input) => {
       if (f16PreferencesService === undefined)
         throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
-      return f16PreferencesService.saveTaskProfile(input);
+      return setupChange(() => f16PreferencesService!.saveTaskProfile(input));
     },
     savePolicy: (input) => {
       if (f16PreferencesService === undefined)
         throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
-      return f16PreferencesService.savePolicy(input);
+      return setupChange(() => f16PreferencesService!.savePolicy(input));
     },
     saveOperationalPreferences: (input) => {
       if (f16PreferencesService === undefined)
         return Promise.reject(
           new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY"),
         );
-      return f16PreferencesService.saveOperational(input);
+      return setupChange(() => f16PreferencesService!.saveOperational(input));
     },
     saveCommonInstruction: (input) => {
       if (f16PreferencesService === undefined)
@@ -2249,36 +2447,42 @@ async function startMainProcess(): Promise<void> {
     upsertGithubProfile: (input) => {
       if (githubServerService === undefined)
         throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
-      return githubServerService.upsertProfile(input);
+      return setupChange(() => githubServerService!.upsertProfile(input));
     },
     submitGithubCredential: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.submitCredential({
-        serverId: input.serverId,
-        value: input.token,
-        operationId: input.operationId,
-      });
+      return setupChange(() =>
+        githubServerService!.submitCredential({
+          serverId: input.serverId,
+          value: input.token,
+          operationId: input.operationId,
+        }),
+      );
     },
     testGithubConnection: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.testConnection(input);
+      return setupChange(() => githubServerService!.testConnection(input));
     },
     retryGithubOperation: (operationId) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.retryOperation(operationId);
+      return setupChange(() =>
+        githubServerService!.retryOperation(operationId),
+      );
     },
     cleanupGithubOperation: (operationId) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.cleanupOperation(operationId);
+      return setupChange(() =>
+        githubServerService!.cleanupOperation(operationId),
+      );
     },
     removeGithubProfile: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.removeProfile(input);
+      return setupChange(() => githubServerService!.removeProfile(input));
     },
     readManagedPrs: () => {
       if (managedPrService === undefined)
@@ -2694,46 +2898,7 @@ async function startMainProcess(): Promise<void> {
     ipcRouter?.publishActivity(event);
   });
 
-  const platform =
-    process.platform === "win32"
-      ? new WindowsWindowPlatformAdapter()
-      : new ElectronWindowPlatformAdapter();
-  windowManager = new WindowManager({
-    rendererEntry,
-    preloadEntry,
-    platform,
-    rendererReadyTimeoutMs: smokeMode ? 12_000 : 10_000,
-    createWindow: ({ preload, show }) => {
-      const created = new BrowserWindow({
-        width: 720,
-        height: 480,
-        show,
-        title: APPLICATION_TITLE,
-        ...(applicationIconPath() === undefined
-          ? {}
-          : { icon: applicationIconPath() }),
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          webSecurity: true,
-          allowRunningInsecureContent: false,
-          webviewTag: false,
-          navigateOnDragDrop: false,
-          sandbox: true,
-          preload,
-        },
-      });
-      configureF29BrowserWindowSecurity(created);
-      return created as unknown as ManagedWindowLike;
-    },
-    sendTarget: (contents, target) =>
-      ipcRouter?.deliverOpenTarget(contents.id, target) ?? false,
-    onRendererAttached: (contents) => ipcRouter?.attachRenderer(contents),
-    onRendererDetached: (contentsId) => {
-      ipcRouter?.detachRenderer(contentsId);
-      requestF28RendererReplacement();
-    },
-  });
+  createApplicationWindowManager();
 
   if (
     f19PersistenceRepositories === undefined ||
@@ -2818,6 +2983,11 @@ async function startMainProcess(): Promise<void> {
     f28LifecycleListenersAttached = true;
   }
   await f19Coordinator.start();
+  // Ambient local changes (Git, storage, authentication, filesystem access)
+  // are rechecked while a view exists; this never starts domain work.
+  setupReadinessTimer = setInterval(() => {
+    if (windowManager?.visibleWindowId !== undefined) refreshSetupReadiness();
+  }, 30_000);
 
   if (smokeMode && !smokeNonce) {
     smokeFailure("SMOKE_NONCE_MISSING");
@@ -2830,6 +3000,8 @@ async function startMainProcess(): Promise<void> {
     );
 
   const initialTarget = pendingTargets.dequeue();
+  if (windowManager === undefined)
+    throw new Error("PRMONITOR_WINDOW_MANAGER_NOT_READY");
   const openWork: Promise<WindowOpenResult> = windowManager.open(initialTarget);
   for (
     let target = pendingTargets.dequeue();
@@ -2863,6 +3035,7 @@ const primaryInstance = new PrimaryInstanceCoordinator({
   host: app,
   queue: pendingTargets,
   onAcceptedTarget: (target) => {
+    lastAcceptedOpenTarget = target;
     if (windowManager !== undefined) void windowManager.open(target);
   },
 });
@@ -2875,6 +3048,9 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  if (setupReadinessTimer !== undefined) clearInterval(setupReadinessTimer);
+  setupReadinessTimer = undefined;
+  setupReadinessService = undefined;
   detachF28LifecycleListeners();
   f28RecoveryCoordinator?.stop();
   f28RecoveryCoordinator = undefined;

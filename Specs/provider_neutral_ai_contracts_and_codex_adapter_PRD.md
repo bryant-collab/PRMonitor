@@ -348,3 +348,8 @@ provider credentials or network access.
 - **CT-F15-06:** Fake and Codex event/result fixtures prove lifecycle ordering, exact input-event coverage, bounded/redacted details, usage/reference normalization, invalid-output handling, and stable errors.
 - **CT-F15-07:** Cancellation, timeout, renderer-absence, restart, explicit conversation-resume, provider-mismatch, and duplicate-completed-turn fixtures prove no automatic resume/retry and safe opaque handoff.
 - **CT-F15-08:** Static import, package dependency, secret scan, Windows path/environment, thin-consumer, and cross-provider conformance checks prove the adapter is the only SDK importer and F03/F17/F18/F26 can consume the same normalized contract.
+
+
+## Issue 1 supplement: Local provider configuration preflight
+
+Approved scope: [resumable setup on startup](https://github.com/bryant-collab/PRMonitor/issues/1). Expose only runtime/authentication presence through a provider-neutral local readiness port. The Codex adapter uses the same approved authentication environment as invocation; it does not start a client turn, log credentials, probe remote quota, initiate login, or grant controlled-environment bypass. Display locally configured access with the qualification that service access is checked when work starts. Missing providers and confirmed missing authentication are incomplete.

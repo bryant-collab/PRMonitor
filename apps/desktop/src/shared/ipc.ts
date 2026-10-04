@@ -1,4 +1,5 @@
 import { isSafeText } from "./domain/result";
+import { isSetupReadiness, type SetupReadiness } from "./setup-readiness";
 import { parseOpenTargetRecord, type OpenTarget } from "./routing";
 import {
   isManagedPrInboxReadModel,
@@ -167,6 +168,8 @@ export type IpcRequestType =
   | "lifecycle.status"
   | "lifecycle.shutdown"
   | "recovery.read"
+  | "setup.read"
+  | "setup.retry"
   | "recovery.request"
   | "support-diagnostics.export"
   | "scheduler.read"
@@ -275,7 +278,8 @@ export type IpcRequest =
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
-      readonly type: "recovery.read" | "recovery.request";
+      readonly type:
+        "recovery.read" | "recovery.request" | "setup.read" | "setup.retry";
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
@@ -697,6 +701,7 @@ export type IpcResponseValue =
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
   | { readonly kind: "recovery"; readonly projection: F28RecoveryProjection }
+  | { readonly kind: "setup-readiness"; readonly projection: SetupReadiness }
   | {
       readonly kind: "support-diagnostics";
       readonly exported: true;
@@ -1090,6 +1095,11 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "status"]) &&
       parseLifecycleStatus(value.status)
     );
+  if (value.kind === "setup-readiness")
+    return (
+      hasExactKeys(value, ["kind", "projection"]) &&
+      isSetupReadiness(value.projection)
+    );
   if (value.kind === "recovery")
     return (
       hasExactKeys(value, ["kind", "projection"]) &&
@@ -1372,6 +1382,8 @@ export function parseIpcRequest(
     value.type === "app.read-current-state" ||
     value.type === "lifecycle.status" ||
     value.type === "recovery.read" ||
+    value.type === "setup.read" ||
+    value.type === "setup.retry" ||
     value.type === "recovery.request" ||
     value.type === "support-diagnostics.export"
   ) {
@@ -2825,6 +2837,24 @@ export function parseIpcOpenTargetEvent(
   return parseOpenTargetRecord(value.target).ok;
 }
 
+export interface IpcSetupReadinessUpdatedEvent {
+  readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
+  readonly type: "setup-readiness-updated";
+  readonly projection: SetupReadiness;
+}
+
+export function parseIpcSetupReadinessUpdatedEvent(
+  value: unknown,
+): value is IpcSetupReadinessUpdatedEvent {
+  return (
+    isPlainRecord(value) &&
+    hasExactKeys(value, ["schemaVersion", "type", "projection"]) &&
+    value.schemaVersion === IPC_SCHEMA_VERSION &&
+    value.type === "setup-readiness-updated" &&
+    isSetupReadiness(value.projection)
+  );
+}
+
 export function parseIpcInboxUpdateEvent(
   value: unknown,
 ): value is IpcInboxUpdateEvent {
@@ -2874,6 +2904,11 @@ export interface PrMonitorPreloadApi {
   readonly getLifecycleStatus: () => Promise<IpcResponse>;
   readonly requestShutdown: () => Promise<IpcResponse>;
   readonly readRecovery: () => Promise<IpcResponse>;
+  readonly readSetupReadiness: () => Promise<IpcResponse>;
+  readonly retrySetupReadiness: () => Promise<IpcResponse>;
+  readonly onSetupReadinessUpdated: (
+    listener: (projection: SetupReadiness) => void,
+  ) => () => void;
   readonly requestRecovery: () => Promise<IpcResponse>;
   readonly exportSupportDiagnostics: () => Promise<IpcResponse>;
   readonly readScheduler: () => Promise<IpcResponse>;

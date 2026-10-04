@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "isolatedDataIdentity": "ba137aa6fe9f727c",
+  "scenarios": [
+    {
+      "stage": "fresh",
+      "ok": true,
+      "assertions": [
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "fresh setup exposes remediation, optional PR guidance, and unclipped actions at narrow 125% zoom",
+        "one task profile committed before shutdown",
+        "closing and activating the production window resumes setup with only committed progress",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "partial",
+      "ok": true,
+      "assertions": [
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "cold restart retains committed profile and resumes setup",
+        "GitHub.com and GHES identity fixtures, four independent persisted profiles, and local auth complete all checks; zero PRs allows inbox",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 2,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "restart",
+      "ok": true,
+      "assertions": [
+        "ready data cold-starts into empty inbox; Settings > Setup inspects readiness",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "lost-auth",
+      "ok": true,
+      "assertions": [
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "recreated renderer recomputes incomplete readiness and resumes setup",
+        "lost local auth resumes setup; explicit missing-review target takes precedence with banner; HOME restores setup",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "bootstrap-failure",
+      "ok": true,
+      "assertions": [
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "initialization failure exposes setup; ordinary reads never relaunch; explicit duplicate Retry coalesces; obstruction bytes remain intact; no domain network started",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "bootstrap-fixed",
+      "ok": true,
+      "assertions": [
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "after external repair of the owned obstruction, fresh process starts normally and recomputes incomplete configuration",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    }
+  ],
+  "limitations": [
+    "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
+    "Explicit target uses a deliberately missing review fixture; saved-review content is covered by existing review tests.",
+    "Chromium 125% zoom exercises reflow; physical Windows display scaling requires an interactive session."
+  ]
+}

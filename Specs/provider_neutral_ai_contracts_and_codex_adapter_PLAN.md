@@ -189,3 +189,10 @@ competing state machine or persistence path.
 | APP-AC-12 | 1, 3-4, 6 |
 | APP-AC-60-APP-AC-64 | 2-6 |
 | APP-AC-70 | 2-6 |
+
+
+## Issue 1 supplement: Local provider configuration preflight
+
+Approved scope: [resumable setup on startup](https://github.com/bryant-collab/PRMonitor/issues/1). Expose only runtime/authentication presence through a provider-neutral local readiness port. The Codex adapter uses the same approved authentication environment as invocation; it does not start a client turn, log credentials, probe remote quota, initiate login, or grant controlled-environment bypass. Display locally configured access with the qualification that service access is checked when work starts. Missing providers and confirmed missing authentication are incomplete.
+
+Evidence: the setup readiness/local/provider/IPC/renderer/recovery tests, repository `npm run check`, and six-process production Electron `npm run test:setup`. See `docs/evidence/setup-readiness/README.md` for scenario mapping, retained screenshots, and exact residual manual coverage. Existing F03/F05/F13/F19/F29 owners keep their persistence, credential, filesystem, lifecycle and security rules.

@@ -3,6 +3,7 @@ import {
   IPC_CHANNELS,
   IPC_MAX_RESPONSE_BYTES,
   parseIpcOpenTargetEvent,
+  parseIpcSetupReadinessUpdatedEvent,
   parseIpcRequest,
   type CurrentState,
   type IpcError,
@@ -13,6 +14,7 @@ import {
   type LifecycleStatus,
 } from "../shared/ipc";
 import type { F28RecoveryProjection } from "../shared/f28-recovery";
+import type { SetupReadiness } from "../shared/setup-readiness";
 import { parseOpenTargetRecord, type OpenTarget } from "../shared/routing";
 import type {
   GithubServerProfileInput,
@@ -135,6 +137,8 @@ export interface IpcServices {
   readonly readCurrentState: (sessionId: string) => CurrentState;
   readonly getLifecycleStatus: () => LifecycleStatus;
   readonly readRecovery?: () => F28RecoveryProjection;
+  readonly readSetupReadiness?: () => Promise<SetupReadiness>;
+  readonly retrySetupReadiness?: () => Promise<SetupReadiness>;
   readonly requestRecovery?: () => Promise<F28RecoveryProjection>;
   readonly exportSupportDiagnostics?: () => Promise<F30SupportDiagnosticsExportResult>;
   readonly requestShutdown: () => Promise<{
@@ -551,6 +555,24 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "lifecycle-status",
             status: this.services.getLifecycleStatus(),
+          }),
+        );
+      }
+      if (request.type === "setup.read" || request.type === "setup.retry") {
+        const read =
+          request.type === "setup.retry"
+            ? this.services.retrySetupReadiness
+            : this.services.readSetupReadiness;
+        if (read === undefined)
+          return errorResponse(
+            request.requestId,
+            "NOT_READY",
+            "Setup readiness is unavailable.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "setup-readiness",
+            projection: await read(),
           }),
         );
       }
@@ -1744,6 +1766,31 @@ export class IpcRouter {
 
   public hasSession(senderId: number): boolean {
     return this.sessions.has(senderId);
+  }
+
+  public publishSetupReadiness(projection: SetupReadiness): number {
+    const event = {
+      schemaVersion: 1 as const,
+      type: "setup-readiness-updated" as const,
+      projection,
+    };
+    if (!parseIpcSetupReadinessUpdatedEvent(event)) return 0;
+    if (
+      new TextEncoder().encode(JSON.stringify(event)).byteLength >
+      IPC_MAX_RESPONSE_BYTES
+    )
+      return 0;
+    let delivered = 0;
+    for (const [senderId, session] of this.sessions) {
+      if (session.sender.isDestroyed?.()) continue;
+      try {
+        session.sender.send(IPC_CHANNELS.event, event);
+        delivered += 1;
+      } catch {
+        this.sessions.delete(senderId);
+      }
+    }
+    return delivered;
   }
 
   public publishInbox(snapshot: ManagedPrInboxReadModel): number {

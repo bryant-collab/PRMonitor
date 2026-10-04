@@ -38,6 +38,13 @@ import { ActivityViewer } from "./ActivityViewer";
 import { Preferences } from "./Preferences";
 import { ReviewBundleWorkspace } from "./ReviewBundleWorkspace";
 import { SynchronizationReview } from "./SynchronizationReview";
+import {
+  SetupScreen,
+  createSetupReader,
+  setupLanding,
+  type SetupDestination,
+  type SetupReadState,
+} from "./SetupScreen";
 
 function operationNeedsAction(
   operation: GithubCredentialOperationView,
@@ -55,6 +62,57 @@ function statusLabel(profile: GithubServerProfileView): string {
 }
 
 export function StartupApp() {
+  const [destination, setDestination] = useState("home");
+  const [setupState, setSetupState] = useState<SetupReadState>({
+    loading: true,
+  });
+  const setupReader = useRef<ReturnType<typeof createSetupReader>>(undefined);
+  const {
+    readiness: setupReadiness,
+    loading: setupLoading,
+    error: setupError,
+  } = setupState;
+  const readSetup = useCallback(async () => {
+    await setupReader.current?.read();
+  }, []);
+  useEffect(() => {
+    const bridge = window.prmonitor;
+    const reader = createSetupReader(
+      async () => {
+        await bridge?.ready();
+        return bridge?.readSetupReadiness();
+      },
+      (next) => {
+        setSetupState(next);
+        if (
+          !next.loading &&
+          next.error === undefined &&
+          next.readiness !== undefined
+        ) {
+          setDestination((current) =>
+            current === "home"
+              ? next.readiness?.ready
+                ? "inbox"
+                : "setup"
+              : current,
+          );
+        }
+      },
+      10000,
+      async () => {
+        await bridge?.ready();
+        return bridge?.retrySetupReadiness();
+      },
+    );
+    setupReader.current = reader;
+    const unsubscribe = bridge?.onSetupReadinessUpdated(reader.updated);
+    void reader.read();
+    return () => {
+      reader.dispose();
+      unsubscribe?.();
+      setupReader.current = undefined;
+    };
+  }, []);
   const statusRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<CurrentState | undefined>();
   const [recovery, setRecovery] = useState<F28RecoveryProjection>();
@@ -211,6 +269,20 @@ export function StartupApp() {
     });
     const unsubscribe = bridge.onOpenTarget((target) => {
       if (!active) return;
+      if (target.kind === "HOME") {
+        setDestination("home");
+        setReviewBundleId(undefined);
+        setSynchronizationBatchId(undefined);
+        setSynchronizationResultId(undefined);
+        void readSetup();
+      } else setDestination("target");
+      if (
+        target.kind === "MANAGED_PR" ||
+        target.kind === "MANAGED_PR_SETTINGS"
+      ) {
+        setDestination("managed");
+        if (target.id !== undefined) void openManagedPr(target.id);
+      }
       if (target.kind === "REVIEW_BUNDLE" && target.id !== undefined)
         setReviewBundleId(target.id);
       if (target.kind === "SYNCHRONIZATION_BATCH" && target.id !== undefined) {
@@ -232,7 +304,7 @@ export function StartupApp() {
       unsubscribe();
       unsubscribeInbox();
     };
-  }, []);
+  }, [readSetup]);
 
   const requestRecovery = useCallback(async () => {
     const bridge = window.prmonitor;
@@ -302,10 +374,11 @@ export function StartupApp() {
         destination,
       );
       if (response?.ok && response.value.kind === "navigation-target") {
+        setDestination("managed");
         setTargetLabel(
           `${response.value.target.kind.toLowerCase()}:${response.value.target.id ?? ""}`,
         );
-        if (destination === "details") void openManagedPr(managedPrId);
+        void openManagedPr(managedPrId);
         return;
       }
       setInboxError(
@@ -769,6 +842,49 @@ export function StartupApp() {
   const selectedProfile = settings?.profiles.find(
     (profile) => profile.id === selectedProfileId,
   );
+  const landing = setupLanding(
+    destination,
+    setupLoading || setupError !== undefined ? undefined : setupReadiness,
+  );
+  const remediate = (target: SetupDestination) => {
+    setDestination(target === "github" ? "github" : "settings");
+    const id =
+      target === "github"
+        ? "server-settings-heading"
+        : target === "tasks" || target === "ai"
+          ? "task-profiles-heading"
+          : target === "policy"
+            ? "policy-heading"
+            : "operational-heading";
+    requestAnimationFrame(() => {
+      const heading = document.getElementById(id);
+      heading?.setAttribute("tabindex", "-1");
+      heading?.focus();
+      heading?.scrollIntoView({ block: "start" });
+    });
+  };
+  useEffect(() => {
+    const id =
+      landing === "activity"
+        ? "activity-heading"
+        : landing === "settings"
+          ? "preferences-heading"
+          : landing === "github"
+            ? "server-settings-heading"
+            : landing === "diagnostics"
+              ? "support-diagnostics-heading"
+              : landing === "managed"
+                ? "managed-pr-heading"
+                : landing === "target"
+                  ? "review-bundle-heading"
+                  : landing === "inbox"
+                    ? "managed-pr-inbox-heading"
+                    : undefined;
+    if (id === undefined) return;
+    const heading = document.getElementById(id);
+    heading?.setAttribute("tabindex", "-1");
+    heading?.focus();
+  }, [landing]);
 
   return (
     <div className="app-shell">
@@ -796,657 +912,783 @@ export function StartupApp() {
             : `Main process ${state.lifecycle.phase.toLowerCase().replaceAll("_", " ")}.`}
         </div>
         <p className="scope-note">Current target: {targetLabel}.</p>
-        {recovery !== undefined ? (
+        <nav className="profile-actions" aria-label="PRMonitor destinations">
+          <button
+            type="button"
+            onClick={() => {
+              setDestination("home");
+              void readSetup();
+            }}
+          >
+            Home
+          </button>
+          <button type="button" onClick={() => setDestination("activity")}>
+            Activity and saved reviews
+          </button>
+          <button type="button" onClick={() => setDestination("settings")}>
+            Settings
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDestination("setup");
+              void readSetup();
+            }}
+          >
+            Settings &gt; Setup
+          </button>
+          <button type="button" onClick={() => setDestination("diagnostics")}>
+            Diagnostics
+          </button>
+        </nav>
+        {landing !== "setup" &&
+        (setupReadiness?.ready !== true || setupError !== undefined) ? (
+          <p role="status" className="setup-attention">
+            <button type="button" onClick={() => setDestination("setup")}>
+              Setup needs attention
+            </button>{" "}
+            Current work and edits remain available.
+          </p>
+        ) : null}
+        {landing === "setup" ? (
+          <SetupScreen
+            readiness={setupReadiness}
+            loading={setupLoading}
+            error={setupError}
+            onRetry={() => void setupReader.current?.retry()}
+            onRemediate={remediate}
+            onOpenInbox={() => setDestination("inbox")}
+            onOpenDiagnostics={() => setDestination("diagnostics")}
+          />
+        ) : null}
+        {landing === "setup" && targetLabel !== "home" ? (
+          <button
+            type="button"
+            onClick={() =>
+              setDestination(
+                targetLabel.startsWith("managed_pr") ? "managed" : "target",
+              )
+            }
+          >
+            Return to saved target
+          </button>
+        ) : null}
+        <div hidden={landing !== "diagnostics"}>
+          {recovery !== undefined ? (
+            <section
+              className="server-settings recovery-panel"
+              aria-labelledby="recovery-heading"
+            >
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Durable recovery</p>
+                  <h2 id="recovery-heading">Restart and connection recovery</h2>
+                </div>
+                <span className="store-state" aria-label="Recovery status">
+                  {recovery.status.toLowerCase()}
+                </span>
+              </div>
+              <p className="section-help" role="status" aria-live="polite">
+                {recovery.summary.attention > 0
+                  ? `${recovery.summary.attention} item${recovery.summary.attention === 1 ? "" : "s"} need attention.`
+                  : recovery.summary.retrying > 0
+                    ? `${recovery.summary.retrying} item${recovery.summary.retrying === 1 ? " is" : "s are"} waiting to retry safely.`
+                    : "No recovery action is waiting for attention."}
+              </p>
+              <div className="recovery-summary" aria-label="Recovery summary">
+                <span>{recovery.summary.scopes} scopes</span>
+                <span>{recovery.summary.completed} completed</span>
+                <span>{recovery.summary.attention} attention</span>
+                <span>{recovery.summary.retrying} retrying</span>
+              </div>
+              {recovery.scopes.some((scope) => scope.reason !== undefined) ? (
+                <ul className="recovery-list">
+                  {recovery.scopes
+                    .filter((scope) => scope.reason !== undefined)
+                    .slice(0, 8)
+                    .map((scope) => (
+                      <li key={scope.scopeKey}>
+                        <strong>{scope.scope.kind.replaceAll("_", " ")}</strong>{" "}
+                        <span>{scope.scope.id}</span>: {scope.reason?.what}
+                      </li>
+                    ))}
+                </ul>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void requestRecovery()}
+                disabled={recoveryBusy}
+              >
+                {recoveryBusy ? "Reconciling…" : "Reconcile now"}
+              </button>
+            </section>
+          ) : null}
           <section
-            className="server-settings recovery-panel"
-            aria-labelledby="recovery-heading"
+            className="server-settings support-panel"
+            aria-labelledby="support-diagnostics-heading"
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Durable recovery</p>
-                <h2 id="recovery-heading">Restart and connection recovery</h2>
+                <p className="eyebrow">Support</p>
+                <h2 id="support-diagnostics-heading">
+                  Safe support diagnostics
+                </h2>
               </div>
-              <span className="store-state" aria-label="Recovery status">
-                {recovery.status.toLowerCase()}
-              </span>
             </div>
-            <p className="section-help" role="status" aria-live="polite">
-              {recovery.summary.attention > 0
-                ? `${recovery.summary.attention} item${recovery.summary.attention === 1 ? "" : "s"} need attention.`
-                : recovery.summary.retrying > 0
-                  ? `${recovery.summary.retrying} item${recovery.summary.retrying === 1 ? " is" : "s are"} waiting to retry safely.`
-                  : "No recovery action is waiting for attention."}
+            <p className="section-help">
+              Export a bounded report with runtime, migration, lifecycle,
+              recovery, feature-health, and safe activity summaries.
+              Credentials, prompts, source, diffs, and local paths are omitted.
             </p>
-            <div className="recovery-summary" aria-label="Recovery summary">
-              <span>{recovery.summary.scopes} scopes</span>
-              <span>{recovery.summary.completed} completed</span>
-              <span>{recovery.summary.attention} attention</span>
-              <span>{recovery.summary.retrying} retrying</span>
-            </div>
-            {recovery.scopes.some((scope) => scope.reason !== undefined) ? (
-              <ul className="recovery-list">
-                {recovery.scopes
-                  .filter((scope) => scope.reason !== undefined)
-                  .slice(0, 8)
-                  .map((scope) => (
-                    <li key={scope.scopeKey}>
-                      <strong>{scope.scope.kind.replaceAll("_", " ")}</strong>{" "}
-                      <span>{scope.scope.id}</span>: {scope.reason?.what}
-                    </li>
-                  ))}
-              </ul>
-            ) : null}
             <button
               type="button"
-              onClick={() => void requestRecovery()}
-              disabled={recoveryBusy}
+              onClick={() => void exportSupportDiagnostics()}
+              disabled={supportBusy || state === undefined}
             >
-              {recoveryBusy ? "Reconciling…" : "Reconcile now"}
+              {supportBusy
+                ? "Preparing diagnostics…"
+                : "Export Support Diagnostics"}
             </button>
+            {supportMessage !== "" ? (
+              <p className="form-message" role="status" aria-live="polite">
+                {supportMessage}
+              </p>
+            ) : null}
           </section>
-        ) : null}
-        <section
-          className="server-settings support-panel"
-          aria-labelledby="support-diagnostics-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Support</p>
-              <h2 id="support-diagnostics-heading">Safe support diagnostics</h2>
+        </div>
+        <div hidden={landing !== "inbox" && landing !== "target"}>
+          <div hidden={landing !== "inbox"}>
+            <ManagedPrInbox
+              snapshot={inboxSnapshot}
+              loading={inboxLoading}
+              error={inboxError}
+              lastKnown={inboxLastKnown}
+              onRetry={() => void retryInbox()}
+              onNavigate={(managedPrId, destination) =>
+                void navigateFromInbox(managedPrId, destination)
+              }
+              onAddPr={() => {
+                setDestination("managed");
+                requestAnimationFrame(focusAddPr);
+              }}
+              selection={synchronizationSelection}
+              confirmation={synchronizationConfirmation}
+              preparationIntent={preparationIntent}
+              selectionBusy={synchronizationBusy}
+              confirmingPreparation={confirmingPreparation}
+              onSelectionCommand={(input) =>
+                void commandSynchronizationSelection(input)
+              }
+              onOpenSynchronization={() => void openSynchronization()}
+              onConfirmPreparation={() =>
+                void confirmSynchronizationPreparation()
+              }
+            />
+          </div>
+          <div hidden={landing !== "target"}>
+            <div hidden={!targetLabel.startsWith("review_bundle:")}>
+              {reviewBundleId !== undefined ? (
+                <ReviewBundleWorkspace bundleId={reviewBundleId} />
+              ) : null}
+            </div>
+            <div hidden={!targetLabel.startsWith("synchronization_")}>
+              <SynchronizationReview
+                batchId={synchronizationBatchId}
+                resultId={synchronizationResultId}
+              />
             </div>
           </div>
+        </div>
+        <div hidden={landing !== "activity"}>
+          <ActivityViewer
+            enabled={state !== undefined}
+            onNavigate={(target) => {
+              setDestination("target");
+              if (
+                target.kind === "MANAGED_PR" ||
+                target.kind === "MANAGED_PR_SETTINGS"
+              ) {
+                setDestination("managed");
+                if (target.id !== undefined) void openManagedPr(target.id);
+              }
+              if (target.kind === "REVIEW_BUNDLE") setReviewBundleId(target.id);
+              if (target.kind === "SYNCHRONIZATION_BATCH")
+                setSynchronizationBatchId(target.id);
+              if (target.kind === "SYNCHRONIZATION_RESULT")
+                setSynchronizationResultId(target.id);
+              setTargetLabel(`${target.kind.toLowerCase()}:${target.id ?? ""}`);
+            }}
+          />
+        </div>
+        <div hidden={landing !== "settings"}>
           <p className="section-help">
-            Export a bounded report with runtime, migration, lifecycle,
-            recovery, feature-health, and safe activity summaries. Credentials,
-            prompts, source, diffs, and local paths are omitted.
+            AI access: for Codex, configure OPENAI_API_KEY in the approved
+            runtime environment used by the adapter, then return to Setup and
+            Retry. Enter no secret in these profile editors. Provider capability
+            validation does not verify remote credentials.
           </p>
-          <button
-            type="button"
-            onClick={() => void exportSupportDiagnostics()}
-            disabled={supportBusy || state === undefined}
-          >
-            {supportBusy
-              ? "Preparing diagnostics…"
-              : "Export Support Diagnostics"}
+          <Preferences enabled={state !== undefined} />
+          <button type="button" onClick={() => setDestination("github")}>
+            Configure GitHub servers
           </button>
-          {supportMessage !== "" ? (
-            <p className="form-message" role="status" aria-live="polite">
-              {supportMessage}
-            </p>
-          ) : null}
-        </section>
-        <ManagedPrInbox
-          snapshot={inboxSnapshot}
-          loading={inboxLoading}
-          error={inboxError}
-          lastKnown={inboxLastKnown}
-          onRetry={() => void retryInbox()}
-          onNavigate={(managedPrId, destination) =>
-            void navigateFromInbox(managedPrId, destination)
-          }
-          onAddPr={focusAddPr}
-          selection={synchronizationSelection}
-          confirmation={synchronizationConfirmation}
-          preparationIntent={preparationIntent}
-          selectionBusy={synchronizationBusy}
-          confirmingPreparation={confirmingPreparation}
-          onSelectionCommand={(input) =>
-            void commandSynchronizationSelection(input)
-          }
-          onOpenSynchronization={() => void openSynchronization()}
-          onConfirmPreparation={() => void confirmSynchronizationPreparation()}
-        />
-        {reviewBundleId !== undefined ? (
-          <ReviewBundleWorkspace bundleId={reviewBundleId} />
-        ) : null}
-        <SynchronizationReview
-          batchId={synchronizationBatchId}
-          resultId={synchronizationResultId}
-        />
-        <ActivityViewer
-          enabled={state !== undefined}
-          onNavigate={(target) => {
-            setTargetLabel(`${target.kind.toLowerCase()}:${target.id ?? ""}`);
-          }}
-        />
-        <Preferences enabled={state !== undefined} />
-        <section
-          className="server-settings"
-          aria-labelledby="server-settings-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Secure access</p>
-              <h2 id="server-settings-heading">GitHub servers</h2>
-            </div>
-            <span className="store-state" aria-label="Secure storage status">
-              {settings === undefined
-                ? "loading"
-                : `secure storage ${settings.secureStore.state.toLowerCase()}`}
-            </span>
-          </div>
-          <p className="section-help">
-            Server identity is saved separately from the masked access value.
-            Connection tests are read-only.
-          </p>
-          <form
-            className="server-form"
-            aria-label="Add or update GitHub server"
-            onSubmit={(event) => void saveAndTest(event)}
+          <button type="button" onClick={() => setDestination("managed")}>
+            Optional PR configuration
+          </button>
+        </div>
+        <div hidden={landing !== "github"}>
+          <section
+            className="server-settings"
+            aria-labelledby="server-settings-heading"
           >
-            <label>
-              Display name
-              <input
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                autoComplete="off"
-                maxLength={120}
-                placeholder="Company GitHub"
-              />
-            </label>
-            <label>
-              HTTPS server origin
-              <input
-                value={serverUrl}
-                onChange={(event) => setServerUrl(event.target.value)}
-                autoComplete="url"
-                inputMode="url"
-                maxLength={2048}
-                placeholder="https://github.com or https://github.company.example"
-              />
-            </label>
-            <label>
-              Personal access value
-              <input
-                ref={tokenInputRef}
-                type="password"
-                autoComplete="new-password"
-                maxLength={4096}
-                aria-describedby="server-token-help"
-              />
-            </label>
-            <p id="server-token-help" className="field-help">
-              This masked field is cleared after submission and is never shown
-              in server status.
-            </p>
-            <button type="submit" disabled={busy}>
-              Save and Test
-            </button>
-          </form>
-          {formMessage !== "" ? (
-            <p className="form-message" role="status" aria-live="polite">
-              {formMessage}
-            </p>
-          ) : null}
-          {settings?.profiles.length === 0 ? (
-            <p className="empty-state">
-              No GitHub server profiles are configured yet.
-            </p>
-          ) : (
-            <div
-              className="profile-list"
-              aria-label="Configured GitHub servers"
-            >
-              {settings?.profiles.map((profile) => (
-                <article
-                  className={`profile-card${selectedProfile?.id === profile.id ? " profile-card-selected" : ""}`}
-                  key={profile.id}
-                >
-                  <div className="profile-card-heading">
-                    <div>
-                      <h3>{profile.displayName}</h3>
-                      <p>{profile.webOrigin}</p>
-                    </div>
-                    <span
-                      className={`status-pill status-${profile.status.toLowerCase()}`}
-                    >
-                      {statusLabel(profile)}
-                    </span>
-                  </div>
-                  <dl className="profile-details">
-                    <div>
-                      <dt>API base</dt>
-                      <dd>{profile.apiBaseUrl}</dd>
-                    </div>
-                    <div>
-                      <dt>Account</dt>
-                      <dd>{profile.accountLogin ?? "Not verified"}</dd>
-                    </div>
-                  </dl>
-                  {profile.reason !== undefined ? (
-                    <p className="profile-reason" role="status">
-                      {profile.reason.message} Next action:{" "}
-                      {profile.reason.nextAction
-                        .toLowerCase()
-                        .replaceAll("_", " ")}
-                      .
-                    </p>
-                  ) : null}
-                  <div className="profile-actions">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void runProfileAction("test", profile)}
-                    >
-                      Test Connection
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={busy}
-                      onClick={() => void runProfileAction("remove", profile)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </article>
-              ))}
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Secure access</p>
+                <h2 id="server-settings-heading">GitHub servers</h2>
+              </div>
+              <span className="store-state" aria-label="Secure storage status">
+                {settings === undefined
+                  ? "loading"
+                  : `secure storage ${settings.secureStore.state.toLowerCase()}`}
+              </span>
             </div>
-          )}
-          {settings?.operations.length ? (
-            <div className="operation-list" aria-label="Recovery operations">
-              <h3>Operations needing attention</h3>
-              {settings.operations.map((operation) => (
-                <div className="operation-row" key={operation.id}>
-                  <span>
-                    {operation.kind.toLowerCase().replaceAll("_", " ")} ·{" "}
-                    {operation.phase.toLowerCase().replaceAll("_", " ")}
-                  </span>
-                  {operationNeedsAction(operation) ? (
+            <p className="section-help">
+              Server identity is saved separately from the masked access value.
+              Connection tests are read-only.
+            </p>
+            <form
+              className="server-form"
+              aria-label="Add or update GitHub server"
+              onSubmit={(event) => void saveAndTest(event)}
+            >
+              <label>
+                Display name
+                <input
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  autoComplete="off"
+                  maxLength={120}
+                  placeholder="Company GitHub"
+                />
+              </label>
+              <label>
+                HTTPS server origin
+                <input
+                  value={serverUrl}
+                  onChange={(event) => setServerUrl(event.target.value)}
+                  autoComplete="url"
+                  inputMode="url"
+                  maxLength={2048}
+                  placeholder="https://github.com or https://github.company.example"
+                />
+              </label>
+              <label>
+                Personal access value
+                <input
+                  ref={tokenInputRef}
+                  type="password"
+                  autoComplete="new-password"
+                  maxLength={4096}
+                  aria-describedby="server-token-help"
+                />
+              </label>
+              <p id="server-token-help" className="field-help">
+                This masked field is cleared after submission and is never shown
+                in server status.
+              </p>
+              <button type="submit" disabled={busy}>
+                Save and Test
+              </button>
+            </form>
+            {formMessage !== "" ? (
+              <p className="form-message" role="status" aria-live="polite">
+                {formMessage}
+              </p>
+            ) : null}
+            {settings?.profiles.length === 0 ? (
+              <p className="empty-state">
+                No GitHub server profiles are configured yet.
+              </p>
+            ) : (
+              <div
+                className="profile-list"
+                aria-label="Configured GitHub servers"
+              >
+                {settings?.profiles.map((profile) => (
+                  <article
+                    className={`profile-card${selectedProfile?.id === profile.id ? " profile-card-selected" : ""}`}
+                    key={profile.id}
+                  >
+                    <div className="profile-card-heading">
+                      <div>
+                        <h3>{profile.displayName}</h3>
+                        <p>{profile.webOrigin}</p>
+                      </div>
+                      <span
+                        className={`status-pill status-${profile.status.toLowerCase()}`}
+                      >
+                        {statusLabel(profile)}
+                      </span>
+                    </div>
+                    <dl className="profile-details">
+                      <div>
+                        <dt>API base</dt>
+                        <dd>{profile.apiBaseUrl}</dd>
+                      </div>
+                      <div>
+                        <dt>Account</dt>
+                        <dd>{profile.accountLogin ?? "Not verified"}</dd>
+                      </div>
+                    </dl>
+                    {profile.reason !== undefined ? (
+                      <p className="profile-reason" role="status">
+                        {profile.reason.message} Next action:{" "}
+                        {profile.reason.nextAction
+                          .toLowerCase()
+                          .replaceAll("_", " ")}
+                        .
+                      </p>
+                    ) : null}
                     <div className="profile-actions">
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() =>
-                          void runOperationAction("retry", operation)
-                        }
+                        onClick={() => void runProfileAction("test", profile)}
                       >
-                        Retry
+                        Test Connection
                       </button>
                       <button
                         type="button"
                         className="secondary-button"
                         disabled={busy}
-                        onClick={() =>
-                          void runOperationAction("cleanup", operation)
-                        }
+                        onClick={() => void runProfileAction("remove", profile)}
                       >
-                        Clean up
+                        Remove
                       </button>
                     </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </section>
-        <section
-          className="managed-pr-settings"
-          aria-labelledby="managed-pr-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Managed pull requests</p>
-              <h2 id="managed-pr-heading">Add and manage a PR</h2>
-            </div>
-            <span
-              className="store-state"
-              aria-label="Managed pull request count"
-            >
-              {managedPrs.length} tracked
-            </span>
-          </div>
-          <p className="section-help">
-            Adding a URL records the remote identity first. A local clone is
-            optional and is inspected without fetch, checkout, reset, or
-            cleanup.
-          </p>
-          <form
-            className="managed-pr-form"
-            aria-label="Add a pull request"
-            onSubmit={(event) => void addManagedPr(event)}
-          >
-            <label>
-              Verified GitHub server
-              <select
-                value={selectedProfileId ?? ""}
-                onChange={(event) => setSelectedProfileId(event.target.value)}
-              >
-                <option value="">Choose a server</option>
-                {settings?.profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.displayName} ·{" "}
-                    {profile.status.toLowerCase().replaceAll("_", " ")}
-                  </option>
+                  </article>
                 ))}
-              </select>
-            </label>
-            <label>
-              Pull-request URL
-              <input
-                value={prUrl}
-                onChange={(event) => setPrUrl(event.target.value)}
-                maxLength={2048}
-                inputMode="url"
-                autoComplete="off"
-                aria-describedby="managed-pr-url-help"
-                placeholder="https://github.com/owner/repository/pull/123"
-              />
-            </label>
-            <p id="managed-pr-url-help" className="field-help">
-              Use the selected server origin and the form
-              /owner/repository/pull/number.
-            </p>
-            <label>
-              PR Intent / Context{" "}
-              <span className="label-optional">(optional)</span>
-              <textarea
-                value={prContext}
-                onChange={(event) => setPrContext(event.target.value)}
-                maxLength={32 * 1024}
-                rows={4}
-              />
-            </label>
-            <label>
-              Synchronization source branch{" "}
-              <span className="label-optional">(optional)</span>
-              <input
-                value={prOverride}
-                onChange={(event) => setPrOverride(event.target.value)}
-                maxLength={255}
-                autoComplete="off"
-                placeholder="Leave blank to use the PR base branch later"
-              />
-            </label>
-            <label>
-              Existing local clone{" "}
-              <span className="label-optional">(optional)</span>
-              <input
-                value={prClonePath}
-                onChange={(event) => setPrClonePath(event.target.value)}
-                maxLength={4096}
-                autoComplete="off"
-                placeholder="Leave blank to add without a local clone"
-              />
-            </label>
-            <div className="profile-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={busy}
-                onClick={() => void browseForClone()}
-              >
-                Browse for clone
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  busy || selectedProfileId === undefined || prUrl.length === 0
-                }
-              >
-                Add Pull Request
-              </button>
-            </div>
-          </form>
-          {managedMessage !== "" ? (
-            <p className="form-message" role="status" aria-live="polite">
-              {managedMessage}
-            </p>
-          ) : null}
-          {addAttempts.some((attempt) => attempt.status !== "SUCCEEDED") ? (
-            <div
-              className="managed-pr-attempts"
-              aria-label="Add pull request recovery attempts"
-            >
-              <h3>Add PR attempts needing attention</h3>
-              {addAttempts
-                .filter((attempt) => attempt.status !== "SUCCEEDED")
-                .map((attempt) => (
-                  <div className="operation-row" key={attempt.id}>
+              </div>
+            )}
+            {settings?.operations.length ? (
+              <div className="operation-list" aria-label="Recovery operations">
+                <h3>Operations needing attention</h3>
+                {settings.operations.map((operation) => (
+                  <div className="operation-row" key={operation.id}>
                     <span>
-                      {attempt.normalizedUrl} ·{" "}
-                      {attempt.status.toLowerCase().replaceAll("_", " ")}
-                      {attempt.reason === undefined
-                        ? ""
-                        : ` · ${attempt.reason.what}`}
+                      {operation.kind.toLowerCase().replaceAll("_", " ")} ·{" "}
+                      {operation.phase.toLowerCase().replaceAll("_", " ")}
                     </span>
+                    {operationNeedsAction(operation) ? (
+                      <div className="profile-actions">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            void runOperationAction("retry", operation)
+                          }
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={busy}
+                          onClick={() =>
+                            void runOperationAction("cleanup", operation)
+                          }
+                        >
+                          Clean up
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        </div>
+        <div hidden={landing !== "managed"}>
+          <section
+            className="managed-pr-settings"
+            aria-labelledby="managed-pr-heading"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Managed pull requests</p>
+                <h2 id="managed-pr-heading">Add and manage a PR</h2>
+              </div>
+              <span
+                className="store-state"
+                aria-label="Managed pull request count"
+              >
+                {managedPrs.length} tracked
+              </span>
+            </div>
+            <p className="section-help">
+              Adding a URL records the remote identity first. A local clone is
+              optional and is inspected without fetch, checkout, reset, or
+              cleanup.
+            </p>
+            <form
+              className="managed-pr-form"
+              aria-label="Add a pull request"
+              onSubmit={(event) => void addManagedPr(event)}
+            >
+              <label>
+                Verified GitHub server
+                <select
+                  value={selectedProfileId ?? ""}
+                  onChange={(event) => setSelectedProfileId(event.target.value)}
+                >
+                  <option value="">Choose a server</option>
+                  {settings?.profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.displayName} ·{" "}
+                      {profile.status.toLowerCase().replaceAll("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Pull-request URL
+                <input
+                  value={prUrl}
+                  onChange={(event) => setPrUrl(event.target.value)}
+                  maxLength={2048}
+                  inputMode="url"
+                  autoComplete="off"
+                  aria-describedby="managed-pr-url-help"
+                  placeholder="https://github.com/owner/repository/pull/123"
+                />
+              </label>
+              <p id="managed-pr-url-help" className="field-help">
+                Use the selected server origin and the form
+                /owner/repository/pull/number.
+              </p>
+              <label>
+                PR Intent / Context{" "}
+                <span className="label-optional">(optional)</span>
+                <textarea
+                  value={prContext}
+                  onChange={(event) => setPrContext(event.target.value)}
+                  maxLength={32 * 1024}
+                  rows={4}
+                />
+              </label>
+              <label>
+                Synchronization source branch{" "}
+                <span className="label-optional">(optional)</span>
+                <input
+                  value={prOverride}
+                  onChange={(event) => setPrOverride(event.target.value)}
+                  maxLength={255}
+                  autoComplete="off"
+                  placeholder="Leave blank to use the PR base branch later"
+                />
+              </label>
+              <label>
+                Existing local clone{" "}
+                <span className="label-optional">(optional)</span>
+                <input
+                  value={prClonePath}
+                  onChange={(event) => setPrClonePath(event.target.value)}
+                  maxLength={4096}
+                  autoComplete="off"
+                  placeholder="Leave blank to add without a local clone"
+                />
+              </label>
+              <div className="profile-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void browseForClone()}
+                >
+                  Browse for clone
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    busy ||
+                    selectedProfileId === undefined ||
+                    prUrl.length === 0
+                  }
+                >
+                  Add Pull Request
+                </button>
+              </div>
+            </form>
+            {managedMessage !== "" ? (
+              <p className="form-message" role="status" aria-live="polite">
+                {managedMessage}
+              </p>
+            ) : null}
+            {addAttempts.some((attempt) => attempt.status !== "SUCCEEDED") ? (
+              <div
+                className="managed-pr-attempts"
+                aria-label="Add pull request recovery attempts"
+              >
+                <h3>Add PR attempts needing attention</h3>
+                {addAttempts
+                  .filter((attempt) => attempt.status !== "SUCCEEDED")
+                  .map((attempt) => (
+                    <div className="operation-row" key={attempt.id}>
+                      <span>
+                        {attempt.normalizedUrl} ·{" "}
+                        {attempt.status.toLowerCase().replaceAll("_", " ")}
+                        {attempt.reason === undefined
+                          ? ""
+                          : ` · ${attempt.reason.what}`}
+                      </span>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={async () => {
+                          const response =
+                            await window.prmonitor?.retryManagedPrAdd(
+                              attempt.id,
+                            );
+                          if (
+                            response?.ok &&
+                            response.value.kind === "managed-pr-operation"
+                          ) {
+                            setManagedMessage(
+                              operationMessage(response.value.operation),
+                            );
+                            if (
+                              response.value.operation.managedPr !== undefined
+                            )
+                              setManagedDetails(
+                                response.value.operation.managedPr,
+                              );
+                            await refreshManagedPrs();
+                          }
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+            {managedPrs.length === 0 ? (
+              <p className="empty-state">
+                No managed pull requests yet. Add one with a verified server
+                profile.
+              </p>
+            ) : (
+              <div
+                className="managed-pr-list"
+                aria-label="Managed pull requests"
+              >
+                {managedPrs.map((managedPr) => (
+                  <article
+                    className={`managed-pr-card${selectedManagedPrId === managedPr.id ? " managed-pr-card-selected" : ""}`}
+                    key={managedPr.id}
+                  >
+                    <div className="profile-card-heading">
+                      <div>
+                        <h3>
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => void openManagedPr(managedPr.id)}
+                          >
+                            {managedPr.owner}/{managedPr.repositoryName} #
+                            {managedPr.number}
+                          </button>
+                        </h3>
+                        <p>
+                          {managedPr.prBaseBranch} ← {managedPr.prHeadBranch} ·{" "}
+                          {managedPr.primaryState
+                            .toLowerCase()
+                            .replaceAll("_", " ")}
+                        </p>
+                      </div>
+                      <span className="status-pill">
+                        {managedPr.localSetupStatus
+                          .toLowerCase()
+                          .replaceAll("_", " ")}
+                      </span>
+                    </div>
+                    <dl className="profile-details">
+                      <div>
+                        <dt>Base</dt>
+                        <dd>
+                          {managedPr.baseRepository.owner}/
+                          {managedPr.baseRepository.name} ·{" "}
+                          {managedPr.prBaseSha}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Head</dt>
+                        <dd>
+                          {managedPr.headRepository.available
+                            ? `${managedPr.headRepository.owner ?? ""}/${managedPr.headRepository.name ?? ""}`
+                            : `unavailable (${managedPr.headRepository.reason})`}{" "}
+                          · {managedPr.prHeadSha}
+                        </dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            )}
+            {managedDetails !== undefined ? (
+              <article
+                className="managed-pr-details"
+                aria-labelledby="managed-pr-details-heading"
+              >
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">Persisted details</p>
+                    <h3 id="managed-pr-details-heading">
+                      {managedDetails.owner}/{managedDetails.repositoryName} #
+                      {managedDetails.number}
+                    </h3>
+                  </div>
+                  <span className="status-pill">
+                    revision {managedDetails.configuration.revision}
+                  </span>
+                </div>
+                <p className="section-help">
+                  Remote identity and SHAs are immutable inputs to this record.
+                  The default branch is informational; a blank override remains
+                  blank.
+                </p>
+                <dl className="profile-details">
+                  <div>
+                    <dt>Canonical URL</dt>
+                    <dd>{managedDetails.canonicalUrl}</dd>
+                  </div>
+                  <div>
+                    <dt>Base repository / branch</dt>
+                    <dd>
+                      {managedDetails.baseRepository.owner}/
+                      {managedDetails.baseRepository.name} ·{" "}
+                      {managedDetails.prBaseBranch} · {managedDetails.prBaseSha}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Head repository / branch</dt>
+                    <dd>
+                      {managedDetails.headRepository.available
+                        ? `${managedDetails.headRepository.owner ?? ""}/${managedDetails.headRepository.name ?? ""}`
+                        : `unavailable (${managedDetails.headRepository.reason})`}{" "}
+                      · {managedDetails.prHeadBranch} ·{" "}
+                      {managedDetails.prHeadSha}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Repository default branch</dt>
+                    <dd>
+                      {managedDetails.defaultBranch ?? "Not reported"}{" "}
+                      (informational)
+                    </dd>
+                  </div>
+                </dl>
+                <form
+                  className="managed-pr-form"
+                  aria-label="Edit pull request configuration"
+                  onSubmit={(event) => void saveManagedConfiguration(event)}
+                >
+                  <label>
+                    PR Intent / Context
+                    <textarea
+                      value={prContext}
+                      onChange={(event) => setPrContext(event.target.value)}
+                      maxLength={32 * 1024}
+                      rows={4}
+                    />
+                  </label>
+                  <label>
+                    Synchronization source branch
+                    <input
+                      value={prOverride}
+                      onChange={(event) => setPrOverride(event.target.value)}
+                      maxLength={255}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="profile-actions">
+                    <button type="submit" disabled={busy}>
+                      Save new configuration revision
+                    </button>
+                  </div>
+                </form>
+                <div className="clone-panel">
+                  <h4>
+                    Local clone setup:{" "}
+                    {managedDetails.localSetupStatus
+                      .toLowerCase()
+                      .replaceAll("_", " ")}
+                  </h4>
+                  <label>
+                    Existing local clone path
+                    <input
+                      value={prClonePath}
+                      onChange={(event) => setPrClonePath(event.target.value)}
+                      maxLength={4096}
+                      autoComplete="off"
+                    />
+                  </label>
+                  {managedCandidates.length > 0 ? (
+                    <div
+                      className="clone-candidates"
+                      aria-label="Known local clone candidates"
+                    >
+                      <h5>Known candidates</h5>
+                      {managedCandidates.map((candidate) => (
+                        <button
+                          type="button"
+                          className="link-button"
+                          key={candidate.canonicalRoot}
+                          onClick={() =>
+                            setPrClonePath(candidate.canonicalRoot)
+                          }
+                        >
+                          {candidate.canonicalRoot} ·{" "}
+                          {candidate.status.toLowerCase().replaceAll("_", " ")}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="field-help">
+                      No previously validated clone candidates are known for
+                      this base repository.
+                    </p>
+                  )}
+                  <div className="profile-actions">
                     <button
                       type="button"
                       className="secondary-button"
                       disabled={busy}
-                      onClick={async () => {
-                        const response =
-                          await window.prmonitor?.retryManagedPrAdd(attempt.id);
-                        if (
-                          response?.ok &&
-                          response.value.kind === "managed-pr-operation"
-                        ) {
-                          setManagedMessage(
-                            operationMessage(response.value.operation),
-                          );
-                          if (response.value.operation.managedPr !== undefined)
-                            setManagedDetails(
-                              response.value.operation.managedPr,
-                            );
-                          await refreshManagedPrs();
-                        }
-                      }}
+                      onClick={() => void browseForClone()}
                     >
-                      Retry
+                      Browse
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || prClonePath.length === 0}
+                      onClick={() => void attachClone()}
+                    >
+                      Validate and attach
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={busy || managedDetails.localClone === undefined}
+                      onClick={() => void clearClone()}
+                    >
+                      Clear clone
                     </button>
                   </div>
-                ))}
-            </div>
-          ) : null}
-          {managedPrs.length === 0 ? (
-            <p className="empty-state">
-              No managed pull requests yet. Add one with a verified server
-              profile.
-            </p>
-          ) : (
-            <div className="managed-pr-list" aria-label="Managed pull requests">
-              {managedPrs.map((managedPr) => (
-                <article
-                  className={`managed-pr-card${selectedManagedPrId === managedPr.id ? " managed-pr-card-selected" : ""}`}
-                  key={managedPr.id}
-                >
-                  <div className="profile-card-heading">
-                    <div>
-                      <h3>
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => void openManagedPr(managedPr.id)}
-                        >
-                          {managedPr.owner}/{managedPr.repositoryName} #
-                          {managedPr.number}
-                        </button>
-                      </h3>
-                      <p>
-                        {managedPr.prBaseBranch} ← {managedPr.prHeadBranch} ·{" "}
-                        {managedPr.primaryState
-                          .toLowerCase()
-                          .replaceAll("_", " ")}
-                      </p>
-                    </div>
-                    <span className="status-pill">
-                      {managedPr.localSetupStatus
-                        .toLowerCase()
-                        .replaceAll("_", " ")}
-                    </span>
-                  </div>
-                  <dl className="profile-details">
-                    <div>
-                      <dt>Base</dt>
-                      <dd>
-                        {managedPr.baseRepository.owner}/
-                        {managedPr.baseRepository.name} · {managedPr.prBaseSha}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Head</dt>
-                      <dd>
-                        {managedPr.headRepository.available
-                          ? `${managedPr.headRepository.owner ?? ""}/${managedPr.headRepository.name ?? ""}`
-                          : `unavailable (${managedPr.headRepository.reason})`}{" "}
-                        · {managedPr.prHeadSha}
-                      </dd>
-                    </div>
-                  </dl>
-                </article>
-              ))}
-            </div>
-          )}
-          {managedDetails !== undefined ? (
-            <article
-              className="managed-pr-details"
-              aria-labelledby="managed-pr-details-heading"
-            >
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Persisted details</p>
-                  <h3 id="managed-pr-details-heading">
-                    {managedDetails.owner}/{managedDetails.repositoryName} #
-                    {managedDetails.number}
-                  </h3>
                 </div>
-                <span className="status-pill">
-                  revision {managedDetails.configuration.revision}
-                </span>
-              </div>
-              <p className="section-help">
-                Remote identity and SHAs are immutable inputs to this record.
-                The default branch is informational; a blank override remains
-                blank.
-              </p>
-              <dl className="profile-details">
-                <div>
-                  <dt>Canonical URL</dt>
-                  <dd>{managedDetails.canonicalUrl}</dd>
-                </div>
-                <div>
-                  <dt>Base repository / branch</dt>
-                  <dd>
-                    {managedDetails.baseRepository.owner}/
-                    {managedDetails.baseRepository.name} ·{" "}
-                    {managedDetails.prBaseBranch} · {managedDetails.prBaseSha}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Head repository / branch</dt>
-                  <dd>
-                    {managedDetails.headRepository.available
-                      ? `${managedDetails.headRepository.owner ?? ""}/${managedDetails.headRepository.name ?? ""}`
-                      : `unavailable (${managedDetails.headRepository.reason})`}{" "}
-                    · {managedDetails.prHeadBranch} · {managedDetails.prHeadSha}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Repository default branch</dt>
-                  <dd>
-                    {managedDetails.defaultBranch ?? "Not reported"}{" "}
-                    (informational)
-                  </dd>
-                </div>
-              </dl>
-              <form
-                className="managed-pr-form"
-                aria-label="Edit pull request configuration"
-                onSubmit={(event) => void saveManagedConfiguration(event)}
-              >
-                <label>
-                  PR Intent / Context
-                  <textarea
-                    value={prContext}
-                    onChange={(event) => setPrContext(event.target.value)}
-                    maxLength={32 * 1024}
-                    rows={4}
-                  />
-                </label>
-                <label>
-                  Synchronization source branch
-                  <input
-                    value={prOverride}
-                    onChange={(event) => setPrOverride(event.target.value)}
-                    maxLength={255}
-                    autoComplete="off"
-                  />
-                </label>
-                <div className="profile-actions">
-                  <button type="submit" disabled={busy}>
-                    Save new configuration revision
-                  </button>
-                </div>
-              </form>
-              <div className="clone-panel">
-                <h4>
-                  Local clone setup:{" "}
-                  {managedDetails.localSetupStatus
-                    .toLowerCase()
-                    .replaceAll("_", " ")}
-                </h4>
-                <label>
-                  Existing local clone path
-                  <input
-                    value={prClonePath}
-                    onChange={(event) => setPrClonePath(event.target.value)}
-                    maxLength={4096}
-                    autoComplete="off"
-                  />
-                </label>
-                {managedCandidates.length > 0 ? (
-                  <div
-                    className="clone-candidates"
-                    aria-label="Known local clone candidates"
-                  >
-                    <h5>Known candidates</h5>
-                    {managedCandidates.map((candidate) => (
-                      <button
-                        type="button"
-                        className="link-button"
-                        key={candidate.canonicalRoot}
-                        onClick={() => setPrClonePath(candidate.canonicalRoot)}
-                      >
-                        {candidate.canonicalRoot} ·{" "}
-                        {candidate.status.toLowerCase().replaceAll("_", " ")}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="field-help">
-                    No previously validated clone candidates are known for this
-                    base repository.
-                  </p>
-                )}
-                <div className="profile-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => void browseForClone()}
-                  >
-                    Browse
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || prClonePath.length === 0}
-                    onClick={() => void attachClone()}
-                  >
-                    Validate and attach
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy || managedDetails.localClone === undefined}
-                    onClick={() => void clearClone()}
-                  >
-                    Clear clone
-                  </button>
-                </div>
-              </div>
-            </article>
-          ) : null}
-        </section>
+              </article>
+            ) : null}
+          </section>
+        </div>
       </main>
     </div>
   );

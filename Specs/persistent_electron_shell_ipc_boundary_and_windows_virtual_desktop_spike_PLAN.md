@@ -106,3 +106,10 @@ F04 consumes F02's serializable results/reasons and F03's main-process persisten
 - F28 owns complete restart/sleep/network/orphan recovery. F04 only records lifecycle handoff and exposes incomplete-operation status; startup must not auto-authorize a stopped AI segment or publication.
 - The F04 application-coverage table maps APP-AC-04, APP-AC-17, APP-AC-20, APP-AC-30, and APP-AC-31 because the detailed lifecycle scope is a shared prerequisite for UI-independent work and shutdown. F10 owns the actual polling behavior; F19 owns the complete tray/notification/shutdown workflows. APP-AC-15, APP-AC-18, and APP-AC-19 remain F19-owned even though F19 consumes F04 contracts.
 - The checklist item remains unchecked. This specification phase produces no application code, does not change `checklist.md`, and does not claim that a shell spike or contract-only implementation closes the feature.
+
+
+## Issue 1 supplement: Startup landing and recovery
+
+Approved scope: [resumable setup on startup](https://github.com/bryant-collab/PRMonitor/issues/1). Default HOME/launch/window recreation reads the bounded main-owned five-check setup projection before choosing setup or inbox. Explicit saved-work targets remain view requests and take precedence with a setup-attention banner. Database or local-root bootstrap failure opens a recovery-only setup shell that preserves original data and admits no domain services. Ordinary setup reads never relaunch; explicit Retry coalesces a restart attempt of the same authoritative configuration and carries the latest validated view target. No setup screen pauses or cancels work.
+
+Evidence: the setup readiness/local/provider/IPC/renderer/recovery tests, repository `npm run check`, and six-process production Electron `npm run test:setup`. See `docs/evidence/setup-readiness/README.md` for scenario mapping, retained screenshots, and exact residual manual coverage. Existing F03/F05/F13/F19/F29 owners keep their persistence, credential, filesystem, lifecycle and security rules.

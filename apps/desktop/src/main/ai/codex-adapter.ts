@@ -43,6 +43,7 @@ export interface CodexClientPort {
 }
 
 export interface CodexRuntimePort {
+  readonly isAvailable?: () => boolean;
   readonly createClient: (options: {
     readonly env: Record<string, string>;
   }) => CodexClientPort;
@@ -127,6 +128,16 @@ function defaultRuntime(): CodexRuntimePort {
   }
   return {
     authenticationEnvironment,
+    // The SDK constructor resolves its installed native executable without
+    // spawning it, starting a thread, or contacting a model service.
+    isAvailable: () => {
+      try {
+        new Codex({ env: {} });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     createClient: (options) => {
       const client = new Codex(options as CodexOptions);
       return {
@@ -474,6 +485,24 @@ export class CodexAIProvider implements AIProvider {
     this.baseEnvironment = options.baseEnvironment;
     this.providerAuthenticationEnvironment =
       options.providerAuthenticationEnvironment;
+  }
+
+  public readLocalReadiness(): {
+    readonly runtimeAvailable: boolean;
+    readonly authenticationAvailable: boolean;
+  } {
+    const environment = safeEnvironment(
+      this.baseEnvironment ?? defaultBaseEnvironment(),
+      this.providerAuthenticationEnvironment ??
+        this.runtime.authenticationEnvironment ??
+        {},
+      [],
+    );
+    return {
+      runtimeAvailable: this.runtime.isAvailable?.() ?? true,
+      authenticationAvailable:
+        (environment.OPENAI_API_KEY?.trim().length ?? 0) > 0,
+    };
   }
 
   public async invoke(
