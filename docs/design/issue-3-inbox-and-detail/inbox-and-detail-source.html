@@ -1,0 +1,158 @@
+<style>
+#prm-layout-review { color-scheme:light dark; }
+#prm-layout-review .stage { min-height:670px; }
+#prm-layout-review .product { --p-bg:light-dark(#f5f7fa,#161c25); --p-surface:light-dark(#ffffff,#202835); --p-text:light-dark(#182536,#e8edf5); --p-muted:light-dark(#526377,#afbdd0); --p-line:light-dark(#d7e0eb,#3b485a); --p-accent:light-dark(#1c5da9,#9bc6ff); --p-selected:light-dark(#e8f1fd,#2b405b); background:var(--p-bg); color:var(--p-text); font:14px/1.45 'Segoe UI',system-ui,sans-serif; border:1px solid var(--p-line); border-radius:10px; overflow:hidden; min-height:620px; --p-space:14px; }
+#prm-layout-review .product * { box-sizing:border-box; }
+#prm-layout-review .product h2 { font:600 21px/1.25 'Segoe UI',sans-serif; margin:0 0 5px; }
+#prm-layout-review .product h3 { font:600 15px/1.4 'Segoe UI',sans-serif; margin:0 0 8px; }
+#prm-layout-review .product p { margin:0 0 10px; }
+#prm-layout-review .product small { font-size:12px; color:var(--p-muted); }
+#prm-layout-review .product button { cursor:inherit; font:inherit; color:var(--p-text); background:var(--p-surface); border:1px solid var(--p-line); border-radius:5px; padding:7px 11px; text-align:left; }
+#prm-layout-review .product button.primary { background:var(--p-accent); color:light-dark(#fff,#11243c); border-color:var(--p-accent); }
+#prm-layout-review .product button.active { background:var(--p-selected); color:var(--p-accent); border-color:var(--p-accent); }
+#prm-layout-review .product button.link { background:transparent; border-color:transparent; color:var(--p-accent); padding:5px 0; }
+#prm-layout-review .product button:focus-visible { outline:3px solid var(--p-accent); outline-offset:2px; }
+#prm-layout-review .product input, #prm-layout-review .product select, #prm-layout-review .product textarea { font:inherit; width:100%; padding:8px; border:1px solid var(--p-line); background:var(--p-surface); color:var(--p-text); border-radius:5px; }
+#prm-layout-review .product label { display:block; margin-bottom:12px; }
+#prm-layout-review .product header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 18px; border-bottom:1px solid var(--p-line); background:var(--p-surface); padding-right:100px; }
+#prm-layout-review .brand { font-weight:600; margin-right:auto; }
+#prm-layout-review .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+#prm-layout-review .spread { justify-content:space-between; }
+#prm-layout-review .muted { color:var(--p-muted); }
+#prm-layout-review .app-body { display:grid; grid-template-columns:170px minmax(0,1fr); min-height:530px; }
+#prm-layout-review .rail { padding:18px 12px; border-right:1px solid var(--p-line); background:var(--p-surface); }
+#prm-layout-review .rail nav { display:grid; gap:6px; }
+#prm-layout-review .rail button { width:100%; border-color:transparent; }
+#prm-layout-review .rail .rail-bottom { margin-top:38px; }
+#prm-layout-review .page { min-width:0; padding:20px; }
+#prm-layout-review .page-title { margin-bottom:17px; }
+#prm-layout-review .toolbar { margin:12px 0 16px; }
+#prm-layout-review .surface { background:var(--p-surface); border:1px solid var(--p-line); border-radius:7px; padding:var(--p-space); }
+#prm-layout-review .surface + .surface { margin-top:10px; }
+#prm-layout-review .split { display:grid; grid-template-columns:minmax(190px,.85fr) minmax(250px,1.15fr); gap:14px; }
+#prm-layout-review .pr-list { display:grid; gap:8px; align-content:start; }
+#prm-layout-review .pr-list button { padding:var(--p-space); }
+#prm-layout-review .pr-list strong { display:block; font-weight:600; }
+#prm-layout-review .tag { display:inline-block; padding:2px 6px; border-radius:4px; background:var(--p-selected); font-size:12px; color:var(--p-text); margin-top:6px; }
+#prm-layout-review .detail-tabs { display:flex; flex-wrap:wrap; gap:5px; padding:10px 0; border-bottom:1px solid var(--p-line); margin-bottom:16px; }
+#prm-layout-review .detail-tabs button { border:0; background:transparent; }
+#prm-layout-review .detail-tabs button.active { background:var(--p-selected); }
+#prm-layout-review .detail-copy { margin:12px 0 16px; }
+#prm-layout-review .detail-copy ul { padding-left:19px; margin:8px 0 12px; }
+#prm-layout-review .foot { display:flex; flex-wrap:wrap; gap:8px; padding:10px 18px; border-top:1px solid var(--p-line); background:var(--p-surface); font-size:12px; color:var(--p-muted); }
+#prm-layout-review .global-tabs { display:flex; flex-wrap:wrap; gap:6px; padding:11px 18px; border-bottom:1px solid var(--p-line); background:var(--p-surface); }
+#prm-layout-review table { border-collapse:collapse; width:100%; font-size:14px; }
+#prm-layout-review th,#prm-layout-review td { padding:var(--p-space) 8px; text-align:left; border-bottom:1px solid var(--p-line); vertical-align:top; overflow-wrap:anywhere; }
+#prm-layout-review th { font-weight:600; color:var(--p-muted); }
+#prm-layout-review .tasks { display:grid; gap:12px; }
+#prm-layout-review .task { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; }
+#prm-layout-review .repo-tree { padding:18px 10px; background:var(--p-surface); border-right:1px solid var(--p-line); }
+#prm-layout-review .repo-tree button { display:block; width:100%; margin:4px 0; }
+#prm-layout-review .repo-tree .child { padding-left:22px; }
+#prm-layout-review .board { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:16px 0; }
+#prm-layout-review .lane { min-width:0; }
+#prm-layout-review .lane h3 { font-size:13px; }
+#prm-layout-review .lane button { width:100%; padding:12px; min-height:135px; }
+#prm-layout-review .settings-grid { display:grid; grid-template-columns:160px minmax(0,1fr); gap:16px; }
+#prm-layout-review .settings-links { display:grid; gap:7px; align-content:start; }
+#prm-layout-review .setup-grid { display:grid; grid-template-columns:180px minmax(0,1fr); gap:20px; }
+#prm-layout-review .steps { display:grid; align-content:start; gap:12px; }
+#prm-layout-review .steps button { width:100%; }
+#prm-layout-review .status-line { padding:12px; border-radius:6px; background:var(--p-selected); margin-bottom:14px; }
+#prm-layout-review [hidden] { display:none !important; }
+@media(max-width:760px) { #prm-layout-review .app-body { grid-template-columns:1fr; } #prm-layout-review .rail { border-right:0; border-bottom:1px solid var(--p-line); padding:8px; } #prm-layout-review .rail nav { display:flex; flex-wrap:wrap; } #prm-layout-review .rail button { width:auto; } #prm-layout-review .rail .rail-bottom { margin:4px 0 0; } #prm-layout-review .split { grid-template-columns:1fr; } #prm-layout-review .board { grid-template-columns:repeat(2,minmax(0,1fr)); } #prm-layout-review .repo-tree { border-right:0; } #prm-layout-review .repo-tree button { width:auto; display:inline-block; } #prm-layout-review .stage { min-height:900px; } }
+@media(max-width:450px) { #prm-layout-review .page { padding:12px; } #prm-layout-review .setup-grid,#prm-layout-review .settings-grid { grid-template-columns:1fr; } #prm-layout-review .task { grid-template-columns:1fr; } #prm-layout-review .board { grid-template-columns:1fr; } #prm-layout-review table,#prm-layout-review tbody,#prm-layout-review tr,#prm-layout-review td { display:block; } #prm-layout-review thead { display:none; } #prm-layout-review td { padding:7px; } #prm-layout-review .stage { min-height:1200px; } }
+</style>
+<div id="prm-layout-review" class="viz-carousel" aria-label="Five PRMonitor layout concepts">
+  <section class="stage" data-variant="Inbox and detail" aria-label="Layout 1: Inbox and detail"><div class="product" data-layout="1" aria-label="Inbox and detail design"></div></section>
+
+
+
+
+</div>
+<script>
+(() => {
+ const root = document.getElementById('prm-layout-review');
+ const names = ['Inbox and detail','Top-level tabs','Attention first','Repository workspace','Workflow board'];
+ const prs = [
+   {id:'214',title:'Improve sign-in errors',repo:'acme/web',status:'Ready for review',summary:'3 feedback items assessed. Your decisions are needed before code changes.',action:'Review proposal'},
+   {id:'87',title:'Retry webhook delivery',repo:'acme/api',status:'Needs attention',summary:'AI work stopped at its turn limit. The work and reports are saved.',action:'Inspect work'},
+   {id:'219',title:'Refresh account settings',repo:'acme/web',status:'Working',summary:'Implementing your accepted decisions in the isolated worktree.',action:'Open progress'},
+   {id:'92',title:'Improve request tracing',repo:'acme/api',status:'Watching',summary:'Waiting for new reviewer feedback. Last checked 2 minutes ago.',action:'Open PR'}
+ ];
+ const b = (label,action,cls='') => `<button class="cursor-interaction ${cls}" type="button" data-action="${action}">${label}</button>`;
+ const stateMap = new Map();
+ function prButtons(s) { return `<div class="pr-list">${prs.map(p=>b(`<small>${p.repo} #${p.id}</small><strong>${p.title}</strong><span class="tag">${p.status}</span>`,`pr:${p.id}`,s.pr===p.id?'active':'')).join('')}</div>`; }
+ function tabs(s) { return `<div class="detail-tabs" aria-label="PR sections">${['Overview','Review','Branch sync','Activity','PR settings'].map(x=>b(x,`tab:${x}`,s.tab===x?'active':'')).join('')}</div>`; }
+ function detail(s) {
+   const p=prs.find(x=>x.id===s.pr) || prs[0];
+   let content='';
+   if(s.tab==='Overview') content=`<span class="tag">${p.status}</span><div class="detail-copy"><p>${p.summary}</p></div><div class="row">${b(p.action,'tab:Review','primary')}${b('Check now','message:Checking this PR for new feedback.')}</div><hr><h3>Branches</h3><p><small>Source: main → PR head: feature/${p.id}</small></p>${b('Synchronize PR branch','tab:Branch sync','link')}`;
+   if(s.tab==='Review') content=p.id==='87'?`<span class="tag">Needs attention · Work saved</span><div class="detail-copy"><h3>AI work reached its turn limit</h3><p>Three turns completed. A failing retry test still needs investigation.</p><h3>Saved evidence</h3><p>Inspect the turn reports, file changes, validation and usage before deciding how to proceed.</p></div><div class="row">${b('Inspect turn reports','message:Saved turn-by-turn evidence opens in the full workspace.','primary')}${b('Continue AI work','message:Continuation requires inspection and an explicit bounded-work decision.')}${b('Discard','message:Discard opens the existing dirty-worktree choices.')}</div>`:`<span class="tag">Proposal · No code changed</span><div class="detail-copy"><h3>Reviewer concern</h3><p>Explain why sign-in failed without exposing sensitive details.</p><h3>Recommendation</h3><p>Fix the error message and add coverage for an expired session.</p><div class="row">${b('Accept recommendation','message:Recommendation accepted in this preview.','primary')}${b('Override recommendation','message:Choose a disposition and enter instructions.')}</div></div><details><summary>Validation, replies and complete diff</summary><p>Inspect baseline results, proposed replies and the full diff in the review workspace.</p></details><hr>${b('Open full review workspace','message:Review decisions, conversation, revisions, discard and final publication are available in the full workspace.','primary')}`;
+   if(s.tab==='Branch sync') content=`<h3>Bring this PR up to date</h3><p>Merge changes from the source branch into this PR in an isolated worktree.</p><p><small>Source: main · Destination: feature/${p.id}</small></p>${b('Review synchronization plan','message:Confirmation lists eligibility and both branch SHAs before preparation.','primary')}<hr><p>Inspect the result and validation before approving a push.</p>`;
+   if(s.tab==='Activity') content=`<h3>Activity for #${p.id}</h3><p>${p.summary}</p>${b('Open filtered history','nav:Activity','link')}`;
+   if(s.tab==='PR settings') content=`<label>PR context<textarea rows="2">Keep the existing API behavior.</textarea></label><label>Synchronization source override<input placeholder="Use PR base branch by default"></label><label>Local clone path<input placeholder="Optional"></label><div class="row">${b('Save PR settings','message:PR settings saved in this preview.','primary')}${b('Clone choices','message:Existing clone candidates and dirty-worktree decisions remain available.')}${b('Unmanage PR','message:Unmanage keeps its existing confirmation and history policy.')}</div>`;
+   return `<div class="surface"><small>${p.repo} #${p.id}</small><h3>${p.title}</h3>${tabs(s)}${content}</div>`;
+ }
+ function table(s) {return `<div class="surface"><table><thead><tr><th>Pull request</th><th>Status</th><th>Next action</th></tr></thead><tbody>${prs.map(p=>`<tr><td><small>${p.repo} #${p.id}</small><br>${p.title}</td><td>${p.status}</td><td>${b(p.action,`open:${p.id}`)}</td></tr>`).join('')}</tbody></table></div>`;}
+ function toolbar(s) {return `<div class="row spread toolbar"><div class="row">${b('Check now','message:Checking managed PRs for new feedback.')}${b(s.paused?'Resume watching':'Pause watching','pause')}</div><div class="row">${b('Select PRs to sync','message:Selection exposes select all, clear selection, eligibility and confirmation.')}${b('Add PR','nav:Add PR','primary')}</div></div>`;}
+ function inbox(s) {
+   let body='';
+   if(s.layout===1) body=`<div class="split">${prButtons(s)}${detail(s)}</div>`;
+   if(s.layout===2) body=table(s);
+   if(s.layout===3) body=table(s);
+   if(s.layout===4) body=`<div class="split">${prButtons(s)}${detail(s)}</div>`;
+   if(s.layout===5) body=`<div class="board">${['Watching','Working','Ready for review','Needs attention'].map(status=>`<div class="lane"><h3>${status}</h3>${prs.filter(p=>p.status===status).map(p=>b(`<small>${p.repo} #${p.id}</small><p>${p.title}</p><small>${p.action}</small>`,`open:${p.id}`)).join('')}</div>`).join('')}</div>`;
+   return `<div class="page-title"><h2>${s.layout===5?'PR workflow':s.layout===4?'Repository inbox':'PR inbox'}</h2><p class="muted">4 managed PRs · 1 ready for review · 1 needs attention</p></div>${toolbar(s)}${body}`;
+ }
+ function home(s) {return `<div class="page-title"><h2>Your next actions</h2><p class="muted">2 PRs need your input. Monitoring continues in the background.</p></div><div class="tasks"><div class="surface task"><div><small>acme/web #214 · Ready for review</small><h3>Decide how to address 3 feedback items</h3><p>No code changes have started.</p></div>${b('Review proposal','open:214','primary')}</div><div class="surface task"><div><small>acme/api #87 · Needs attention</small><h3>Inspect work that reached its turn limit</h3><p>Review the saved report before continuing.</p></div>${b('Inspect work','open:87')}</div></div><hr><div class="row spread"><p>1 PR working · 1 PR watching</p>${b('Open PR inbox','nav:PR inbox')}</div>${toolbar(s)}`;}
+ function health(s) {return `<div class="page-title"><h2>Connection &amp; interrupted work</h2><p class="muted">Understand what needs help and what a recovery check does.</p></div><div class="surface"><h3>No interrupted work needs action</h3><p>PRMonitor checks saved work after restart and when the connection returns.</p><hr><h3>Check interrupted work</h3><p>Compare saved operations with local and GitHub state, then retry only work that is safe to retry under the existing recovery rules. Work needing your decision stays stopped.</p><p><small>This uses the current recovery action. It does not approve a new publication or grant AI permission to continue stopped work. Previously approved publication outcomes may be checked.</small></p>${b('Check interrupted work','message:Recovery check completed in this preview. No items need action.','primary')}<details style="margin-top:14px"><summary>Technical details</summary><p>Recovery classifications, scopes, reason codes, correlation IDs and attempt evidence remain available here and in Activity.</p></details></div>`;}
+ function activity(s) {return `<div class="page-title"><h2>Activity</h2><p class="muted">History from this installation.</p></div><div class="row toolbar">${b('PR work','activity:PR work',s.activity==='PR work'?'active':'')}${b('Application diagnostics','activity:Application diagnostics',s.activity==='Application diagnostics'?'active':'')}${b('All activity','activity:All activity',s.activity==='All activity'?'active':'')}${b('Filter','message:Filter by PR, correlation, work item, severity or stage.')}</div>${s.activity==='PR work'?`<div class="surface"><h3>No PR activity yet</h3><p>PRMonitor will record activity here when you add pull requests and work begins.</p><div class="row">${b('Add PR','nav:Add PR','primary')}${b('View application diagnostics','activity:Application diagnostics')}</div></div>`:`<div class="surface"><div class="row spread"><span>PRMonitor started</span><small>Application · Just now · Info</small></div><details><summary>Details</summary><p>The background service is running. Technical event: LIFECYCLE_RUNNING.</p></details><hr><div class="row spread"><span>System tray ready</span><small>Application · Just now · Info</small></div><details><summary>Details</summary><p>The tray icon is available. Technical event: Tray surface created.</p></details></div>`}<details style="margin-top:14px"><summary>About activity retention</summary><p>Activity is retained for up to 30 days, 50,000 events or 64 MiB. Saved reviews and results are retained separately.</p></details>`;}
+ function settings(s) {
+   const items=['GitHub connections','AI task profiles','Execution policy','Monitoring & work limits','Common instructions','Repository validation','Setup','Support diagnostics'];
+   let content='<p>Each current control stays available in its own focused settings section.</p>';
+   if(s.setting==='GitHub connections') content=`<h3>GitHub connections</h3><div class="surface"><p>GitHub.com · Connection verified</p><div class="row">${b('Test connection','message:Connection verified in this preview.')}${b('Replace access','message:Replacement uses the existing secure token flow.')}${b('Remove server','message:Server removal keeps its existing guards.')}</div></div>${b('Add GitHub or Enterprise server','message:Existing server editor opens.','link')}`;
+   if(s.setting==='AI task profiles') content=`<h3>AI task profiles</h3><label>Task<select><option>Automatic Review / Re-evaluation</option><option>Review Revision</option><option>Read-only Conversation</option><option>Merge Conflict Resolution</option></select></label><label>Model<input value="Configured provider model"></label><label>Reasoning effort<select><option>Medium</option><option>High</option></select></label>${b('Validate & save profile','message:Selected task profile validated in this preview.','primary')}<details style="margin-top:12px"><summary>Provider options</summary><p>Existing enabled state, provider selection and structured options editor remain available.</p></details>`;
+   if(s.setting==='Support diagnostics') content=`<h3>Support diagnostics</h3><p>Save a redacted report of application health, recovery and safe Activity summaries.</p>${b('Export diagnostics','message:Diagnostics export opens the existing destination picker.','primary')}`;
+   if(s.setting==='Monitoring & work limits') content=`<h3>Monitoring &amp; work limits</h3><label>Polling interval<input value="10 minutes"></label><label>AI turn limit<input value="3"></label><label>Feedback quiet period<input value="Current configured value"></label>${b('Save operational preferences','message:Operational preferences saved in this preview.','primary')}`;
+   if(s.setting==='Execution policy') content=`<h3>Execution policy</h3><p>Use the existing preset descriptions and compatibility checks. Existing operations retain their saved policy.</p><select aria-label="Policy preset"><option>Autonomous worktree</option><option>Autonomous worktree with network</option><option>Read only</option><option>Interactive approvals</option><option>Full access</option></select>${b('Save policy','message:Policy save retains existing validation and boundaries.','primary')}`;
+   if(s.setting==='Common instructions') content=`<h3>Common instructions</h3><p>Create, edit, select, enable and delete instruction profiles here.</p>${b('Add instruction profile','message:Existing common instruction profile editor opens.')}`;
+   if(s.setting==='Repository validation') content=`<h3>Repository build &amp; validation</h3><p>Repository identity, build instructions, baseline/post-change commands and warnings stay together.</p>${b('Edit repository configuration','message:Existing repository validation editor opens.')}`;
+   return `<div class="page-title"><h2>Settings</h2></div><div class="settings-grid"><div class="settings-links">${items.map(x=>b(x,x==='Setup'?'nav:Setup':`setting:${x}`,s.setting===x?'active':'')).join('')}</div><div class="surface">${content}</div></div>`;
+ }
+ function setup(s) {return `<div class="page-title"><h2>Set up PRMonitor</h2><p class="muted">Complete the required checks to start reviewing feedback.</p></div><div class="status-line">2 of 3 setup groups complete · AI configuration needs attention</div><div class="setup-grid"><div class="steps">${b('✓ Local prerequisites','message:Git, storage and worktree path checks passed.')}${b('✓ GitHub connection','setting:GitHub connections')}${b('3 · Configure AI tasks','message:This is the current setup step.','active')}<small>Optional preferences remain in Settings.</small></div><div class="surface"><h3>Configure AI access and task profiles</h3><p>Choose independent profiles for automatic review, revisions, conversation and merge conflicts.</p><p><small>Provider access: configured locally. Service access is checked when work starts.</small></p><label>Task<select><option>Automatic Review / Re-evaluation</option><option>Review Revision</option><option>Read-only Conversation</option><option>Merge Conflict Resolution</option></select></label><label>Model<input placeholder="Choose a supported model"></label><div class="row">${b('Validate & save','message:Profile saved. Complete the remaining task profiles to finish setup.','primary')}${b('Apply to all tasks','message:Validate and save four independent profiles; profiles remain editable separately.')}</div><hr><div class="row">${b('View existing PRs','nav:PR inbox')}${b('Open settings','nav:Settings')}</div></div></div>`;}
+ function addPr() {return `<div class="page-title"><h2>Add a pull request</h2></div><div class="surface"><label>GitHub connection<select><option>GitHub.com</option></select></label><label>Pull request URL<input placeholder="https://github.com/owner/repository/pull/123"></label><details><summary>Context, source branch and local clone</summary><label>PR context<textarea rows="2"></textarea></label><label>Source branch override<input placeholder="Optional"></label><label>Local clone path<input placeholder="Optional"></label></details><div class="row toolbar">${b('Add PR','message:Add PR retains canonical URL validation, clone checks and recovery attempts.','primary')}${b('Cancel','nav:PR inbox')}</div></div>`;}
+ function nav(s) {const items=s.layout===3?['Home','PR inbox','Activity','Settings']:['PR inbox','Activity','Settings'];return items.map(x=>b(x,`nav:${x}`,s.page===x?'active':'')).join('');}
+ function render(s) {
+   let page=s.page==='PR inbox'?inbox(s):s.page==='Home'?home(s):s.page==='Activity'?activity(s):s.page==='Settings'?settings(s):s.page==='Setup'?setup(s):s.page==='Connection'?health(s):s.page==='Add PR'?addPr():`<div class="page-title"><div class="row spread"><h2>PR workspace</h2>${b('Back to PR inbox','nav:PR inbox')}</div></div>${detail(s)}`;
+   const title=`<header><span class="brand">PRMonitor <small>· ${s.layout}. ${names[s.layout-1]}</small></span>${b(s.paused?'Watching paused':'Monitoring active','nav:Connection')}${b('Preview setup','nav:Setup')}</header>`;
+   const footer=`<div class="foot"><span>GitHub connected · Background work continues when the window closes</span>${b('Connection & interrupted work','nav:Connection','link')}</div>`;
+   const message=s.message?`<div class="status-line" role="status">${s.message}</div>`:'';
+   let shell='';
+   if(s.layout===2 || s.layout===5) shell=`<div class="global-tabs" aria-label="Main navigation">${nav(s)}</div><main class="page">${message}${page}</main>`;
+   else if(s.layout===4) shell=`<div class="app-body"><aside class="repo-tree"><small>Repositories</small><h3>GitHub.com</h3>${b('acme/web','message:Repository selection scopes the PR list.','active')}${b('#214 Sign-in errors','open:214','child')}${b('#219 Account settings','open:219','child')}${b('acme/api','message:Repository selection scopes the PR list.')}${b('#87 Webhook retry','open:87','child')}${b('#92 Request tracing','open:92','child')}<hr>${nav(s)}</aside><main class="page">${message}${page}</main></div>`;
+   else shell=`<div class="app-body"><aside class="rail"><nav aria-label="Main navigation">${nav(s)}</nav><div class="rail-bottom"><small>Application</small>${b('Connection & work','nav:Connection')}${b('Setup','nav:Setup')}</div></aside><main class="page">${message}${page}</main></div>`;
+   s.el.innerHTML=title+shell+footer;
+ }
+ root.querySelectorAll('.product').forEach(el=> {
+   const layout=Number(el.dataset.layout);
+   const s={el,layout,page:layout===3?'Home':'PR inbox',pr:'214',tab:'Overview',setting:'GitHub connections',activity:'PR work',paused:false,message:''};
+   stateMap.set(el,s); render(s);
+   el.addEventListener('click',event=> {
+     const button=event.target.closest('button[data-action]'); if(!button)return;
+     const action=button.dataset.action; const colon=action.indexOf(':'); const type=colon<0?action:action.slice(0,colon); const value=colon<0?'':action.slice(colon+1);
+     s.message='';
+     if(type==='nav')s.page=value;
+     if(type==='pr'){s.pr=value;s.tab='Overview';}
+     if(type==='open'){s.pr=value;s.tab='Overview';s.page='PR workspace';}
+     if(type==='tab')s.tab=value;
+     if(type==='setting'){s.page='Settings';s.setting=value;}
+     if(type==='activity'){s.page='Activity';s.activity=value;}
+     if(type==='pause'){s.paused=!s.paused;s.message=s.paused?'Watching paused in this preview. Existing in-flight work keeps its current behavior.':'Watching resumed in this preview.';}
+     if(type==='message')s.message=value;
+     render(s);
+   });
+   if(globalThis.Tweak){const design={spacing:14};const tweak=new Tweak({container:el,onChange:()=>el.style.setProperty('--p-space',`${design.spacing}px`)});tweak.addSlider(design,'spacing',{label:'Content spacing',min:10,max:20,unit:'px'});}
+ });
+})();
+</script>
