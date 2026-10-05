@@ -134,7 +134,13 @@ describe("F01 workspace contract", () => {
       "utf8",
     );
     expect(workflow).toContain("runs-on: windows-latest");
-    expect(workflow).toContain("runs-on: ubuntu-latest");
+    expect(workflow).toContain("runs-on: ubuntu-22.04");
+    expect(workflow).toContain("retire before 2027-04-17");
+    expect(workflow).toContain("npm ci");
+    expect(workflow).toContain("node scripts/linux-sandbox-diagnostics.mjs");
+    expect(workflow).not.toMatch(
+      /continue-on-error|--no-sandbox|--ignore-scripts/u,
+    );
     expect(workflow).toContain("node-version: 24.19.0");
     expect(workflow).toContain("npm run check");
     expect(workflow).toContain(

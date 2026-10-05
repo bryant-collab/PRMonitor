@@ -1,5 +1,11 @@
 # F01 - Application Workspace and Engineering Foundation - Product Requirements Document
 
+> Approved CI compatibility exception, 2026-10-05: the Linux runner label in
+> AC-17, FR-05.6 and TST-08 temporarily uses `ubuntu-22.04` instead of
+> `ubuntu-latest`. All commands, security and failure gates are unchanged.
+> Retire the pin before 2027-04-17; see
+> [runner evidence and migration criteria](../docs/evidence/backlog/ubuntu-runner-pin.md).
+
 <!-- This file answers the what and why of the product/feature. It is from the
 customer's PoV and should not contain architecture or technical information
 beyond user-level things like OS / memory requirements / etc. Keep this comment
