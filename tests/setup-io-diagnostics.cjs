@@ -68,10 +68,28 @@ exports.observeOwnedIo = function (fs, sqlite, root, now = Date.now) {
     if (!original) continue;
     prototype[name] = function (...args) {
       const complete = begin(`SQL_${name.toUpperCase()}`);
+      const transactionKind =
+        owner !== "DatabaseSync"
+          ? undefined
+          : typeof args[0] === "string" &&
+              /^\s*BEGIN IMMEDIATE\s*;?\s*$/iu.test(args[0])
+            ? "BEGIN"
+            : typeof args[0] === "string" &&
+                /^\s*COMMIT\s*;?\s*$/iu.test(args[0])
+              ? "COMMIT"
+              : typeof args[0] === "string" &&
+                  /^\s*ROLLBACK\s*;?\s*$/iu.test(args[0])
+                ? "ROLLBACK"
+                : "OTHER";
+      const completeTransaction =
+        transactionKind === undefined
+          ? undefined
+          : begin(`SQL_EXEC_${transactionKind}`);
       try {
         return original.apply(this, args);
       } finally {
         complete();
+        completeTransaction?.();
       }
     };
   }

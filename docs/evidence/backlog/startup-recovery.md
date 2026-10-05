@@ -210,3 +210,33 @@ deadline. It does not require asynchronous route focus to choose exactly the
 heading. Native window/document focus is still observed before the one Tab and
 Enter pair, and every original semantic/keyboard/forced-color assertion remains.
 The failed repair stays visible; publication still requires green exact-head CI.
+
+At `5aec845e8da875030efcdd513563ff7ce2b6406d`,
+[push 37314169535](https://github.com/bryant-collab/PRMonitor/actions/runs/37314169535)
+passes both required jobs and all twenty-one Windows native journeys.
+[PR 37314178156](https://github.com/bryant-collab/PRMonitor/actions/runs/37314178156)
+passes both aggregates, including production smoke, but Windows conditional-sync
+fails its original fifteen-second window wait before creating a window. Its
+post-seeding IO observations record 937 SQLite exec calls taking 13,016 ms;
+Git commands are short, and the closed child tree reports zero descendants.
+The diagnostics incorrectly read recovery and lifecycle from the base profile
+instead of the independent sync profile. Those stale observations cannot identify
+the failed application's recovery phase. No sole cause is established.
+
+The observation path now shares exact owned profile selection with the launcher.
+A real SQLite regression uses different base/publication/sync/preferences/bootstrap
+states and requires the correct observed lifecycle and recovery without private
+identity or path disclosure. SQL timings retain their aggregate and add only
+closed BEGIN/COMMIT/ROLLBACK/OTHER categories; original errors and results are
+preserved. This corrects failure evidence without changing production startup,
+SQLite FULL durability, acceptance assertions, deadlines or workflow gates.
+Local focused matrices pass; new exact-head CI must provide trustworthy evidence
+before publication. Failed runs remain linked and are not blindly rerun.
+
+The corrected local aggregate passes 432 desktop, 43 contract, 17 spec-linter
+and 19 release cases, plus types, lint, formatting, build and sandboxed production
+smoke. The ten-stage effects matrix and full twenty-one-stage Windows acceptance
+pass with zero forbidden effects and zero surviving owned descendants, followed
+by owner/path-validated cleanup. The three independent profiles now report
+`createdThisProcess: true` and completed recovery. Their windows appear at
+1,726/4,182/489 ms respectively; these local timings do not explain the CI stall.
