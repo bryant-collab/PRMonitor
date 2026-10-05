@@ -45,6 +45,16 @@ evidence remains valid within that scope. Shipping identity and shortcuts were
 explicitly unverified; the preview workflow packaged the installer but did not
 install it. Existing checks did not catch this failure path.
 
+The pinned dependency is the npm distribution
+[`app-builder-lib-26.15.3.tgz`](https://registry.npmjs.org/app-builder-lib/-/app-builder-lib-26.15.3.tgz),
+whose integrity is recorded in `package-lock.json`. The relevant installed
+template paths are under `node_modules/app-builder-lib/templates/nsis`:
+`include/installUtil.nsh:86`, `installSection.nsh:40`, and
+`include/installer.nsh:189`. `registryAddInstallInfo` writes
+`KeepShortcuts=true`; the matching uninstaller preserves links when invoked
+with `--keep-shortcuts`. This explains why the missing link survives a manual
+same-version reinstall.
+
 ## Fix and regression boundary
 
 The shipping NSIS include repairs only an absent Start menu link after the
@@ -61,11 +71,20 @@ compiler. This is compile evidence, not Windows shortcut execution evidence.
 
 Normal Windows PR CI builds the shipping installer with publication disabled
 and runs `tests/installer-shortcuts.ps1`. It requires a disposable GitHub-hosted
-runner and refuses existing shipping registration, shortcuts or app data. It
-asserts fresh Start/desktop link creation, Start target and AppUserModelID,
-preservation of an existing link, same-version reinstall repair after deleting
-both links, respect for desktop deletion, retained fixture data and uninstall
-cleanup/preservation. It does not launch the application or alter security.
+runner and refuses existing shipping registration, shortcuts, program files or
+app data. It exercises the normal UserProgramFiles default path without `/D`.
+It downloads checksum-pinned preview.2, tests its fresh links/target/AppUserModelID,
+then reproduces missing-link preservation after deleting both links and
+reinstalling preview.2. The candidate repairs the Start link, preserves existing
+links and desktop deletion, then a test-only incremented package version
+exercises a real upgrade under the same shipping identity. Existing production
+fixtures seed a saved review and SQLite settings with version/timestamps;
+semantic readback and a sentinel hash must survive every reinstall/upgrade and
+ordinary uninstall. Retention assertions require the folder and DB to exist
+before opening persistence so full deletion cannot be masked. A fresh candidate
+install is checked after verified uninstall and disposal of only owned fixture
+data. It does not launch the application or alter security. No fixture installer
+is published and no production package version is changed.
 
 ## Verification still required
 
@@ -73,17 +92,20 @@ Linux: all 20 release tests passed, including the real NSIS compile. Formatting
 and `git diff --check` passed. `npm run check` stopped at its runtime gate:
 this saved environment has Git `2.52.0` instead of required `2.55.0`; Node
 `24.19.0` and locally installed npm `11.17.0` match. No gate was bypassed.
-The Windows test was added to normal PR checks; its result must be read from
-that PR's CI before describing it as passed.
+The initial commit `dfe7f45` passed Windows shortcut execution on its push run
+and both Ubuntu repository checks. The strengthened default-path/preview.2/
+upgrade/SQLite test is a later commit and must have its own exact-head CI
+result before describing that broader acceptance as passed.
 
 On an approved disposable Windows 11 account/VM, install the exact shipping
 candidate with its normal default path (no `/D`), verify the current user's
 Programs `PRMonitor.lnk`, target, AppUserModelID and Start-menu visibility, and
 launch from the link. Repeat an upgrade/reinstall from checksum-verified
 preview.2 with fixture history, including a missing Start link, then verify
-history retention and ordinary uninstall. CI's owned `/D` and file assertions
-do not establish Start indexing, default-path launch, or a real customer
-upgrade. Do not use or erase customer data for this acceptance.
+history retention and ordinary uninstall. Hosted CI's file/registry assertions
+do not establish Start indexing, default-path launch, physical Windows 11 UI,
+or the affected customer's installation history. Do not use or erase customer
+data for this acceptance.
 
 A temporary workaround is to use the already located installed `PRMonitor.exe`
 and create a personal shortcut or pin that executable to Start through the

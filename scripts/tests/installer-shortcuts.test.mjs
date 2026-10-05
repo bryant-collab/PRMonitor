@@ -26,6 +26,7 @@ test("shipping NSIS config enables Start menu repair and compiles with the pinne
   const target = new NsisTarget(packager, directory, "nsis", { refCount: 0 });
   assert.equal(packager.appInfo.id, "com.prmonitor.desktop");
   assert.equal(packager.appInfo.productFilename, "PRMonitor");
+  assert.equal(packager.appInfo.sanitizedName, "@prmonitordesktop");
   assert.equal(target.options.oneClick, true);
   assert.equal(target.options.perMachine, false);
   assert.equal(target.options.deleteAppDataOnUninstall, false);
