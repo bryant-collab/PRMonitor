@@ -21,6 +21,15 @@ jobs:
       - run: npm install --global npm@11.17.0
       - run: npm ci
       - run: npm run check
+      - name: Build shipping NSIS installer (no release)
+        run: npm --workspace @prmonitor/desktop run package:installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Shipping Start menu shortcut acceptance
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          ./tests/installer-shortcuts.ps1 -Installer "release/PRMonitor-$version-x64.exe"
       - name: Setup startup and restart acceptance
         run: npm run test:setup
 

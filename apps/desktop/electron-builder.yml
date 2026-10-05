@@ -25,6 +25,7 @@ win:
       arch:
         - x64
 nsis:
+  include: installer.nsh
   oneClick: true
   perMachine: false
   allowToChangeInstallationDirectory: false
