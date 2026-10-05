@@ -11,6 +11,7 @@ import {
   F19PersistenceRepositories,
   F22PersistenceRepositories,
   F11PersistenceRepositories,
+  F14ValidationRepositories,
 } from "../apps/desktop/src/main/persistence";
 import { f18ReviewBundleRecordSchema } from "../apps/desktop/src/shared/f18-automatic-review";
 import { f26ConflictResolutionReadModelSchema } from "../apps/desktop/src/shared/f26-conflict-resolution";
@@ -24,6 +25,7 @@ import type {
   F25SynchronizationBatchReadModel,
 } from "../apps/desktop/src/shared/f25-synchronization";
 import { evaluateF11Eligibility } from "../apps/desktop/src/shared/domain/eligibility";
+import { F13WorktreeService } from "../apps/desktop/src/main/f13-service";
 
 export async function seedHeldFinalReview(userData: string) {
   const store = await initializePersistence({
@@ -85,12 +87,16 @@ export async function seedHeldFinalReview(userData: string) {
     f11.recordDecision(result);
     // This is a historical state fixture inside the marker-owned database. The
     // actual claim transaction, identity/event/association and hold guards run.
-    store.transaction((transaction) =>
+    store.transaction((transaction) => {
       transaction.run(
         "UPDATE managed_prs SET state = 'WATCHING' WHERE managed_pr_id = ?",
         bundle.managedPrId,
-      ),
-    );
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET primary_state = 'WATCHING' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      );
+    });
     const claim = f11.claimAutomatic({
       claimId: bundle.claimId,
       holdId: "controlled-f22-held-final",
@@ -105,12 +111,16 @@ export async function seedHeldFinalReview(userData: string) {
     });
     if (claim.outcome !== "CLAIMED")
       throw Error(`CONTROLLED_F22_CLAIM_${claim.reason.code}`);
-    store.transaction((transaction) =>
+    store.transaction((transaction) => {
       transaction.run(
         "UPDATE managed_prs SET state = 'READY_FOR_REVIEW' WHERE managed_pr_id = ?",
         bundle.managedPrId,
-      ),
-    );
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET primary_state = 'READY_FOR_REVIEW' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      );
+    });
   } finally {
     store.close();
   }
@@ -155,7 +165,11 @@ export async function seedConditionalGate(
 }
 
 /** Creates only local owned fixture repositories, before the application effect guard. */
-export async function seedGuardedWork(userData: string, root: string) {
+export async function seedGuardedWork(
+  userData: string,
+  root: string,
+  pathPrefix = "",
+) {
   const store = await initializePersistence({
     databasePath: path.join(userData, "database/prmonitor.sqlite"),
     backupRoot: path.join(userData, "backups"),
@@ -166,8 +180,12 @@ export async function seedGuardedWork(userData: string, root: string) {
     const original = reviews.get("setup-saved-review");
     if (!original) throw Error("GUARDED_REVIEW_FIXTURE_MISSING");
     const time = new Date().toISOString();
-    const clone = path.join(root, "guarded-review-clone"),
-      operationRoot = path.join(root, "worktrees", "guarded-review-operation"),
+    const clone = path.join(root, `${pathPrefix}guarded-review-clone`),
+      operationRoot = path.join(
+        root,
+        "worktrees",
+        `${pathPrefix}guarded-review-operation`,
+      ),
       source = path.join(operationRoot, "source-repository"),
       worktree = path.join(operationRoot, "worktree");
     await mkdir(clone, { recursive: true });
@@ -182,7 +200,10 @@ export async function seedGuardedWork(userData: string, root: string) {
     // The fixture and production F13 use different Git environment boundaries.
     // Pin the owned file's bytes in repository attributes so system autocrlf
     // settings cannot make a restored checkpoint clean for only one boundary.
-    await writeFile(path.join(clone, ".gitattributes"), "source.ts text eol=lf\n");
+    await writeFile(
+      path.join(clone, ".gitattributes"),
+      "source.ts text eol=lf\n",
+    );
     await writeFile(
       path.join(clone, "source.ts"),
       Array.from(
@@ -205,18 +226,77 @@ export async function seedGuardedWork(userData: string, root: string) {
       bundleId = "guarded-final-review",
       operationId = "guarded-review-operation",
       worktreeId = "guarded-review-worktree";
-    repositories.putManagedPr({
-      managedPrId: prId,
-      serverId: "saved-fixture-server",
-      baseRepositoryId: "saved-fixture-repository",
-      headRepositoryId: "saved-fixture-repository",
-      number: 43,
-      baseBranch: "main",
-      headBranch: "saved-change",
-      baseSha: baseline,
-      headSha: baseline,
-      state: "READY_FOR_REVIEW",
-    });
+    if (pathPrefix === "publication-") {
+      const server = {
+        kind: "GHES" as const,
+        host: "saved.example.invalid",
+        webOrigin: "https://saved.example.invalid",
+        apiBaseUrl: "https://saved.example.invalid/api/v3",
+        serverKey: "saved-fixture-server",
+      };
+      const repository = {
+        schemaVersion: 1 as const,
+        server,
+        owner: "publication-fixture",
+        name: "owned-review",
+        key: "publication-fixture/owned-review",
+        available: true as const,
+      };
+      const remote = {
+        schemaVersion: 1 as const,
+        canonicalUrl:
+          "https://saved.example.invalid/publication-fixture/owned-review/pull/43",
+        pullRequestKey: "publication-fixture/owned-review#43",
+        serverId: "saved-fixture-server",
+        server,
+        owner: "publication-fixture",
+        repositoryName: "owned-review",
+        number: 43,
+        state: "OPEN" as const,
+        merged: false,
+        title: "Guarded final review",
+        baseRepository: repository,
+        headRepository: repository,
+        baseBranch: "main",
+        headBranch: "saved-change",
+        baseSha: baseline,
+        headSha: baseline,
+        defaultBranch: "main",
+      };
+      const prs = new F07PersistenceRepositories(store);
+      prs.beginAddAttempt({
+        attemptId: "owned-publication-add",
+        correlationId: "owned-publication-add",
+        idempotencyKey: "owned-publication-add",
+        canonicalPrKey: remote.pullRequestKey,
+        serverId: remote.serverId,
+        profileVersion: 1,
+        normalizedUrl: remote.canonicalUrl,
+        parsedInput: { schemaVersion: 1 },
+        context: null,
+        syncSourceBranchOverride: null,
+      });
+      prs.commitManagedPr({
+        attemptId: "owned-publication-add",
+        managedPrId: prId,
+        remote,
+        primaryState: "READY_FOR_REVIEW",
+        context: null,
+        syncSourceBranchOverride: null,
+      });
+    } else
+      repositories.putManagedPr({
+        managedPrId: prId,
+        serverId: "saved-fixture-server",
+        baseRepositoryId: "saved-fixture-repository",
+        headRepositoryId: "saved-fixture-repository",
+        number: 43,
+        baseBranch: "main",
+        headBranch: "saved-change",
+        baseSha: baseline,
+        headSha: baseline,
+        state: "READY_FOR_REVIEW",
+      });
     new F13PersistenceRepositories(store).reserveOperation({
       operationId,
       idempotencyKey: operationId,
@@ -254,6 +334,19 @@ export async function seedGuardedWork(userData: string, root: string) {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    const attributionService = new F13WorktreeService({
+      repositories: new F13PersistenceRepositories(store),
+    });
+    const beforePublication =
+      pathPrefix === "publication-"
+        ? await attributionService.beginAiTurn({
+            operationId,
+            ownerId: bundleId,
+            turnId: "owned-publication-historical-turn",
+          })
+        : undefined;
+    if (beforePublication?.ok === false)
+      throw Error("OWNED_PUBLICATION_BEFORE_SNAPSHOT_FAILED");
     await writeFile(
       path.join(worktree, "source.ts"),
       Array.from(
@@ -261,6 +354,39 @@ export async function seedGuardedWork(userData: string, root: string) {
         (_, i) => `export const changed${i} = ${i + 1};`,
       ).join("\n") + "\n",
     );
+    if (beforePublication?.ok) {
+      const after = await attributionService.completeAiTurn({
+        operationId,
+        ownerId: bundleId,
+        turnId: "owned-publication-historical-turn",
+        beforeSnapshotId: beforePublication.snapshot!.snapshotId,
+      });
+      if (!after.ok) throw Error("OWNED_PUBLICATION_AFTER_SNAPSHOT_FAILED");
+      new F14ValidationRepositories(store).saveRunIntent({
+        runId: "guarded-validation",
+        operationId,
+        idempotencyKey: "guarded-validation",
+        correlationId: "guarded-validation",
+        ownerType: "REVIEW_BUNDLE",
+        ownerId: bundleId,
+        consumer: "review",
+        requestedPhase: "post_change",
+        resolutionStatus: "ready",
+        evidence: {
+          recordType: "validation-run",
+          schemaVersion: 1,
+          runId: "guarded-validation",
+          phase: "post_change",
+          status: "passed",
+          startedAt: time,
+          completedAt: time,
+          steps: [],
+          manualAttestations: [],
+          warnings: [],
+        },
+        nextAction: "FINAL_REVIEW",
+      });
+    }
     const record = f18ReviewBundleRecordSchema.parse({
       ...original,
       bundleId,
@@ -343,7 +469,16 @@ export async function seedGuardedWork(userData: string, root: string) {
         ],
         version: 1,
       },
-      draftResponses: [],
+      draftResponses:
+        pathPrefix === "publication-"
+          ? [
+              {
+                eventVersionId: "guarded-final-event",
+                text: "The owned fixture change is ready for review.",
+                source: "HUMAN_DRAFT",
+              },
+            ]
+          : [],
     });
     reviews.persistIntent({
       record,
@@ -595,6 +730,176 @@ export async function seedGuardedWork(userData: string, root: string) {
 }
 
 /** Simulates persisted completion while the renderer is on another destination. */
+export async function seedConditionalSyncWork(userData: string, root: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repositories = createPersistenceRepositories(store);
+    const f13 = new F13PersistenceRepositories(store);
+    const f25 = new F25PersistenceRepositories(repositories);
+    const template = f13.getOperation("guarded-review-operation")!;
+    const service = new F13WorktreeService({ repositories: f13 });
+    for (const suffix of ["1", "2", "3"]) {
+      const operationId = `guarded-sync-${suffix}`;
+      const stored = f25.getResult(operationId);
+      const original = stored ?? f25.getResult("guarded-sync-1")!;
+      const baseline = new F18PersistenceRepositories(repositories).get(
+        "guarded-final-review",
+      )?.worktree?.baselineSha;
+      if (!baseline) throw Error("OWNED_SYNC_BASELINE_MISSING");
+      const current = {
+        ...original,
+        operationId,
+        input: {
+          ...original.input,
+          operationId,
+          row: {
+            ...original.input.row,
+            operationId,
+            prHeadSha: baseline,
+            syncSourceSha: baseline,
+            storedPrHeadSha: baseline,
+            storedPrBaseSha: baseline,
+          },
+        },
+        mergeBaseSha: baseline,
+        sourceChangeEvidence: {
+          schemaVersion: 1 as const,
+          side: "SOURCE" as const,
+          baseSha: baseline,
+          tipSha: baseline,
+          files: [],
+          evidenceHash: `owned-sync-source-${suffix}`,
+          complete: true,
+        },
+        prHeadChangeEvidence: {
+          schemaVersion: 1 as const,
+          side: "DESTINATION" as const,
+          baseSha: baseline,
+          tipSha: baseline,
+          files: [],
+          evidenceHash: `owned-sync-destination-${suffix}`,
+          complete: true,
+        },
+      };
+      const operationRoot = path.join(root, "worktrees", `sync-${operationId}`);
+      const source = path.join(operationRoot, "source-repository"),
+        worktree = path.join(operationRoot, "worktree");
+      await mkdir(operationRoot, { recursive: true });
+      execFileSync(
+        "git",
+        ["clone", "--no-hardlinks", template.developerClonePath, source],
+        { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+      );
+      execFileSync("git", ["worktree", "add", "--detach", worktree, baseline], {
+        cwd: source,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      f13.reserveOperation({
+        ...template,
+        operationId,
+        idempotencyKey: operationId,
+        correlationId: operationId,
+        ownerType: "SYNCHRONIZATION_RESULT",
+        ownerId: operationId,
+        operationKind: "SYNCHRONIZATION",
+        worktreeId: `sync-worktree-${suffix}`,
+        canonicalPath: worktree,
+        initialBaselineSha: baseline,
+        lifecycle: "ACTIVE",
+      });
+      const before = await service.beginAiTurn({
+        operationId,
+        ownerId: operationId,
+        turnId: `owned-sync-turn-${suffix}`,
+      });
+      if (!before.ok) throw Error("OWNED_SYNC_BEFORE_SNAPSHOT_FAILED");
+      await writeFile(
+        path.join(worktree, "source.ts"),
+        `export const ownedSync${suffix} = true;\n`,
+      );
+      const after = await service.completeAiTurn({
+        operationId,
+        ownerId: operationId,
+        turnId: `owned-sync-turn-${suffix}`,
+        beforeSnapshotId: before.snapshot!.snapshotId,
+      });
+      if (!after.ok) throw Error("OWNED_SYNC_AFTER_SNAPSHOT_FAILED");
+      const evidence = {
+        operationId,
+        worktreeId: `sync-worktree-${suffix}`,
+        ownerId: operationId,
+        canonicalPath: worktree,
+        rootRevision: 1,
+        baselineSha: baseline,
+        currentHeadSha: baseline,
+        condition: "AI_ATTRIBUTED_ONLY",
+      };
+      const handoff = {
+        kind: "F26_CONFLICT_HANDOFF" as const,
+        operationId,
+        batchId: current.batchId,
+        managedPrId: current.managedPrId,
+        input: current.input,
+        worktree: evidence,
+        mergeBaseSha: current.mergeBaseSha!,
+        sourceChangeEvidence: current.sourceChangeEvidence!,
+        prHeadChangeEvidence: current.prHeadChangeEvidence!,
+        conflicts: current.conflicts,
+        capabilities: {
+          canResolveConflict: true as const,
+          canCommit: false as const,
+          canPush: false as const,
+          canPublish: false as const,
+        },
+        nextAction: "MANUAL_RESOLUTION" as const,
+      };
+      const { conflictResolution, ...withoutConflict } = current;
+      f25.putResult(
+        suffix !== "2"
+          ? {
+              ...current,
+              worktree: evidence,
+              handoff,
+              version: current.version + 1,
+            }
+          : {
+              ...withoutConflict,
+              worktree: evidence,
+              status: "READY_TO_PUBLISH",
+              stage: "COMPLETED",
+              mergeOutcome: "CLEAN_MERGE",
+              conflicts: [],
+              validation: {
+                runId: "owned-sync-validation",
+                status: "passed",
+                warnings: [],
+                nextAction: "NONE",
+                version: 1,
+              },
+              nextAction: "REVIEW",
+              version: current.version + 1,
+            },
+        stored?.version ?? 0,
+      );
+      void conflictResolution;
+    }
+    const batch = f25.getBatch("guarded-sync-batch")!;
+    const operationIds = [...batch.operationIds, "guarded-sync-3"];
+    f25.putBatch({
+      ...batch,
+      operationIds,
+      results: operationIds.map((id) => f25.getResult(id)!),
+      counts: { ...batch.counts, eligible: 3, ready: 1, attention: 2 },
+    });
+  } finally {
+    store.close();
+  }
+}
+
 export async function advanceGuardedResult(userData: string) {
   const store = await initializePersistence({
     databasePath: path.join(userData, "database/prmonitor.sqlite"),

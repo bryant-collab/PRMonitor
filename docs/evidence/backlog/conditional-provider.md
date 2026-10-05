@@ -1,11 +1,11 @@
 # Controlled conversation and additional native acceptance
 
-The required sixteenth Windows stage builds production main sources into a
+The required `conditional-provider` Windows stage builds production main sources into a
 marked isolated Temp app and substitutes the F15 provider and exact-target F22 remote-read effect ports.
 An observational F21 wrapper delegates the actual adapter unchanged and reports
 bounded structural failure labels. Renderer, preload, IPC, F16 policy resolution,
 F17 budget/admission, F21 services and SQLite persistence remain real. The first
-fifteen stages still import the ordinary production build. This is deterministic
+ordinary stages still import the production build. This is deterministic
 provider evidence, not a live Codex or shipping-artifact claim.
 
 The journey exposed a real failure: F21 forwarded the saved F18 PR snapshot,
@@ -53,16 +53,22 @@ public IPC operation waits at the controlled provider. Reopening its real target
 exposes Cancel; F17 persists a CANCELLED turn and cancelled provider report,
 while the operation remains NEEDS_ATTENTION with its evidence and one unused
 turn. Real Continue consumes exactly that turn and stops EXHAUSTED. There are
-exactly six provider invocations: one read-only and five implementation turns.
+exactly ten provider invocations: four read-only and six implementation turns.
 Both the original dirty checkpoint and the clean checkpoint remain byte-identical
 through their respective provider cases. The harness restores its original dirty
 fixture for the following F22 journey. No customer worktree is accessed.
 
-Cancel is exercised on background work started through public typed IPC; this
-case does not certify foreground cancellation while React awaits its own request.
-The controlled provider makes no code edits and invokes no actual model. Positive
-publication/synchronization and other conditional families remain in the residual
-acceptance ledger. All eighteen native journeys pass locally, including real
-Activity SQLite failure/retry and live F13 producer delivery. `npm run check` passes 432 desktop, 43 contract, 17 spec-linter and 18 release
-tests plus types/lint/format/build and sandboxed production smoke. Exact-head CI
-evidence is recorded separately in the backlog README and PR.
+The additional read-only turns exercise explicit provider failure and malformed
+structured output. Both retain NEEDS_ATTENTION history and failed provider reports;
+an explicit retry completes without erasing them. Foreground implementation now
+also waits on the actual F17 AbortSignal while React awaits its initiating request.
+The renderer polls the bounded conversation projection during that request and
+allows Cancel independently of its general mutation lock. Cancellation and the
+initiating caller settle once, retain the unused turn and preserve owned bytes.
+Other mutation controls remain disabled during execution. Polling is scoped to
+the current bundle and execution epoch and stops on completion or disposal.
+
+The controlled provider makes no code edits and invokes no actual model. The
+finite acceptance ledger records publication, sync and settings coverage separately.
+Aggregate counts and exact-head CI evidence are recorded in the backlog README
+and PR; physical screen-reader and Windows shell interaction remain unverified.

@@ -48,9 +48,11 @@ export class F22Coordinator extends Actual {
   constructor(options: F22CoordinatorOptions) {
     super({
       ...options,
-      remote: ["conditional-f22", "conditional-provider"].includes(
-        process.env.PRMONITOR_E2E_STAGE ?? "",
-      )
+      remote: [
+        "conditional-f22",
+        "conditional-provider",
+        "conditional-publication",
+      ].includes(process.env.PRMONITOR_E2E_STAGE ?? "")
         ? {
             readCurrentHead: async (managedPrId) => {
               if (managedPrId !== "guarded-final-pr")

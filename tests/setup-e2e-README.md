@@ -25,7 +25,7 @@ complete owned Git diff and guarded final review, independent task-setting
 drafts, native tray/Shutdown, retained cold restart and historical uncertain
 publication. Three more processes submit actual Add requests, exercise proposal
 decision/input/conversation guards, and create/reorder/revise/delete owned
-instructions plus save repository guidance. The exact eighteen-stage assertions
+instructions plus save repository guidance. The exact twenty-one-stage assertions
 are in the evidence JSON. The conditional proposal uses a fixed historical F22
 observation, not a live remote check; owning decision/input guards remain active.
 
@@ -89,14 +89,31 @@ answer. This fixture is not a managed polling target. Chromium 125% zoom
 is a reproducible reflow check, not physical Windows DPI verification. Service
 and renderer tests provide the independent prerequisite/failure matrix.
 
-Three additional stages cover controlled provider answer/usage/explicit transfer, historical Activity scope/filter/pagination/disclosure, and guarded discard/re-evaluation previews and cancellation. Provider and F22 stages use a test-owned build of the same production main sources with only the F15 provider and F22 remote-read effect ports replaced, plus a delegating observational F21 wrapper. The other sixteen use ordinary production main. Actual F11 holds, F13 worktrees, typed IPC, persistence and domain guards remain active. See docs/evidence/backlog/conditional-provider.md and conditional-f22.md. Read-only lifecycle diagnostics publish only known phases/reasons and never persisted session identifiers. Bounded I/O observations retain original promise/value/error objects, aggregate only fixed filesystem/SQLite method names and timings, and never record paths, SQL or data.
+Six additional stages cover controlled provider answer/failure/usage/explicit
+transfer, historical Activity scope/filter/pagination/disclosure, guarded
+discard/re-evaluation, publication, sync and settings/provider refusal. Five use
+a test-owned build of production main with exact fixture-scoped provider/remote/
+publication effect ports substituted; an observational F21 wrapper delegates
+the actual adapter. The other sixteen use ordinary production main. Actual F11
+holds, F13 worktrees, typed IPC, persistence and domain guards remain active.
+See the backlog conditional-provider, conditional-f22 and controlled-effects
+evidence. Read-only lifecycle diagnostics publish only known phases/reasons and
+never persisted session identifiers. Bounded I/O observations retain original
+promise/value/error objects, aggregate only fixed filesystem/SQLite method names
+and timings, and never record paths, SQL or data.
 
 The provider stage also exercises actual budget exhaustion/new-operation, an
-active background public-IPC turn waiting on F17’s AbortSignal, native Cancel and
+active background public-IPC turn waiting on F17's AbortSignal, native Cancel and
 Continue consuming the one remaining turn. Cancellation now waits for the
 initiating F21 completion instead of racing a second durable writer. The owned
 Git checkpoint and exact F11 claim/hold are verified; the original dirty fixture
-is restored for the subsequent F22 case. No foreground-cancellation claim is made.
+is restored for the subsequent F22 case. A foreground renderer-initiated turn
+also cancels while its initiating request awaits the provider.
 Activity additionally verifies a real temporary SQLite table-unavailable error,
 last-known history, unchanged-row restoration and explicit retry; a real F13
 inspection is delivered through the live subscription without Refresh.
+
+For focused debugging, `node tests/setup-e2e.mjs --effects-only` runs the six
+setup dependencies, shell and three publication/sync/preferences stages. It writes
+`effects-results.json`; it does not replace the default required twenty-one-stage
+run or its `results.json`. CI always runs the full default command.

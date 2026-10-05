@@ -3,6 +3,7 @@ export {
   seedConditionalGate,
   seedHeldFinalReview,
   seedGuardedWork,
+  seedConditionalSyncWork,
   advanceGuardedResult,
   readRetainedWork,
   seedUncertainPublication,

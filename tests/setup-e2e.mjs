@@ -21,6 +21,10 @@ const repository = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+const argumentsForJourney = process.argv.slice(2);
+if (argumentsForJourney.some((argument) => argument !== "--effects-only"))
+  throw Error("E2E_UNKNOWN_ARGUMENT");
+const effectsOnly = argumentsForJourney.includes("--effects-only");
 const require = createRequire(
   path.join(repository, "apps/desktop/package.json"),
 );
@@ -94,6 +98,24 @@ try {
           build.onResolve({ filter: /(?:^|\/)f22-coordinator$/ }, (args) =>
             args.importer === f22Fixture ? undefined : { path: f22Fixture },
           );
+          const publicationFixture = path.join(
+            repository,
+            "tests/controlled-publication-fixture.ts",
+          );
+          build.onResolve({ filter: /(?:^|\/)f23-release-service$/ }, (args) =>
+            args.importer === publicationFixture
+              ? undefined
+              : { path: publicationFixture },
+          );
+          const syncFixture = path.join(
+            repository,
+            "tests/controlled-sync-fixture.ts",
+          );
+          build.onResolve(
+            { filter: /(?:^|\/)f27-synchronization-service$/ },
+            (args) =>
+              args.importer === syncFixture ? undefined : { path: syncFixture },
+          );
         },
       },
     ],
@@ -162,7 +184,7 @@ try {
     PRMONITOR_E2E_EVIDENCE: evidence,
     HOME: path.join(root, "home"),
   });
-  for (const stage of [
+  const stages = [
     "fresh",
     "partial",
     "restart",
@@ -181,7 +203,48 @@ try {
     "conditional-provider",
     "conditional-activity",
     "conditional-f22",
-  ]) {
+    "conditional-publication",
+    "conditional-sync",
+    "conditional-preferences",
+  ];
+  let effectsProfilesCopied = false;
+  for (const stage of stages.filter(
+    (stage) =>
+      !effectsOnly ||
+      [
+        "fresh",
+        "partial",
+        "restart",
+        "lost-auth",
+        "bootstrap-failure",
+        "bootstrap-fixed",
+        "shell",
+        "conditional-publication",
+        "conditional-sync",
+        "conditional-preferences",
+      ].includes(stage),
+  )) {
+    if (
+      !effectsProfilesCopied &&
+      ["guarded", "conditional-publication"].includes(stage)
+    ) {
+      await cp(
+        path.join(root, "user-data"),
+        path.join(root, "publication-user-data"),
+        { recursive: true },
+      );
+      await cp(
+        path.join(root, "user-data"),
+        path.join(root, "sync-user-data"),
+        { recursive: true },
+      );
+      await cp(
+        path.join(root, "user-data"),
+        path.join(root, "preferences-user-data"),
+        { recursive: true },
+      );
+      effectsProfilesCopied = true;
+    }
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));
     const childEnvironment = { ...environment, PRMONITOR_E2E_STAGE: stage };
@@ -253,7 +316,7 @@ try {
       throw new Error(result.error || "E2E_CHILD_FAILED");
   }
   await writeFile(
-    path.join(evidence, "results.json"),
+    path.join(evidence, effectsOnly ? "effects-results.json" : "results.json"),
     JSON.stringify(
       {
         schemaVersion: 1,

@@ -1,0 +1,1343 @@
+{
+  "schemaVersion": 1,
+  "isolatedDataIdentity": "be29a019fb84e072",
+  "scenarios": [
+    {
+      "stage": "fresh",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "fresh setup exposes remediation, optional PR guidance, and unclipped actions at narrow 125% zoom",
+        "one task profile committed before shutdown",
+        "closing and activating the production window resumes setup with only committed progress",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1700,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 2,
+        "windowsClosed": 1,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 24
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 95
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 191
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 203
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 246
+          },
+          {
+            "event": "WINDOW_CLOSED",
+            "elapsedMs": 1348
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 1600
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 1660
+          }
+        ],
+        "git": {
+          "started": 4,
+          "completed": 3,
+          "exited": 3,
+          "active": 1,
+          "peakActive": 2,
+          "longestMs": 44
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 358,
+        "freeMemoryMb": 19945,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 363
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "FS_REALPATH": {
+          "started": 6,
+          "completed": 6,
+          "active": 0,
+          "longestMs": 40,
+          "totalMs": 42
+        },
+        "SQL_EXEC": {
+          "started": 214,
+          "completed": 214,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 64
+        },
+        "SQL_GET": {
+          "started": 288,
+          "completed": 288,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "SQL_RUN": {
+          "started": 136,
+          "completed": 136,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 6
+        },
+        "SQL_ALL": {
+          "started": 143,
+          "completed": 143,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 2
+        },
+        "FS_LSTAT": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 5
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20138
+      }
+    },
+    {
+      "stage": "partial",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "cold restart retains committed profile and resumes setup",
+        "GitHub.com and GHES identity fixtures, four independent persisted profiles, and local auth complete all checks; zero PRs allows inbox",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 2,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1091,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 21
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 83
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 157
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 170
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 208
+          }
+        ],
+        "git": {
+          "started": 17,
+          "completed": 17,
+          "exited": 17,
+          "active": 0,
+          "peakActive": 8,
+          "longestMs": 51
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 379,
+        "freeMemoryMb": 19920,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 993
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 5,
+          "completed": 5,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 3
+        },
+        "FS_REALPATH": {
+          "started": 19,
+          "completed": 19,
+          "active": 0,
+          "longestMs": 13,
+          "totalMs": 46
+        },
+        "SQL_EXEC": {
+          "started": 153,
+          "completed": 153,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 37
+        },
+        "SQL_GET": {
+          "started": 277,
+          "completed": 277,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 5
+        },
+        "SQL_ALL": {
+          "started": 150,
+          "completed": 150,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "SQL_RUN": {
+          "started": 93,
+          "completed": 93,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "FS_LSTAT": {
+          "started": 17,
+          "completed": 17,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 34
+        },
+        "FS_WRITEFILE": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "FS_RENAME": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "FS_READFILE": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 5
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20131
+      }
+    },
+    {
+      "stage": "restart",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "ready data cold-starts into empty inbox; Settings > Setup inspects readiness",
+        "empty ready profile has no PR activity; genuine startup diagnostics are separately accessible without inventing PR work",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1224,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 26
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 91
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 166
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 178
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 215
+          }
+        ],
+        "git": {
+          "started": 2,
+          "completed": 2,
+          "exited": 2,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 34
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 399,
+        "freeMemoryMb": 19908,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 1117
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 4
+        },
+        "FS_REALPATH": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 6,
+          "totalMs": 7
+        },
+        "SQL_EXEC": {
+          "started": 111,
+          "completed": 111,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 20
+        },
+        "SQL_GET": {
+          "started": 188,
+          "completed": 188,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "SQL_ALL": {
+          "started": 92,
+          "completed": 92,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 6
+        },
+        "SQL_RUN": {
+          "started": 61,
+          "completed": 61,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "FS_LSTAT": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 4
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20138
+      }
+    },
+    {
+      "stage": "lost-auth",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "recreated renderer recomputes incomplete readiness and resumes setup",
+        "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 790,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 21
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 111
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 179
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 193
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 230
+          }
+        ],
+        "git": {
+          "started": 4,
+          "completed": 4,
+          "exited": 4,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 35
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 413,
+        "freeMemoryMb": 19889,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 668
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
+        },
+        "FS_REALPATH": {
+          "started": 6,
+          "completed": 6,
+          "active": 0,
+          "longestMs": 6,
+          "totalMs": 11
+        },
+        "SQL_EXEC": {
+          "started": 185,
+          "completed": 185,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 20
+        },
+        "SQL_GET": {
+          "started": 367,
+          "completed": 367,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "SQL_ALL": {
+          "started": 230,
+          "completed": 230,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 4
+        },
+        "SQL_RUN": {
+          "started": 63,
+          "completed": 63,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "FS_LSTAT": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 4,
+          "totalMs": 8
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20133
+      }
+    },
+    {
+      "stage": "bootstrap-failure",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "initialization failure exposes setup; ordinary reads never relaunch; explicit duplicate Retry coalesces; obstruction bytes remain intact; no domain network started",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 635,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 24
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 89
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 106
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 142
+          }
+        ],
+        "git": {
+          "started": 0,
+          "completed": 0,
+          "exited": 0,
+          "active": 0,
+          "peakActive": 0,
+          "longestMs": 0
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 355,
+        "freeMemoryMb": 19926,
+        "recovery": {
+          "state": "UNAVAILABLE"
+        },
+        "lifecycle": {
+          "phase": "UNAVAILABLE",
+          "shutdown": "UNAVAILABLE"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 1,
+          "completed": 1,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 3
+        },
+        "FS_READFILE": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 2
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20116
+      }
+    },
+    {
+      "stage": "bootstrap-fixed",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "after external repair of the owned obstruction, fresh process starts normally and recomputes incomplete configuration",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 561,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 89
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 186
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 198
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 237
+          }
+        ],
+        "git": {
+          "started": 2,
+          "completed": 2,
+          "exited": 2,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 35
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 363,
+        "freeMemoryMb": 19917,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 439
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
+        },
+        "FS_REALPATH": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 4,
+          "totalMs": 6
+        },
+        "SQL_EXEC": {
+          "started": 130,
+          "completed": 130,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 44
+        },
+        "SQL_GET": {
+          "started": 150,
+          "completed": 150,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 4
+        },
+        "SQL_RUN": {
+          "started": 81,
+          "completed": 81,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        },
+        "SQL_ALL": {
+          "started": 89,
+          "completed": 89,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        },
+        "FS_LSTAT": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 3
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20123
+      }
+    },
+    {
+      "stage": "shell",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "existing PR edit → independent Add draft → Back and sidebar Inbox → Save writes only the existing PR draft; Add draft remains intact",
+        "native Home/End/arrow keys move selected detail tabs and keyboard focus together; tablist/tabpanel expose selection and relationships",
+        "exact approved reference painted in a separate nonpersistent session; 3 known optional public prototype scripts blocked before network; product CSP unchanged",
+        "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 4082,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 2,
+        "windowsClosed": 1,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 139
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 536
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 549
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 588
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1355
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1474
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 3705
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 3815
+          },
+          {
+            "event": "WINDOW_CLOSED",
+            "elapsedMs": 4081
+          }
+        ],
+        "git": {
+          "started": 4,
+          "completed": 4,
+          "exited": 4,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 37
+        },
+        "appProcessCount": 6,
+        "appWorkingSetMb": 683,
+        "freeMemoryMb": 19750,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 121,
+          "completed": 121,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 3931
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 3
+        },
+        "FS_REALPATH": {
+          "started": 6,
+          "completed": 6,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 12
+        },
+        "SQL_EXEC": {
+          "started": 2409,
+          "completed": 2409,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 222
+        },
+        "SQL_GET": {
+          "started": 3276,
+          "completed": 3276,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 10
+        },
+        "SQL_ALL": {
+          "started": 143,
+          "completed": 143,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 11
+        },
+        "SQL_RUN": {
+          "started": 768,
+          "completed": 768,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 13
+        },
+        "FS_LSTAT": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 6,
+          "totalMs": 10
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20103
+      }
+    },
+    {
+      "stage": "conditional-publication",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "isolated profile and owned Git worktree with only deterministic F23 Git/response and F22 remote-read effect ports: actual exact approval guards, durable candidate/approval, uncertain push reconciliation, failed-response-only retry, terminal replay, released F11 hold and unchanged source bytes; no real commit, push or response publication",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 4114,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 948
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1759
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 1769
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 1923
+          }
+        ],
+        "git": {
+          "started": 65,
+          "completed": 65,
+          "exited": 65,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 34
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 417,
+        "freeMemoryMb": 19844,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 121,
+          "completed": 121,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": false,
+          "ageMs": 4858
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 5,
+          "completed": 5,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 2
+        },
+        "FS_REALPATH": {
+          "started": 24,
+          "completed": 24,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 18
+        },
+        "SQL_EXEC": {
+          "started": 2694,
+          "completed": 2694,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 262
+        },
+        "SQL_GET": {
+          "started": 3441,
+          "completed": 3441,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 15
+        },
+        "SQL_ALL": {
+          "started": 461,
+          "completed": 461,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 35
+        },
+        "SQL_RUN": {
+          "started": 891,
+          "completed": 891,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 15
+        },
+        "FS_LSTAT": {
+          "started": 31,
+          "completed": 31,
+          "active": 0,
+          "longestMs": 6,
+          "totalMs": 19
+        },
+        "FS_READFILE": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20061
+      }
+    },
+    {
+      "stage": "conditional-sync",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "actual F27 re-evaluation records intent before the controlled preparation port, acknowledges exactly one replacement handoff and preserves the discarded old result/history; this port acknowledgement does not claim a newly prepared F25 batch",
+        "isolated synchronization profile with actual F13/F25/F26/F27 services: blank-input refusal, four versioned historical conflict retry intents without a new AI budget, remote/worktree refresh, destructive acknowledgement guard, Keep and Cancel byte preservation, Clear AI and confirmed Clear All of owned worktree, terminal discard retaining history; exact approval and uncertain push reconciliation use controlled Git effect ports with one commit/push and safe replay",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 10687,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 23
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 2298
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 4230
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 4240
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 4278
+          }
+        ],
+        "git": {
+          "started": 220,
+          "completed": 220,
+          "exited": 220,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 38
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 452,
+        "freeMemoryMb": 19681,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 121,
+          "completed": 121,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": false,
+          "ageMs": 16109
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 5
+        },
+        "FS_REALPATH": {
+          "started": 79,
+          "completed": 79,
+          "active": 0,
+          "longestMs": 5,
+          "totalMs": 23
+        },
+        "SQL_EXEC": {
+          "started": 3513,
+          "completed": 3513,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 282
+        },
+        "SQL_GET": {
+          "started": 3484,
+          "completed": 3484,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 28
+        },
+        "SQL_ALL": {
+          "started": 487,
+          "completed": 487,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 21
+        },
+        "SQL_RUN": {
+          "started": 1032,
+          "completed": 1032,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 20
+        },
+        "FS_LSTAT": {
+          "started": 116,
+          "completed": 116,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 14
+        },
+        "FS_READFILE": {
+          "started": 12,
+          "completed": 12,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 10
+        },
+        "FS_WRITEFILE": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19970
+      }
+    },
+    {
+      "stage": "conditional-preferences",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "isolated actual F16 typed commands and persistence: malformed provider JSON leaves preferences unchanged; disabled provider is classified and explicitly revalidated without invocation; all policy presets retain operation-owned scope and no publication authority, with original policy restored; invalid/stale policy, turn budget, missing worktree root and invalid monitoring timers fail without changing saved preferences, followed by a valid explicit retry",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1132,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 66
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 466
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 476
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 512
+          }
+        ],
+        "git": {
+          "started": 28,
+          "completed": 28,
+          "exited": 28,
+          "active": 0,
+          "peakActive": 6,
+          "longestMs": 49
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 395,
+        "freeMemoryMb": 19711,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 121,
+          "completed": 121,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": false,
+          "ageMs": 17801
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 3
+        },
+        "FS_REALPATH": {
+          "started": 30,
+          "completed": 30,
+          "active": 0,
+          "longestMs": 7,
+          "totalMs": 31
+        },
+        "SQL_EXEC": {
+          "started": 2971,
+          "completed": 2971,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 229
+        },
+        "SQL_GET": {
+          "started": 3958,
+          "completed": 3958,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 23
+        },
+        "SQL_ALL": {
+          "started": 221,
+          "completed": 221,
+          "active": 0,
+          "longestMs": 7,
+          "totalMs": 22
+        },
+        "SQL_RUN": {
+          "started": 763,
+          "completed": 763,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 11
+        },
+        "FS_LSTAT": {
+          "started": 29,
+          "completed": 29,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 39
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19949
+      }
+    }
+  ],
+  "limitations": [
+    "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
+    "Native guarded journeys use real persisted records and an owned Git worktree. No live provider or external publication was authorized; positive provider/publication effects are covered by service integration tests with controlled ports.",
+    "Chromium zoom and forced-color emulation check reflow. Physical Windows DPI, independent text scaling, screen-reader speech and taskbar clicking require computer-control tooling unavailable in this execution environment.",
+    "Native lifecycle acceptance invokes the real Electron menu item's callback; it does not claim a physical Windows taskbar click."
+  ]
+}

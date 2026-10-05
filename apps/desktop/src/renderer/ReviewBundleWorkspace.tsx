@@ -374,6 +374,9 @@ export function ReviewBundleWorkspace({
   const [overrideInstruction, setOverrideInstruction] = useState("");
   const [draftText, setDraftText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [conversationExecuting, setConversationExecuting] = useState(false);
+  const [conversationCancelling, setConversationCancelling] = useState(false);
+  const conversationExecutionEpoch = useRef(0);
   const [conversationMode, setConversationMode] = useState<F21ConversationMode>(
     "READ_ONLY_CONVERSATION",
   );
@@ -405,6 +408,50 @@ export function ReviewBundleWorkspace({
     () => workspace?.items.find((item) => item.itemId === selectedItemId),
     [selectedItemId, workspace],
   );
+
+  const trackConversationCommand = useCallback(
+    async <T,>(request: () => Promise<T>) => {
+      ++conversationExecutionEpoch.current;
+      setConversationExecuting(true);
+      try {
+        return await request();
+      } finally {
+        ++conversationExecutionEpoch.current;
+        setConversationExecuting(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!conversationExecuting) return;
+    const epoch = conversationExecutionEpoch.current;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const response =
+          await window.prmonitor?.readReviewBundleConversation(bundleId);
+        if (disposed || epoch !== conversationExecutionEpoch.current) return;
+        if (
+          response?.ok &&
+          response.value.kind === "review-bundle-conversation" &&
+          response.value.conversation.bundleId === bundleId
+        )
+          setConversation(response.value.conversation);
+      } catch {
+        // A transient projection read must not interrupt the owning command.
+      } finally {
+        if (!disposed && epoch === conversationExecutionEpoch.current)
+          timer = setTimeout(() => void poll(), 500);
+      }
+    };
+    timer = setTimeout(() => void poll(), 0);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [bundleId, conversationExecuting]);
 
   const readWorkspace = useCallback(async () => {
     const generation = ++readGeneration.current;
@@ -757,10 +804,11 @@ export function ReviewBundleWorkspace({
       actionId: intentId,
       createdAt: new Date().toISOString(),
     };
-    const response =
+    const response = await trackConversationCommand(async () =>
       conversationMode === "READ_ONLY_CONVERSATION"
         ? await window.prmonitor?.askReviewBundleConversation(intent)
-        : await window.prmonitor?.requestReviewBundleRevision(intent);
+        : await window.prmonitor?.requestReviewBundleRevision(intent),
+    );
     if (response?.ok && response.value.kind === "review-bundle-conversation") {
       setConversation(response.value.conversation);
       setConversationText("");
@@ -783,6 +831,7 @@ export function ReviewBundleWorkspace({
     readWorkspace,
     selectedItem,
     workspace,
+    trackConversationCommand,
   ]);
 
   const useLatestAnswer = useCallback(() => {
@@ -799,11 +848,13 @@ export function ReviewBundleWorkspace({
     const active = conversation?.activeOperation;
     if (workspace === undefined || active === undefined || busy) return;
     setBusy(true);
-    const response = await window.prmonitor?.continueReviewBundleConversation({
-      bundleId: workspace.bundleId,
-      operationId: active.operationId,
-      expectedBundleVersion: workspace.version,
-    });
+    const response = await trackConversationCommand(async () =>
+      window.prmonitor?.continueReviewBundleConversation({
+        bundleId: workspace.bundleId,
+        operationId: active.operationId,
+        expectedBundleVersion: workspace.version,
+      }),
+    );
     if (response?.ok && response.value.kind === "review-bundle-conversation") {
       setConversation(response.value.conversation);
       await readWorkspace();
@@ -812,12 +863,21 @@ export function ReviewBundleWorkspace({
       setActionMessage(responseError(response));
     }
     setBusy(false);
-  }, [busy, conversation, readWorkspace, workspace]);
+  }, [busy, conversation, readWorkspace, workspace, trackConversationCommand]);
 
   const cancelConversation = useCallback(async () => {
     const active = conversation?.activeOperation;
-    if (workspace === undefined || active === undefined || busy) return;
-    setBusy(true);
+    if (
+      workspace === undefined ||
+      active === undefined ||
+      conversationCancelling ||
+      !conversation?.capabilities.canCancel ||
+      (busy && !conversationExecuting)
+    )
+      return;
+    const ownsBusy = !conversationExecuting;
+    if (ownsBusy) setBusy(true);
+    setConversationCancelling(true);
     const response = await window.prmonitor?.cancelReviewBundleConversation({
       bundleId: workspace.bundleId,
       operationId: active.operationId,
@@ -831,8 +891,16 @@ export function ReviewBundleWorkspace({
     } else if (response !== undefined) {
       setActionMessage(responseError(response));
     }
-    setBusy(false);
-  }, [busy, conversation, readWorkspace, workspace]);
+    setConversationCancelling(false);
+    if (ownsBusy) setBusy(false);
+  }, [
+    busy,
+    conversation,
+    conversationCancelling,
+    conversationExecuting,
+    readWorkspace,
+    workspace,
+  ]);
 
   const startNewOperation = useCallback(async () => {
     const active = conversation?.activeOperation;
@@ -846,25 +914,27 @@ export function ReviewBundleWorkspace({
       return;
     setBusy(true);
     const intentId = `renderer-f21-new-${workspace.bundleId}-${Date.now()}`;
-    const response = await window.prmonitor?.startNewReviewBundleOperation({
-      schemaVersion: 1,
-      intentId,
-      bundleId: workspace.bundleId,
-      mode: "REVIEW_REVISION",
-      message:
-        conversationText.trim() ||
-        "Start a new bounded revision operation using the preserved review scope.",
-      expectedBundleVersion: workspace.version,
-      expectedEvidenceRevision: conversation.evidenceRevision,
-      priorOperationId: active.operationId,
-      selectedBudget: newOperationBudget,
-      ...(acknowledgeUnattributed
-        ? { acknowledgeUnattributedChanges: true }
-        : {}),
-      idempotencyKey: intentId,
-      actionId: intentId,
-      createdAt: new Date().toISOString(),
-    });
+    const response = await trackConversationCommand(async () =>
+      window.prmonitor?.startNewReviewBundleOperation({
+        schemaVersion: 1,
+        intentId,
+        bundleId: workspace.bundleId,
+        mode: "REVIEW_REVISION",
+        message:
+          conversationText.trim() ||
+          "Start a new bounded revision operation using the preserved review scope.",
+        expectedBundleVersion: workspace.version,
+        expectedEvidenceRevision: conversation.evidenceRevision,
+        priorOperationId: active.operationId,
+        selectedBudget: newOperationBudget,
+        ...(acknowledgeUnattributed
+          ? { acknowledgeUnattributedChanges: true }
+          : {}),
+        idempotencyKey: intentId,
+        actionId: intentId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
     if (response?.ok && response.value.kind === "review-bundle-conversation") {
       setConversation(response.value.conversation);
       setConversationText("");
@@ -882,6 +952,7 @@ export function ReviewBundleWorkspace({
     newOperationBudget,
     readWorkspace,
     workspace,
+    trackConversationCommand,
   ]);
 
   const loadDiff = useCallback(
@@ -1209,9 +1280,18 @@ export function ReviewBundleWorkspace({
       responses,
     });
     if (response?.ok && response.value.kind === "review-bundle-publication") {
-      setPublication(response.value.publication);
+      const next = response.value.publication;
+      if (publicationCandidate.current !== next.candidate?.candidateHash) {
+        setPublicationAcknowledged(false);
+        setPublicationUnattributedAcknowledged(false);
+        publicationCandidate.current = next.candidate?.candidateHash;
+      }
+      setPublication(next);
       setActionMessage(
-        "The exact diff, commit message, and response decisions were approved and durably locked.",
+        next.canPublish
+          ? "The exact diff, commit message, and response decisions were approved and durably locked."
+          : (next.reasons[0]?.what ??
+              "Publication approval was refused. Review the current candidate before trying again."),
       );
     } else if (response !== undefined) {
       setActionMessage(responseError(response));
@@ -2513,7 +2593,9 @@ export function ReviewBundleWorkspace({
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={busy}
+                    disabled={
+                      conversationCancelling || (busy && !conversationExecuting)
+                    }
                     onClick={() => void cancelConversation()}
                   >
                     Cancel AI Work

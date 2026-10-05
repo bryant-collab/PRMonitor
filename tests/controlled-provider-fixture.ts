@@ -11,6 +11,32 @@ export function createCodexProvider(): AIProvider {
     id: "codex",
     async handler(request, options) {
       observations.push(request.outputContract.contractId);
+      const outcome = (globalThis as { __controlledReadOnlyOutcome?: string })
+        .__controlledReadOnlyOutcome;
+      if (
+        request.outputContract.contractId === "READ_ONLY_CONVERSATION" &&
+        outcome === "FAILED"
+      )
+        return {
+          status: "failed",
+          error: {
+            code: "OWNED_PROVIDER_FAILURE",
+            category: "PROVIDER",
+            retryable: true,
+            userAction: "RETRY_EXPLICITLY",
+          },
+        };
+      if (
+        request.outputContract.contractId === "READ_ONLY_CONVERSATION" &&
+        outcome === "INVALID"
+      )
+        return {
+          structuredResult: {
+            schemaVersion: 1,
+            interaction: "read_only",
+            answer: 42,
+          },
+        };
       if (
         request.outputContract.contractId === "REVIEW_IMPLEMENTATION" &&
         (globalThis as { __controlledProviderWaitForCancel?: boolean })
@@ -68,7 +94,14 @@ export function createCodexProvider(): AIProvider {
   });
   return {
     id: provider.id,
-    capabilities: provider.capabilities,
+    get capabilities() {
+      return {
+        ...provider.capabilities,
+        enabled:
+          (globalThis as { __controlledProviderUnavailable?: boolean })
+            .__controlledProviderUnavailable !== true,
+      };
+    },
     readLocalReadiness: () => ({
       runtimeAvailable: true,
       authenticationAvailable: true,

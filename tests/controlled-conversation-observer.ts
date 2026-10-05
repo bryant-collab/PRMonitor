@@ -73,6 +73,7 @@ export class F21AIWorkAdapter extends Actual {
         globalThis as { __controlledConversationResult?: unknown }
       ).__controlledConversationResult = {
         status: result.readModel.operation.status,
+        providerStatus: result.readModel.reports.at(-1)?.providerStatus,
         remainingBudget: result.readModel.remainingBudget,
         nextAction: result.readModel.permittedNextAction,
         reason: result.readModel.reports.at(-1)?.terminalReason?.code,

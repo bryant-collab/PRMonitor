@@ -25,7 +25,14 @@ retain the active hold and preserve source bytes.
 The remote-read port then reports a moved head through actual observation.
 The stale bundle exposes Re-evaluate at current head after explicit evidence
 refresh; its preview still requires a choice
-and acknowledgement. Closing it preserves the old worktree and hold. No
-destructive choice is confirmed, no provider runs, and no Git commit/push or
-external publication is authorized. These observations establish preview and
-cancellation reachability, not successful replacement, clearing or publication.
+and acknowledgement. Closing it preserves the old worktree and hold.
+
+The journey then explicitly selects Clear all in an actual discard preview.
+Confirmation remains disabled until acknowledged. Production F22 applies the
+discard to the owned fixture, clears the pending intent, releases its durable
+hold and leaves Git's actual worktree status clean. The original source bytes
+change as expected. No provider, Git commit/push or external publication runs.
+This establishes preview, cancellation and successful owned clearing. Replacement
+transfer/compensation and unsafe/mixed/stale refusal cases remain independently
+covered by the owning F22 service suite, rather than being claimed as native
+replacement journeys.

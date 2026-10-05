@@ -36,6 +36,7 @@ ipcMain.handle = (channel, handler) =>
         "conditional-review",
         "conditional-provider",
         "conditional-f22",
+        "conditional-publication",
       ].includes(stage) &&
       request?.type?.startsWith("review-bundle.")
     )
@@ -46,6 +47,7 @@ ipcMain.handle = (channel, handler) =>
         outcome: response.value?.outcome,
         reason:
           response.value?.reason?.code ??
+          response.value?.publication?.reasons?.[0]?.code ??
           response.value?.workspace?.f22?.reason?.code,
       });
     return response;
@@ -112,7 +114,15 @@ async function start() {
   assert.equal(marker.root, path.resolve(root));
   const userData = path.join(
     root,
-    stage.startsWith("bootstrap") ? "bootstrap-user-data" : "user-data",
+    stage.startsWith("bootstrap")
+      ? "bootstrap-user-data"
+      : stage === "conditional-publication"
+        ? "publication-user-data"
+        : stage === "conditional-sync"
+          ? "sync-user-data"
+          : stage === "conditional-preferences"
+            ? "preferences-user-data"
+            : "user-data",
   );
   app.setPath("userData", userData);
   app.setPath("sessionData", path.join(root, "session-data"));
@@ -140,6 +150,20 @@ async function start() {
     await (
       await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
     ).seedHeldFinalReview(userData);
+  if (stage === "conditional-publication") {
+    const fixtures = await import(
+      pathToFileURL(path.join(root, "fixtures.mjs")).href
+    );
+    await fixtures.seedGuardedWork(userData, root, "publication-");
+    await fixtures.seedHeldFinalReview(userData);
+  }
+  if (stage === "conditional-sync") {
+    const fixtures = await import(
+      pathToFileURL(path.join(root, "fixtures.mjs")).href
+    );
+    await fixtures.seedGuardedWork(userData, root, "sync-");
+    await fixtures.seedConditionalSyncWork(userData, root);
+  }
   if (stage === "bootstrap-failure") {
     app.relaunch = () => {
       retryRelaunches++;
@@ -227,7 +251,13 @@ async function start() {
   });
   await import(
     pathToFileURL(
-      ["conditional-provider", "conditional-f22"].includes(stage)
+      [
+        "conditional-provider",
+        "conditional-f22",
+        "conditional-publication",
+        "conditional-sync",
+        "conditional-preferences",
+      ].includes(stage)
         ? path.join(root, "controlled-app/main/index.cjs")
         : path.join(__dirname, "../apps/desktop/out/main/index.js"),
     ).href
@@ -312,7 +342,7 @@ async function start() {
   };
   const setField = (selector, value) =>
     evaluate(
-      `(()=>{const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw Error('E2E_FIELD_MISSING');const type=input.tagName==='TEXTAREA'?HTMLTextAreaElement:HTMLInputElement;Object.getOwnPropertyDescriptor(type.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+      `(()=>{const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw Error('E2E_FIELD_MISSING');const type=input.tagName==='TEXTAREA'?HTMLTextAreaElement:input.tagName==='SELECT'?HTMLSelectElement:HTMLInputElement;Object.getOwnPropertyDescriptor(type.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event(input.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`,
     );
   const openTarget = (kind, id) =>
     window.webContents.send("prmonitor:ipc:v1:event", {
@@ -1795,6 +1825,61 @@ async function start() {
       "READ_ONLY_CONVERSATION",
     ]);
     await capture("controlled-provider-answer-transfer");
+    for (const outcome of ["FAILED", "INVALID"]) {
+      globalThis.__controlledReadOnlyOutcome = outcome;
+      await setField(
+        ".review-conversation-panel textarea",
+        `Owned ${outcome.toLowerCase()} provider case.`,
+      );
+      await click("Ask read-only question");
+      await waitFor(
+        () =>
+          evaluate(
+            `window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>{const t=r.value.conversation.turns.at(-1);return t?.userMessage===${JSON.stringify(`Owned ${outcome.toLowerCase()} provider case.`)}&&t.status==='NEEDS_ATTENTION'})`,
+          ),
+        `actual ${outcome} provider result records required attention`,
+      );
+      assert.equal(
+        globalThis.__controlledConversationResult.providerStatus,
+        "failed",
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('.review-conversation-panel textarea').value",
+        ),
+        "",
+      );
+      assert.equal(
+        await evaluate(
+          "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation.capabilities.canAsk)",
+        ),
+        true,
+      );
+    }
+    globalThis.__controlledReadOnlyOutcome = undefined;
+    await setField(
+      ".review-conversation-panel textarea",
+      "Explicit retry after the owned provider failures.",
+    );
+    await click("Ask read-only question");
+    await waitFor(
+      () =>
+        evaluate(
+          "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation.turns.at(-1)?.status==='COMPLETED')",
+        ),
+      "explicit read-only retry succeeds without losing failed history",
+    );
+    assert.equal(
+      await evaluate(
+        "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation.turns.filter(t=>t.status==='NEEDS_ATTENTION').length)",
+      ),
+      2,
+    );
+    await capture("controlled-provider-failed-invalid-retry");
+    assert.equal(globalThis.__controlledProviderContracts.length, 4);
+    assertions.push(
+      "actual F15 normalized provider failure and invalid structured output persist two failed read-only turns; an explicit successful retry preserves both failures and restores actionable conversation state",
+    );
     assertions.push(
       "test-owned production main sources with only deterministic F15 provider-port substitution: real renderer/preload/IPC/F16/F17/F21/persistence record the read-only answer, usage and explicit answer transfer; no actual Codex process, model contact, code mutation or publication",
     );
@@ -1875,7 +1960,7 @@ async function start() {
     );
     const exhausted = await conversation();
     assert.equal(exhausted.activeOperation.status, "EXHAUSTED");
-    assert.equal(globalThis.__controlledProviderContracts.length, 2);
+    assert.equal(globalThis.__controlledProviderContracts.length, 5);
     await setField(".review-budget-field input", "2");
     const newAuditStart = ipcAudit.length;
     await click("Start new AI Work budget");
@@ -1902,7 +1987,7 @@ async function start() {
       resumed.activeOperation.operationId,
       exhausted.activeOperation.operationId,
     );
-    assert.equal(globalThis.__controlledProviderContracts.length, 3);
+    assert.equal(globalThis.__controlledProviderContracts.length, 6);
     assert.ok(
       globalThis.__controlledContinuationResult.deterministicProblems?.length,
     );
@@ -1970,7 +2055,7 @@ async function start() {
     assert.equal(firstBackground.ok, true);
     const backgroundExhausted = await conversation();
     assert.equal(backgroundExhausted.activeOperation.status, "EXHAUSTED");
-    assert.equal(globalThis.__controlledProviderContracts.length, 4);
+    assert.equal(globalThis.__controlledProviderContracts.length, 7);
     globalThis.__controlledProviderWaitForCancel = true;
     await evaluate(`(()=>{window.__controlledActiveRevision = window.prmonitor.startNewReviewBundleOperation({
       schemaVersion:1,intentId:'owned-cancel-intent',bundleId:'guarded-final-review',mode:'REVIEW_REVISION',
@@ -1983,7 +2068,7 @@ async function start() {
       (c) =>
         c.capabilities.canCancel &&
         c.activeOperation.status === "WORKING" &&
-        globalThis.__controlledProviderContracts.length === 5,
+        globalThis.__controlledProviderContracts.length === 8,
       "actual active provider exposes Cancel",
     );
     await click("Back to PR inbox");
@@ -2039,7 +2124,7 @@ async function start() {
       turnStatus: "CANCELLED",
       providerStatus: "cancelled",
     });
-    assert.equal(globalThis.__controlledProviderContracts.length, 5);
+    assert.equal(globalThis.__controlledProviderContracts.length, 8);
     globalThis.__controlledProviderWaitForCancel = false;
     const continueAuditStart = ipcAudit.length;
     await click("Continue AI Work");
@@ -2059,7 +2144,7 @@ async function start() {
     assert.equal(continued.activeOperation.remainingBudget, 0);
     assert.equal(continued.capabilities.canStartNewOperation, true);
     assert.deepEqual(globalThis.__controlledProviderContracts, [
-      "READ_ONLY_CONVERSATION",
+      ...Array(4).fill("READ_ONLY_CONVERSATION"),
       ...Array(5).fill("REVIEW_IMPLEMENTATION"),
     ]);
     assert.deepEqual(
@@ -2067,6 +2152,65 @@ async function start() {
       sourceBytes,
     );
     await capture("controlled-provider-budget-cancel");
+    // Start through the foreground renderer this time: Cancel must become
+    // reachable while its initiating request is still awaiting the provider.
+    globalThis.__controlledProviderWaitForCancel = true;
+    const foregroundAuditStart = ipcAudit.length;
+    await click("Start new AI Work budget");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('button')].some(e=>!e.closest('[hidden]')&&e.textContent.trim()==='Cancel AI Work'&&!e.disabled)",
+        ),
+      "foreground working request exposes enabled Cancel without navigating away",
+    );
+    await waitFor(
+      () => globalThis.__controlledProviderContracts.length === 10,
+      "foreground request reaches the actual waiting provider",
+    );
+    const foregroundActive = await conversation();
+    assert.equal(foregroundActive.activeOperation.status, "WORKING");
+    assert.equal(globalThis.__controlledProviderContracts.length, 10);
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('button')].find(e=>!e.closest('[hidden]')&&e.textContent.trim()==='Request explicit revision').disabled",
+      ),
+      true,
+      "other foreground mutations remain disabled while provider runs",
+    );
+    await click("Cancel AI Work");
+    await waitFor(
+      () =>
+        [
+          "review-bundle.conversation.cancel",
+          "review-bundle.conversation.start-new-operation",
+        ].every((type) =>
+          ipcAudit
+            .slice(foregroundAuditStart)
+            .some((item) => item.type === type && item.ok),
+        ),
+      "foreground cancel and initiating request settle successfully once",
+    );
+    const foregroundCancelled = await conversation();
+    assert.equal(
+      foregroundCancelled.activeOperation.operationId,
+      foregroundActive.activeOperation.operationId,
+    );
+    assert.equal(foregroundCancelled.activeOperation.status, "NEEDS_ATTENTION");
+    assert.equal(foregroundCancelled.activeOperation.remainingBudget, 1);
+    assert.equal(foregroundCancelled.capabilities.canContinue, true);
+    assert.deepEqual(globalThis.__controlledCancelResult, {
+      status: "NEEDS_ATTENTION",
+      reason: "AI_TURN_CANCELLED",
+      turnStatus: "CANCELLED",
+      providerStatus: "cancelled",
+    });
+    assert.deepEqual(
+      await fs.readFile(path.join(work.worktree.canonicalPath, "source.ts")),
+      sourceBytes,
+    );
+    globalThis.__controlledProviderWaitForCancel = false;
+    await capture("controlled-provider-foreground-cancel");
     // Restore the next journey's original owned dirty fixture after proving
     // that both stopped and continued providers preserved the clean checkpoint.
     await fs.writeFile(
@@ -2075,6 +2219,7 @@ async function start() {
     );
     assertions.push(
       "controlled provider and remote-read ports with actual F11 hold/F13 worktree/F16/F17/F21: one-turn budget exhaustion, distinct explicitly budgeted operation stops at actual deterministic-evidence guard with remaining budget; an explicitly budgeted background public IPC operation exposes active Cancel in the reopened renderer, persists cancelled turn evidence, and real Continue consumes exactly its one remaining turn without worktree mutation",
+      "foreground renderer Start new budget exposes enabled Cancel while its request is still pending, keeps other mutation buttons disabled, and both commands settle successfully with one cancelled turn and unchanged worktree bytes without navigating away",
     );
   }
   if (stage === "conditional-activity") {
@@ -2401,6 +2546,41 @@ async function start() {
     await capture("conditional-discard-cancel");
     assertions.push(
       "test-owned main with controlled remote-read port: actual durable F11 eligibility/claim/hold and F13 owned Git worktree; stale-gate refusal and discard/re-evaluation previews focus choices and require confirmation; Close preview and Keep Worktree and Cancel preserve source bytes and active hold; no clear, model, commit/push or publication effect",
+    );
+    await click("Discard Review Bundle");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('#f22-worktree-choice'))"),
+      "final owned discard preview",
+    );
+    await setField("#f22-worktree-choice", "CLEAR_ALL");
+    assert.equal(
+      await evaluate("document.querySelector('#f22-confirm-choice').disabled"),
+      true,
+    );
+    await evaluate("document.querySelector('#f22-confirmation').click()");
+    await evaluate("document.querySelector('#f22-confirm-choice').click()");
+    await waitFor(
+      async () => !(await read()).f22.hold.active,
+      "confirmed owned discard releases hold",
+    );
+    const discarded = await read();
+    assert.equal(discarded.f22PendingAction, undefined);
+    assert.notDeepEqual(
+      await fs.readFile(path.join(initial.worktree.canonicalPath, "source.ts")),
+      bytes,
+    );
+    const status = childProcess
+      .execFileSync("git", ["status", "--porcelain"], {
+        cwd: initial.worktree.canonicalPath,
+        encoding: "utf8",
+        windowsHide: true,
+      })
+      .trim();
+    assert.equal(status, "");
+    assert.deepEqual(globalThis.__controlledProviderContracts, []);
+    await capture("conditional-discard-complete");
+    assertions.push(
+      "confirmed Clear All runs actual guarded F13 cleanup only in the owned worktree, archives the bundle and releases its real F11 hold; retained read remains available and Git status is clean; no provider or publication effect",
     );
   }
   if (stage === "conditional-settings") {
@@ -2775,6 +2955,575 @@ async function start() {
     );
     assertions.push(
       "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
+    );
+  }
+  if (stage === "conditional-publication") {
+    const fixtures = await import(
+      pathToFileURL(path.join(root, "fixtures.mjs")).href
+    );
+    await evaluate("window.prmonitor.readReviewBundle('guarded-final-review')");
+    await fixtures.seedConditionalGate(userData, "guarded-final-review");
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await reviewPane("Publication");
+    const publication = () =>
+      evaluate(
+        "window.prmonitor.readReviewBundlePublication('guarded-final-review').then(r=>{if(!r.ok)throw Error(r.error.code);return r.value.publication})",
+      );
+    const ready = await publication();
+    assert.equal(
+      ready.canApprove,
+      true,
+      JSON.stringify(ready.reasons.map((r) => r.code)),
+    );
+    assert.equal(ready.candidate.responses.length, 1);
+    assert.equal(ready.canPublish, false);
+    const bytes = await fs.readFile(
+      path.join(
+        root,
+        "worktrees",
+        "publication-guarded-review-operation",
+        "worktree",
+        "source.ts",
+      ),
+    );
+    const before = { ...globalThis.__controlledPublicationCalls };
+    await click("Approve exact publication");
+    assert.deepEqual(
+      globalThis.__controlledPublicationCalls,
+      before,
+      "missing acknowledgements cannot invoke effects",
+    );
+    await evaluate(
+      "document.querySelectorAll('.review-publication-acknowledgements input').forEach(e=>{if(!e.checked)e.click()})",
+    );
+    await click("Approve exact publication");
+    await waitFor(
+      () => ipcAudit.at(-1)?.type === "review-bundle.publication.approve",
+      "fresh approval gate refusal settled",
+    );
+    assert.equal(ipcAudit.at(-1).ok, true, JSON.stringify(ipcAudit.at(-1)));
+    assert.equal(
+      ipcAudit.at(-1).reason,
+      "CANDIDATE_CHANGED",
+      JSON.stringify(ipcAudit.at(-1)),
+    );
+    assert.equal(await visible("were approved and durably locked"), false);
+    await click("Activity");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('.activity-viewer'))"),
+      "leave refused candidate",
+    );
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await reviewPane("Publication");
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('.review-publication-acknowledgements input'))",
+        ),
+      "fresh candidate after guarded refusal",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.review-publication-acknowledgements input').checked",
+      ),
+      false,
+      "changed candidate requires fresh acknowledgement",
+    );
+    assert.deepEqual(globalThis.__controlledPublicationCalls, before);
+    await evaluate(
+      "document.querySelectorAll('.review-publication-acknowledgements input').forEach(e=>{if(!e.checked)e.click()})",
+    );
+    await click("Approve exact publication");
+    await waitFor(
+      async () => (await publication()).canPublish,
+      "exact candidate is durably approved",
+    );
+    const approved = await publication();
+    assert.equal(approved.canApprove, false);
+    assert.ok(approved.publication.approvalId);
+    assert.deepEqual(
+      globalThis.__controlledPublicationCalls,
+      before,
+      "approval alone has no publication effect",
+    );
+    await click("Publish approved Review Bundle");
+    await waitFor(
+      async () => (await publication()).canReconcile,
+      "uncertain push exposes reconciliation without blind retry",
+    );
+    const uncertain = await publication();
+    assert.equal(uncertain.status, "RECOVERING");
+    assert.equal(uncertain.canPublish, false);
+    assert.equal(globalThis.__controlledPublicationCalls.commit, 1);
+    assert.equal(globalThis.__controlledPublicationCalls.push, 1);
+    assert.equal(globalThis.__controlledPublicationCalls.post, 0);
+    await capture("conditional-publication-uncertain");
+    await click("Reconcile publication state");
+    await waitFor(
+      async () => (await publication()).canRetryResponses,
+      "reconciled code and failed response expose response-only retry",
+    );
+    const partial = await publication();
+    assert.equal(partial.publication.codePublished, true);
+    assert.equal(partial.publication.responses.failed, 1);
+    await click("Retry responses only");
+    await waitFor(
+      async () => (await publication()).status === "PUBLISHED",
+      "response-only retry reaches terminal publication",
+    );
+    assert.deepEqual(globalThis.__controlledPublicationCalls, {
+      commit: 1,
+      push: 1,
+      reconcilePush: 1,
+      post: 2,
+      reconcileResponse: 0,
+    });
+    const final = await publication();
+    assert.equal(final.publication.responses.posted, 1);
+    assert.equal(final.canPublish, false);
+    assert.equal(final.canRetryResponses, false);
+    const replay = await evaluate(
+      `window.prmonitor.publishReviewBundlePublication({bundleId:'guarded-final-review',idempotencyKey:${JSON.stringify(final.publication.idempotencyKey)}})`,
+    );
+    assert.equal(replay.ok, true);
+    assert.equal(globalThis.__controlledPublicationCalls.post, 2);
+    assert.equal(
+      (
+        await evaluate(
+          "window.prmonitor.readReviewBundle('guarded-final-review').then(r=>r.value.workspace)",
+        )
+      ).f22.hold.active,
+      false,
+    );
+    assert.deepEqual(
+      await fs.readFile(
+        path.join(
+          root,
+          "worktrees",
+          "publication-guarded-review-operation",
+          "worktree",
+          "source.ts",
+        ),
+      ),
+      bytes,
+    );
+    await capture("conditional-publication-response-retry");
+    assertions.push(
+      "isolated profile and owned Git worktree with only deterministic F23 Git/response and F22 remote-read effect ports: actual exact approval guards, durable candidate/approval, uncertain push reconciliation, failed-response-only retry, terminal replay, released F11 hold and unchanged source bytes; no real commit, push or response publication",
+    );
+  }
+  if (stage === "conditional-sync") {
+    const readSync = (id) =>
+      evaluate(
+        `window.prmonitor.readSynchronizationReviewResult(${JSON.stringify(id)}).then(r=>{if(!r.ok)throw Error(r.error.code);return r.value.result})`,
+      );
+    const awaitSync = (id) =>
+      waitFor(
+        () =>
+          evaluate(
+            `Boolean(document.querySelector('.synchronization-result-card[data-sync-operation="${id}"]'))`,
+          ),
+        "selected synchronization result",
+      );
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-1");
+    await awaitSync("guarded-sync-1");
+    await waitFor(() => visible("Submit answer"), "owned conflict controls");
+    const before = await readSync("guarded-sync-1");
+    const source = path.join(
+      root,
+      "worktrees",
+      "sync-guarded-sync-1",
+      "worktree",
+      "source.ts",
+    );
+    const bytes = await fs.readFile(source);
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Submit answer').disabled",
+      ),
+      true,
+      "blank conflict answer cannot submit",
+    );
+    assert.equal(
+      (await readSync("guarded-sync-1")).sourceVersion,
+      before.sourceVersion,
+      "blank input cannot write a retry",
+    );
+    for (const [button, kind, input] of [
+      ["Submit answer", "USER_ANSWER", "Keep the owned source behavior."],
+      ["Submit direction", "USER_DIRECTION", "Preserve the owned PR behavior."],
+      ["Confirm manual edit", "MANUAL_EDIT_CONFIRMED", undefined],
+      ["Retry resolution", "RETRY_RESOLUTION", undefined],
+    ]) {
+      const current = await readSync("guarded-sync-1");
+      if (input) await setField(".synchronization-review textarea", input);
+      await click(button);
+      await waitFor(
+        async () =>
+          (await readSync("guarded-sync-1")).sourceVersion >
+          current.sourceVersion,
+        `saved ${kind} retry intent`,
+      );
+      const latest = await readSync("guarded-sync-1");
+      assert.equal(
+        latest.conflictResolution.consultationHistory.at(-1).kind,
+        kind,
+      );
+      await waitFor(
+        () =>
+          evaluate(
+            "![...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Refresh results')?.disabled",
+          ),
+        "retry projection refreshed",
+      );
+    }
+    assert.deepEqual(
+      globalThis.__controlledProviderContracts,
+      [],
+      "historical handoff has no active AI operation; retries preserve intent without starting a new budget",
+    );
+    assert.deepEqual(await fs.readFile(source), bytes);
+    await click("Refresh remote freshness");
+    await click("Refresh worktree evidence");
+    await setField(".synchronization-choice select", "CLEAR_ALL");
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Apply worktree choice').disabled",
+      ),
+      true,
+    );
+    await setField(".synchronization-choice select", "KEEP_AND_CANCEL");
+    await click("Apply worktree choice");
+    assert.deepEqual(
+      await fs.readFile(source),
+      bytes,
+      "Keep and Cancel retains owned source bytes",
+    );
+    await capture("conditional-sync-conflict-controls");
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-2");
+    await awaitSync("guarded-sync-2");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.synchronization-review button')].some(b=>b.textContent.trim()==='Approve publication')",
+        ),
+      "owned ready synchronization result",
+    );
+    await click("Refresh remote freshness");
+    await click("Refresh worktree evidence");
+    const ready = await readSync("guarded-sync-2");
+    assert.equal(
+      ready.capabilities.approvePublication,
+      true,
+      JSON.stringify(ready.reason),
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Refresh results').disabled",
+        ),
+      "fresh synchronization evidence settled in renderer",
+    );
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Approve publication').disabled",
+      ),
+      true,
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.synchronization-review label')].find(e=>e.textContent.includes('complete bounded diff')).querySelector('input').click()",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.synchronization-review label')].find(e=>e.textContent.includes('complete bounded diff')).querySelector('input').checked",
+        ),
+      "exact synchronization diff acknowledged",
+    );
+    await click("Approve publication");
+    await waitFor(
+      async () => (await readSync("guarded-sync-2")).capabilities.publish,
+      "approved synchronization candidate",
+    );
+    assert.equal(globalThis.__controlledSyncCalls.commit, 0);
+    await click("Publish merge");
+    await waitFor(
+      async () =>
+        globalThis.__controlledSyncCalls.push === 1 &&
+        (await readSync("guarded-sync-2")).capabilities.reconcile,
+      "uncertain synchronization push",
+    );
+    assert.equal(globalThis.__controlledSyncCalls.commit, 1);
+    assert.equal(globalThis.__controlledSyncCalls.push, 1);
+    await click("Reconcile publication");
+    await waitFor(
+      async () => (await readSync("guarded-sync-2")).status === "PUBLISHED",
+      "reconciled synchronization publication",
+    );
+    assert.equal(globalThis.__controlledSyncCalls.commit, 1);
+    assert.equal(globalThis.__controlledSyncCalls.push, 1);
+    const final = await readSync("guarded-sync-2");
+    const replay = await evaluate(
+      `window.prmonitor.publishSynchronizationPublication({operationId:'guarded-sync-2',idempotencyKey:${JSON.stringify(final.publication.idempotencyKey)}})`,
+    );
+    assert.equal(replay.ok, true);
+    assert.equal(globalThis.__controlledSyncCalls.push, 1);
+    await capture("conditional-sync-publication");
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-1");
+    await awaitSync("guarded-sync-1");
+    await waitFor(
+      () => visible("Submit direction"),
+      "return to independent conflict result",
+    );
+    await click("Refresh worktree evidence");
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('.synchronization-choice select'))",
+        ),
+      "owned conflict worktree choices refreshed",
+    );
+    await setField(".synchronization-choice select", "CLEAR_AI_ONLY");
+    await click("Apply worktree choice");
+    await waitFor(
+      async () => !(await fs.readFile(source)).equals(bytes),
+      "actual attributed worktree clear",
+    );
+    await waitFor(
+      async () =>
+        (await readSync("guarded-sync-1")).worktree.condition.classification ===
+        "CLEAN",
+      "owned clear completed and clean evidence persisted",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Refresh results').disabled",
+        ),
+      "clear projection settled before next explicit choice",
+    );
+    await fs.writeFile(source, "export const ownedManualEdit = true;\n");
+    await click("Refresh worktree evidence");
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Refresh results').disabled",
+        ),
+      "manual edit evidence settled",
+    );
+    assert.equal(
+      (await readSync("guarded-sync-1")).capabilities.clearAll,
+      false,
+      "unattributed manual edit remains protected from Clear All",
+    );
+    await fs.writeFile(source, bytes);
+    await click("Refresh worktree evidence");
+    await waitFor(
+      async () => (await readSync("guarded-sync-1")).capabilities.clearAll,
+      "exact original attributed snapshot exposes Clear All",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Refresh results').disabled",
+        ),
+      "attributed evidence settled",
+    );
+    await setField(".synchronization-choice select", "CLEAR_ALL");
+    await evaluate(
+      "[...document.querySelectorAll('.synchronization-choice label')].find(e=>e.textContent.includes('Clear All is destructive')).querySelector('input').click()",
+    );
+    await click("Apply worktree choice");
+    await click("Discard result");
+    await waitFor(
+      async () => (await readSync("guarded-sync-1")).status === "DISCARDED",
+      "discarded result remains readable",
+    );
+    assert.equal(
+      (await readSync("guarded-sync-1")).conflictResolution.consultationHistory
+        .length,
+      before.conflictResolution.consultationHistory.length + 4,
+    );
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-3");
+    await awaitSync("guarded-sync-3");
+    await waitFor(
+      () => visible("Submit direction"),
+      "independent re-evaluation result",
+    );
+    await click("Refresh worktree evidence");
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('.synchronization-choice select'))",
+        ),
+      "owned re-evaluation worktree choices refreshed",
+    );
+    await setField(".synchronization-choice select", "CLEAR_AI_ONLY");
+    await click("Re-evaluate from current refs");
+    await waitFor(
+      async () =>
+        (await readSync("guarded-sync-3")).reason.code ===
+        "F27_REEVALUATION_STARTED",
+      "durable re-evaluation handoff acknowledgement",
+    );
+    assert.equal((await readSync("guarded-sync-3")).status, "DISCARDED");
+    assert.equal(globalThis.__controlledSyncCalls.reevaluate, 1);
+    assert.equal(
+      (await readSync("guarded-sync-3")).capabilities.publish,
+      false,
+    );
+    assert.ok(
+      (await readSync("guarded-sync-3")).conflictResolution.consultationHistory
+        .length > 0,
+    );
+    await capture("conditional-sync-reevaluation");
+    assertions.push(
+      "actual F27 re-evaluation records intent before the controlled preparation port, acknowledges exactly one replacement handoff and preserves the discarded old result/history; this port acknowledgement does not claim a newly prepared F25 batch",
+    );
+    assertions.push(
+      "isolated synchronization profile with actual F13/F25/F26/F27 services: blank-input refusal, four versioned historical conflict retry intents without a new AI budget, remote/worktree refresh, destructive acknowledgement guard, Keep and Cancel byte preservation, Clear AI and confirmed Clear All of owned worktree, terminal discard retaining history; exact approval and uncertain push reconciliation use controlled Git effect ports with one commit/push and safe replay",
+    );
+  }
+  if (stage === "conditional-preferences") {
+    await click("Settings");
+    const category = async (name, heading) => {
+      await waitFor(
+        () =>
+          evaluate(
+            `[...document.querySelectorAll('.settings-categories button')].some(b=>b.textContent.trim()===${JSON.stringify(name)})`,
+          ),
+        "settings category available",
+      );
+      await evaluate(
+        `[...document.querySelectorAll('.settings-categories button')].find(b=>b.textContent.trim()===${JSON.stringify(name)}).click()`,
+      );
+      await waitFor(() => visible(heading), "settings category loaded");
+    };
+    await category("AI task profiles", "AI Task Profiles");
+    const initial = await preferences();
+    const taskSection =
+      '.preference-section[aria-labelledby="task-profiles-heading"]';
+    const task = await evaluate(
+      `document.querySelector(${JSON.stringify(taskSection + " select")}).value`,
+    );
+    await setField(`${taskSection} textarea`, "{invalid");
+    await click("Save task profile");
+    await waitFor(
+      () =>
+        visible(
+          "Provider options must be valid JSON before they can be saved.",
+        ),
+      "invalid options refused visibly",
+    );
+    assert.deepEqual(await preferences(), initial);
+    await setField(`${taskSection} textarea`, "{}");
+    globalThis.__controlledProviderUnavailable = true;
+    await click("Save task profile");
+    await waitFor(
+      async () =>
+        (await preferences()).settingsRevision > initial.settingsRevision,
+      "unavailable profile durably classified",
+    );
+    assert.equal(
+      (await preferences()).taskProfiles.find((p) => p.taskType === task)
+        .availability,
+      "UNSUPPORTED",
+    );
+    assert.deepEqual(
+      (await preferences()).taskProfiles.filter((p) => p.taskType !== task),
+      initial.taskProfiles.filter((p) => p.taskType !== task),
+    );
+    globalThis.__controlledProviderUnavailable = false;
+    const unavailable = await preferences();
+    await click("Save task profile");
+    await waitFor(
+      async () =>
+        (await preferences()).settingsRevision > unavailable.settingsRevision,
+      "explicit provider revalidation",
+    );
+    assert.equal(
+      (await preferences()).taskProfiles.find((p) => p.taskType === task)
+        .availability,
+      "AVAILABLE",
+    );
+    await category("Execution policy", "Execution Policy");
+    const policySection =
+      '.preference-section[aria-labelledby="policy-heading"]';
+    const originalPolicy = (await preferences()).policy.preset;
+    for (const preset of [
+      "READ_ONLY",
+      "AUTONOMOUS_WORKTREE",
+      "AUTONOMOUS_WORKTREE_WITH_NETWORK",
+      "INTERACTIVE_APPROVALS",
+      "FULL_ACCESS",
+      originalPolicy,
+    ]) {
+      if ((await preferences()).policy.preset === preset) continue;
+      await setField(`${policySection} select`, preset);
+      await click("Save execution policy");
+      await waitFor(
+        async () => (await preferences()).policy.preset === preset,
+        "explicit policy save",
+      );
+      assert.equal((await preferences()).policy.publicationAuthority, false);
+      assert.equal(
+        (await preferences()).policy.writableRootScope,
+        "OPERATION_OWNED",
+      );
+    }
+    const saved = await preferences();
+    for (const input of [
+      { expectedSettingsRevision: saved.settingsRevision, preset: "UNKNOWN" },
+      { expectedSettingsRevision: 0, preset: "READ_ONLY" },
+    ]) {
+      const refused = await evaluate(
+        `window.prmonitor.savePolicy(${JSON.stringify(input)})`,
+      );
+      assert.equal(refused.ok, false);
+      assert.deepEqual(await preferences(), saved);
+    }
+    await category("Monitoring and work limits", "Operational Preferences");
+    const operational =
+      '.preference-section[aria-labelledby="operational-heading"]';
+    for (const [index, value] of [
+      [1, "0"],
+      [2, path.join(root, "nonexistent-owned-worktree-root")],
+      [3, "0"],
+      [4, "0"],
+    ]) {
+      const selector = `${operational} .preferences-form label:nth-of-type(${index}) input`;
+      const original = await evaluate(
+        `document.querySelector(${JSON.stringify(selector)}).value`,
+      );
+      await setField(selector, value);
+      await click("Save operational preferences");
+      await waitFor(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('.preferences-panel [role=alert]'))",
+          ),
+        "invalid operational input refused visibly",
+      );
+      await waitFor(
+        () =>
+          evaluate(
+            "![...document.querySelectorAll('.preferences-panel button')].find(b=>b.textContent.trim()==='Save operational preferences').disabled",
+          ),
+        "operational command settled",
+      );
+      assert.deepEqual(await preferences(), saved);
+      await setField(selector, original);
+    }
+    await click("Save operational preferences");
+    await waitFor(
+      async () =>
+        (await preferences()).settingsRevision > saved.settingsRevision,
+      "valid operational retry saved",
+    );
+    assert.deepEqual(globalThis.__controlledProviderContracts, []);
+    await capture("conditional-settings-failures-retry");
+    assertions.push(
+      "isolated actual F16 typed commands and persistence: malformed provider JSON leaves preferences unchanged; disabled provider is classified and explicitly revalidated without invocation; all policy presets retain operation-owned scope and no publication authority, with original policy restored; invalid/stale policy, turn budget, missing worktree root and invalid monitoring timers fail without changing saved preferences, followed by a valid explicit retry",
     );
   }
   assert.equal(

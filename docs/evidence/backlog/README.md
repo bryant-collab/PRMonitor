@@ -13,10 +13,13 @@ The implementation builds on the reviewed setup head `2372e2a3aa1016e32734871c37
 - Acceptance found that every Inbox read advanced its revision, making branch-sync selection permanently stale. Revisions now track changed projection facts; unchanged reads preserve selection, while changed PR facts still fail the existing stale guard. An explicit existing reset command is exposed without clearing selection on navigation.
 
 - Expanded controlled acceptance found and fixed a strict provider handoff mismatch for dirty worktrees and duplicate F21 cancellation finalization. Native real budget/new-operation/background Cancel/Continue now pass; real Activity SQLite failure/retry and F13 live delivery also pass. See [provider evidence](conditional-provider.md) and [Activity evidence](activity-copy.md). No provider schema or domain guard changed.
+- Foreground provider cancellation now remains reachable while React awaits its own initiating request; scoped polling stops on completion/disposal. Guarded publication refusal now shows the actual reason and resets stale acknowledgements rather than reporting success. Required controlled stages cover publication approval/uncertainty/response-only retry, sync conflict/worktree/discard/re-evaluation and publication, and settings failure/retry/policy invariants. See [controlled effect boundaries](controlled-effects.md). No live provider/publication runs.
+- Bryant approved the temporary Ubuntu 22.04 runner pin with normal dependencies and every mandatory gate retained. [Decision and retirement criteria](ubuntu-runner-pin.md) link the unchanged experiment branch/head and [migration issue #5](https://github.com/bryant-collab/PRMonitor/issues/5). It expires before the March 2027 brownouts and April 17 retirement; inherited failures remain recorded.
 
 ## Completed command-line validation
 
 - Aggregate: 432 desktop tests in 46 files, 43 validation-contract tests, 17 spec-linter tests, 18 release tests passed.
+- Final required Windows acceptance: all twenty-one stages passed, each with zero forbidden effects and zero surviving owned children. The separate ten-stage focused run also passed; it does not replace the full default result.
 - `npm run check` passed: runtime pins; all TypeScript boundaries; lint; formatting; artifact build; sandboxed production Windows smoke; regression suites. Later CSS corrections also passed the native layout journey.
 - Windows unpacked artifact build passed with Electron 44.4.3 and `electron-builder --publish never`.
 - Desktop aggregate file workers are bounded to one after genuine exact-head Windows fixture timeouts and an unsuccessful two-worker experiment. All tests, assertions, explicit concurrency scenarios and five-second deadlines remain unchanged; the failed job is retained in startup-recovery.md.
@@ -26,7 +29,9 @@ The implementation builds on the reviewed setup head `2372e2a3aa1016e32734871c37
 
 The [remaining acceptance matrix and conditional-control ledger](remaining-acceptance.md)
 identify each requirement, current evidence, execution blocker and safe next step.
-Physical acceptance and full historical conditional equivalence remain open.
+Physical acceptance remains open. The ledger bounds control-family evidence to
+the approved requirements, identifies native/controlled/service/refusal coverage,
+and does not invent a requirement to replay every historical permutation.
 
 The parent obtained an uninterrupted test window while the user was away. [Results](../setup-readiness/results.json) and screenshots now describe this implementation. The native shell stage checks twenty persisted mixed-state PRs, independent inspection/sync selection, select-all/clear, unsaved PR context across Activity navigation, genuine empty PR Activity and real application diagnostics, 1280x800/1024x768/900x650/320px layouts, Chromium 200% zoom, vertical reachability of every detail tab, native Tab input and emulated forced colors. Painted review caught and corrected narrow vertical clipping and forced-color label contrast after the initial geometry-only pass.
 
