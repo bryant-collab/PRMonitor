@@ -183,3 +183,18 @@ instead of two rev-parse commands. This removes three redundant setup launches
 per fixture. Real F13 commands, SQLite durability, assertions, isolation, test
 count and deadlines remain unchanged. This is a bounded fixture-cost reduction,
 not proof of a sole timeout cause; the failed run remains evidence.
+
+After PR #4 merged at `8ce96f150261f34b46bd118e6469279a0f3a6d65`,
+[post-merge run 37311380458](https://github.com/bryant-collab/PRMonitor/actions/runs/37311380458)
+passes Ubuntu but Windows fails `ACCESSIBILITY_KEYBOARD_FAILED` before native
+acceptance. Publication is withheld while this required gate is repaired.
+The smoke probe now waits for the Add route's actual heading focus, then
+observes the owned native window and document focus before sending one Tab
+and one Enter. The temporary body's focusability is retained until input
+completes and removed in `finally`. The original ten-second accessibility and
+parent smoke deadlines, semantic/forced-color assertions, and sandbox remain
+unchanged. Only closed focus/Tab/Enter categories may leave the child process;
+the privacy contract checks them. Electron's pinned API requires its containing
+BrowserWindow to be focused for native input. The preceding failure does not
+establish whether native focus, route focus or navigation starting position
+caused it, and remains evidence rather than a discarded retry.

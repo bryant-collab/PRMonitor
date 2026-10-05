@@ -422,7 +422,7 @@ async function runAccessibilityProbe(
     formReady = await window.webContents.executeJavaScript(
       `(() => {
         const form = document.querySelector('form[aria-label="Add a pull request"]');
-        return Boolean(form && document.querySelector('#managed-pr-heading') &&
+        return Boolean(form && document.activeElement?.id === 'managed-pr-heading' &&
           form.querySelectorAll('input, textarea, select, button').length >= 7);
       })()`,
       true,
@@ -452,11 +452,12 @@ async function runAccessibilityProbe(
   };
   if (!normal.ok)
     return { ...normal, reason: "ACCESSIBILITY_SEMANTICS_FAILED" };
-  if (!(await runKeyboardProbe(window, deadline))) {
+  const normalKeyboard = await runKeyboardProbe(window, deadline);
+  if (normalKeyboard !== "PASSED") {
     return {
       ok: false,
       forcedColors: false,
-      reason: "ACCESSIBILITY_KEYBOARD_FAILED",
+      reason: normalKeyboard,
     };
   }
 
@@ -478,7 +479,7 @@ async function runAccessibilityProbe(
       { features: [] },
     );
     window.webContents.debugger.detach();
-    if (!forced.ok || !forced.forcedColors || !forcedKeyboard)
+    if (!forced.ok || !forced.forcedColors || forcedKeyboard !== "PASSED")
       return {
         ok: false,
         forcedColors: forced.forcedColors,
@@ -505,7 +506,13 @@ async function runAccessibilityProbe(
 async function runKeyboardProbe(
   window: BrowserWindow,
   deadline: number,
-): Promise<boolean> {
+): Promise<
+  | "PASSED"
+  | "ACCESSIBILITY_WINDOW_FOCUS_FAILED"
+  | "ACCESSIBILITY_BODY_FOCUS_FAILED"
+  | "ACCESSIBILITY_TAB_FAILED"
+  | "ACCESSIBILITY_ENTER_FAILED"
+> {
   const waitForFocus = async (expression: string): Promise<boolean> => {
     while (Date.now() < deadline) {
       if (await window.webContents.executeJavaScript(expression, true))
@@ -514,30 +521,51 @@ async function runKeyboardProbe(
     }
     return false;
   };
+  // sendInputEvent requires the containing BrowserWindow to be focused. This
+  // is an owned smoke window; no input is sent until native and document focus
+  // are observed, within the original shared accessibility deadline.
+  window.focus();
+  window.webContents.focus();
+  while (!window.isFocused() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  if (!window.isFocused()) return "ACCESSIBILITY_WINDOW_FOCUS_FAILED";
   await window.webContents.executeJavaScript(
     `(() => {
       const body = document.body;
       body.setAttribute("tabindex", "-1");
       body.focus();
-      body.removeAttribute("tabindex");
     })()`,
     true,
   );
-  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "TAB" });
-  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "TAB" });
-  // Native input is processed by the renderer asynchronously. Observe its
-  // actual focus result within the existing accessibility deadline.
-  const tabTarget = await waitForFocus(
-    `document.activeElement?.classList.contains("skip-link") === true`,
-  );
-  if (!tabTarget) return false;
+  try {
+    if (
+      !(await waitForFocus(
+        "document.hasFocus() && document.activeElement === document.body",
+      ))
+    )
+      return "ACCESSIBILITY_BODY_FOCUS_FAILED";
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "TAB" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "TAB" });
+    // Native input is processed by the renderer asynchronously. Observe its
+    // actual focus result within the existing accessibility deadline.
+    const tabTarget = await waitForFocus(
+      `document.activeElement?.classList.contains("skip-link") === true`,
+    );
+    if (!tabTarget) return "ACCESSIBILITY_TAB_FAILED";
 
-  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
-  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-  const enterTarget = await waitForFocus(
-    `document.activeElement?.id === "${STARTUP_STATUS_ID}"`,
-  );
-  return tabTarget && enterTarget;
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
+    const enterTarget = await waitForFocus(
+      `document.activeElement?.id === "${STARTUP_STATUS_ID}"`,
+    );
+    return enterTarget ? "PASSED" : "ACCESSIBILITY_ENTER_FAILED";
+  } finally {
+    await window.webContents.executeJavaScript(
+      'document.body.removeAttribute("tabindex")',
+      true,
+    );
+  }
 }
 
 const F00_VALIDATION_BOUNDS_REVISION = "f00-validation-v1";
