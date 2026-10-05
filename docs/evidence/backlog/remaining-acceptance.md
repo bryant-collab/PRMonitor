@@ -29,6 +29,18 @@ This ledger distinguishes current native cases from service evidence and residua
 states. The three issues remain open; the 174-control inventory is not presented
 as a blanket equivalence certification.
 
+## Exact-head Windows CI observations
+
+At `60520d5ec7771238e5b168b63fc15fb2eed4df1a`, the [push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37265645328/job/111621787195)
+passes aggregate and all fifteen native stages. The [PR first attempt](https://github.com/bryant-collab/PRMonitor/actions/runs/37265647986/attempts/1)
+passes aggregate but times out waiting for the retained-restart window after
+Shutdown. Its unchanged [Windows rerun](https://github.com/bryant-collab/PRMonitor/actions/runs/37265647986/job/111623533676)
+instead stops at production smoke, code=1/category=UNCLASSIFIED, before native
+acceptance. No root cause is established, and no timeout/assertion/security gate
+is widened. The subsequent diagnostic change emits only exact, closed startup
+protocol labels; private child output stays private. The successful push proves
+this head can pass, but does not erase either PR failure or prove startup stability.
+
 ## Ubuntu runner evidence and safe alternative
 
 At implementation head `2cea5c6`, both Windows CI jobs pass the aggregate and

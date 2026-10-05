@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import {
   classifySmokeFailure,
   classifySandboxSubreason,
+  classifyApplicationSmokeReason,
 } from "./smoke-failure.mjs";
 import { listPackage } from "@electron/asar";
 import { forbiddenRuntimePayload } from "../../../scripts/runtime-payload.mjs";
@@ -308,7 +309,7 @@ async function launchSmoke(executable, environment) {
   if (outcome.code !== 0) {
     const signal = outcome.signal ? ` signal=${outcome.signal}` : "";
     throw new Error(
-      `SMOKE_CHILD_EXIT_FAILED: code=${String(outcome.code)}${signal} category=${classifySmokeFailure(stderr.bytes.toString("utf8"))} sandbox=${classifySandboxSubreason(stderr.bytes.toString("utf8"))}`,
+      `SMOKE_CHILD_EXIT_FAILED: code=${String(outcome.code)}${signal} category=${classifySmokeFailure(stderr.bytes.toString("utf8"))} sandbox=${classifySandboxSubreason(stderr.bytes.toString("utf8"))} app=${classifyApplicationSmokeReason(stderr.bytes.toString("utf8"))}`,
     );
   }
   if (readyLines.length !== 1 || readyLines[0] !== `${readyPrefix}${nonce}`) {

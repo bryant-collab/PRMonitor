@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   classifySmokeFailure,
   classifySandboxSubreason,
+  classifyApplicationSmokeReason,
 } from "../../apps/desktop/scripts/smoke-failure.mjs";
 
 test("smoke failures expose fixed categories without child-output contents", () => {
@@ -22,6 +23,31 @@ test("smoke failures expose fixed categories without child-output contents", () 
   ]) {
     assert.equal(classifySmokeFailure(stderr), category);
   }
+});
+
+test("startup diagnostics require an exact closed protocol reason and never disclose private details", () => {
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "private/path\nPRMONITOR_SMOKE_ERROR:ACCESSIBILITY_PROBE_FAILED:private text",
+    ),
+    "ACCESSIBILITY_PROBE_FAILED",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "PRMONITOR_SMOKE_ERROR:READINESS_TIMEOUT\r\nprivate/path",
+    ),
+    "READINESS_TIMEOUT",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason("PRMONITOR_SMOKE_ERROR:PRIVATE_TEXT"),
+    "UNCLASSIFIED",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "PRMONITOR_SMOKE_ERROR:READINESS_TIMEOUT_PRIVATE_TEXT",
+    ),
+    "UNCLASSIFIED",
+  );
 });
 
 test("sandbox subreasons distinguish helper configuration from namespace rejection without exposing child text", () => {
