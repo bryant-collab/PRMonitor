@@ -96,13 +96,39 @@ export function PrDetail({
         <p>{card.reference}</p>
         <h2 id="selected-pr-heading">{card.title ?? card.reference}</h2>
         <p>{primaryLabels[card.primaryState]}</p>
-        <nav aria-label="Pull request detail views">
+        <nav role="tablist" aria-label="Pull request detail views">
           {tabs.map(([id, label]) => (
             <button
               type="button"
               key={id}
-              aria-pressed={tab === id}
+              role="tab"
+              id={`pr-detail-tab-${id}`}
+              aria-controls="pr-detail-panel"
+              aria-selected={tab === id}
+              tabIndex={tab === id ? 0 : -1}
               onClick={() => onTab(id)}
+              onKeyDown={(event) => {
+                const index = tabs.findIndex(([value]) => value === id);
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? tabs.length - 1
+                      : event.key === "ArrowRight"
+                        ? (index + 1) % tabs.length
+                        : event.key === "ArrowLeft"
+                          ? (index + tabs.length - 1) % tabs.length
+                          : undefined;
+                if (next === undefined) return;
+                event.preventDefault();
+                const target = tabs[next]![0];
+                onTab(target);
+                const buttons =
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                    '[role="tab"]',
+                  );
+                buttons?.[next]?.focus();
+              }}
             >
               {label}
             </button>
@@ -111,6 +137,9 @@ export function PrDetail({
       </header>
       <div
         className="pr-detail-content"
+        role="tabpanel"
+        id="pr-detail-panel"
+        aria-labelledby={`pr-detail-tab-${tab}`}
         tabIndex={0}
         aria-label={`${card.reference} details`}
       >

@@ -180,6 +180,72 @@ describe("Activity view scope and durable history", () => {
 });
 
 describe("Closed customer presentation boundary", () => {
+  it.each([
+    [
+      "OPEN_APP",
+      "PRMonitor opened its window.",
+      "PRMonitor could not open its window.",
+    ],
+    [
+      "OPEN_WORKTREE",
+      "PRMonitor opened the worktree folder.",
+      "PRMonitor could not open the worktree folder.",
+    ],
+    [
+      "OPEN_TARGET",
+      "PRMonitor accepted the request to open the related work.",
+      "PRMonitor could not open the related work.",
+    ],
+    [
+      "DELIVER_NOTIFICATION",
+      "PRMonitor sent a notification.",
+      "PRMonitor could not send a notification.",
+    ],
+  ])(
+    "uses the actual native action for %s",
+    (nativeAction, success, failure) => {
+      expect(
+        presentActivity(
+          event("native-success", {
+            eventType: "NOTIFICATION_SENT",
+            details: { nativeAction },
+          }),
+        ).summary,
+      ).toBe(success);
+      expect(
+        presentActivity(
+          event("native-failure", {
+            eventType: "NOTIFICATION_FAILED",
+            details: { nativeAction },
+          }),
+        ).summary,
+      ).toBe(failure);
+    },
+  );
+  it("maps only known legacy native actions and does not invent notification delivery", () => {
+    expect(
+      presentActivity(
+        event("legacy-open", {
+          eventType: "NOTIFICATION_SENT",
+          summary: "PRMonitor window opened",
+          details: { command: "OPEN_APP" },
+        }),
+      ).summary,
+    ).toBe("PRMonitor opened its window.");
+    expect(
+      presentActivity(
+        event("legacy-worktree", {
+          eventType: "NOTIFICATION_FAILED",
+          summary: "Open Worktree target unavailable",
+        }),
+      ).summary,
+    ).toBe("PRMonitor could not open the worktree folder.");
+    expect(
+      presentActivity(
+        event("unknown-native", { eventType: "NOTIFICATION_SENT" }),
+      ).summary,
+    ).toBe("PRMonitor recorded a native action.");
+  });
   it.each(ACTIVITY_EVENT_TYPES)(
     "%s preserves evidence without promoting producer prose",
     (eventType) => {

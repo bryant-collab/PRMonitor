@@ -31,6 +31,8 @@ import type { PersistenceStore } from "./database";
 import {
   ACTIVITY_SCOPE_SQL,
   ACTIVITY_MANAGED_PR_SQL,
+  ACTIVITY_OWNER_TYPE_SQL,
+  ACTIVITY_OWNER_ID_SQL,
 } from "./activity-scope-sql";
 import { recoveryActivityAttribution } from "../../shared/recovery-attribution";
 
@@ -442,8 +444,9 @@ export class ActivityRepository {
         if (query.managedPrId !== undefined)
           add(`(${ACTIVITY_MANAGED_PR_SQL}) = ?`, query.managedPrId);
         if (query.ownerType !== undefined)
-          add("owner_type = ?", query.ownerType);
-        if (query.ownerId !== undefined) add("owner_id = ?", query.ownerId);
+          add(`(${ACTIVITY_OWNER_TYPE_SQL}) = ?`, query.ownerType);
+        if (query.ownerId !== undefined)
+          add(`(${ACTIVITY_OWNER_ID_SQL}) = ?`, query.ownerId);
         if (query.operationId !== undefined)
           add("operation_id = ?", query.operationId);
         if (query.correlationId !== undefined)

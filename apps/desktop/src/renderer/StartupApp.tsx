@@ -209,6 +209,9 @@ export function StartupApp() {
   >([]);
   const [managedMessage, setManagedMessage] = useState("");
   const [prUrl, setPrUrl] = useState("");
+  const [addContext, setAddContext] = useState("");
+  const [addOverride, setAddOverride] = useState("");
+  const [addClonePath, setAddClonePath] = useState("");
   const [prContext, setPrContext] = useState("");
   const [prOverride, setPrOverride] = useState("");
   const [prClonePath, setPrClonePath] = useState("");
@@ -244,11 +247,6 @@ export function StartupApp() {
   };
   const beginAddPr = () => {
     rememberPrDraft();
-    const draft = prDrafts.current.get("add");
-    setPrDraftScope("add");
-    setPrContext(draft?.context ?? "");
-    setPrOverride(draft?.override ?? "");
-    setPrClonePath(draft?.clone ?? "");
     setDestination("managed");
     requestAnimationFrame(focusAddPr);
   };
@@ -864,9 +862,11 @@ export function StartupApp() {
         const response = await bridge.addManagedPr({
           serverId: selectedProfileId,
           url: prUrl,
-          context: prContext,
-          syncSourceBranchOverride: prOverride,
-          ...(prClonePath.length === 0 ? {} : { localClonePath: prClonePath }),
+          context: addContext,
+          syncSourceBranchOverride: addOverride,
+          ...(addClonePath.length === 0
+            ? {}
+            : { localClonePath: addClonePath }),
         });
         if (!response.ok || response.value.kind !== "managed-pr-operation") {
           setManagedMessage(
@@ -898,30 +898,46 @@ export function StartupApp() {
     [
       busy,
       operationMessage,
-      prClonePath,
-      prContext,
-      prOverride,
+      addClonePath,
+      addContext,
+      addOverride,
       prUrl,
       refreshManagedPrs,
       selectedProfileId,
     ],
   );
 
-  const browseForClone = useCallback(async () => {
+  const browseForClone = useCallback(async (scope: "add" | "pr") => {
+    const owner = currentPrDraft.current.scope;
     const response = await window.prmonitor?.pickManagedPrFolder();
     if (
       response?.ok &&
       response.value.kind === "managed-pr-folder" &&
       response.value.path !== undefined
-    )
-      setPrClonePath(response.value.path);
+    ) {
+      if (scope === "add") setAddClonePath(response.value.path);
+      else if (currentPrDraft.current.scope === owner)
+        setPrClonePath(response.value.path);
+      else {
+        const draft = prDrafts.current.get(owner);
+        if (draft !== undefined)
+          prDrafts.current.set(owner, { ...draft, clone: response.value.path });
+      }
+    }
   }, []);
 
   const saveManagedConfiguration = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const bridge = window.prmonitor;
-      if (bridge === undefined || busy || managedDetails === undefined) return;
+      if (
+        bridge === undefined ||
+        busy ||
+        managedDetails === undefined ||
+        prDraftScope !== managedDetails.id ||
+        selectedManagedPrId !== managedDetails.id
+      )
+        return;
       setBusy(true);
       setManagedMessage("");
       try {
@@ -962,6 +978,8 @@ export function StartupApp() {
       operationMessage,
       prContext,
       prOverride,
+      prDraftScope,
+      selectedManagedPrId,
       refreshManagedPrs,
     ],
   );
@@ -1438,8 +1456,8 @@ export function StartupApp() {
               PR Intent / Context{" "}
               <span className="label-optional">(optional)</span>
               <textarea
-                value={prContext}
-                onChange={(event) => setPrContext(event.target.value)}
+                value={addContext}
+                onChange={(event) => setAddContext(event.target.value)}
                 maxLength={32 * 1024}
                 rows={4}
               />
@@ -1448,8 +1466,8 @@ export function StartupApp() {
               Synchronization source branch{" "}
               <span className="label-optional">(optional)</span>
               <input
-                value={prOverride}
-                onChange={(event) => setPrOverride(event.target.value)}
+                value={addOverride}
+                onChange={(event) => setAddOverride(event.target.value)}
                 maxLength={255}
                 autoComplete="off"
                 placeholder="Leave blank to use the PR base branch later"
@@ -1459,8 +1477,8 @@ export function StartupApp() {
               Existing local clone{" "}
               <span className="label-optional">(optional)</span>
               <input
-                value={prClonePath}
-                onChange={(event) => setPrClonePath(event.target.value)}
+                value={addClonePath}
+                onChange={(event) => setAddClonePath(event.target.value)}
                 maxLength={4096}
                 autoComplete="off"
                 placeholder="Leave blank to add without a local clone"
@@ -1472,7 +1490,7 @@ export function StartupApp() {
               type="button"
               className="secondary-button"
               disabled={busy}
-              onClick={() => void browseForClone()}
+              onClick={() => void browseForClone("add")}
             >
               Browse for clone
             </button>
@@ -1562,8 +1580,9 @@ export function StartupApp() {
             </span>
           </div>
           <p className="section-help">
-            Remote identity and SHAs are immutable inputs to this record. The
-            default branch is informational; a blank override remains blank.
+            This record keeps the PR repository and branch revisions. The
+            repository default branch does not change the synchronization
+            source. Leave the override blank to use the PR base branch.
           </p>
           <dl className="profile-details">
             <div>
@@ -1668,7 +1687,7 @@ export function StartupApp() {
                 type="button"
                 className="secondary-button"
                 disabled={busy}
-                onClick={() => void browseForClone()}
+                onClick={() => void browseForClone("pr")}
               >
                 Browse
               </button>
@@ -2082,6 +2101,7 @@ export function StartupApp() {
           <ReviewBundleWorkspace
             key={id}
             bundleId={id}
+            activation={route.activation}
             visible={
               landing === "target" &&
               route.target?.kind === "REVIEW_BUNDLE" &&
@@ -2092,6 +2112,12 @@ export function StartupApp() {
         {visitedSync.map((target) => (
           <SynchronizationReview
             key={target.kind + ":" + target.id}
+            activation={route.activation}
+            onNavigate={(next) => targetHandler.current(next)}
+            pullRequests={managedPrs.map((pr) => ({
+              id: pr.id,
+              label: pr.owner + "/" + pr.repositoryName + " #" + pr.number,
+            }))}
             batchId={
               target.kind === "SYNCHRONIZATION_BATCH" ? target.id : undefined
             }

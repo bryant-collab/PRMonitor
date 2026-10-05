@@ -410,7 +410,8 @@ export function ManagedPrInbox({
         <p className="sync-intent-status" role="status" aria-live="polite">
           Branch synchronization preparation is{" "}
           {preparationIntent.handoff.status.toLowerCase()}. No merge, push,
-          response, AI, or publication authority was granted.
+          response or AI work started. Publication still requires explicit
+          approval.
         </p>
       ) : null}
     </section>

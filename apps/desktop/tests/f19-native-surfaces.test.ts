@@ -61,6 +61,9 @@ import type { F13PathActionResult } from "../src/shared/f13-contracts";
 import type { WindowOpenResult } from "../src/main/window-manager";
 import type { F22ActionGate } from "../src/shared/f22-discard-reevaluation";
 import type { F18ReviewBundleReadModel } from "../src/shared/f18-automatic-review";
+import { ActivityService } from "../src/main/activity-service";
+import type { ActivityWriter } from "../src/main/activity-service";
+import { presentActivity } from "../src/shared/activity-presentation";
 
 const TIME = "2026-09-25T12:00:00.000Z";
 const bounds = createF19EffectiveBounds({
@@ -528,6 +531,7 @@ function coordinatorFixture(
     readonly window?: ReturnType<typeof windowPort>;
     readonly worktrees?: F19WorktreePort;
     readonly lifecycle?: F19LifecyclePort;
+    readonly activity?: ActivityWriter;
   } = {},
 ): {
   readonly coordinator: TrayNotificationCoordinator;
@@ -556,6 +560,7 @@ function coordinatorFixture(
     window,
     ...(input.worktrees === undefined ? {} : { worktrees: input.worktrees }),
     lifecycle,
+    ...(input.activity === undefined ? {} : { activity: input.activity }),
     bounds,
     now: () => TIME,
     sessionId: "f19-test-session",
@@ -577,6 +582,62 @@ afterEach(async () => {
 });
 
 describe("F19 native-surface contracts", () => {
+  it("presents actual native producers as window, saved target, worktree and notification actions", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "prmonitor-f19-copy-"));
+    roots.push(root);
+    const store = await initializePersistence({
+      databasePath: path.join(root, "database", "prmonitor.sqlite"),
+      backupRoot: path.join(root, "backups"),
+    });
+    stores.push(store);
+    const activity = new ActivityService(store, { clock: { now: () => TIME } });
+    const fixture = coordinatorFixture({
+      activity: activity.writer,
+      inbox: inbox([card("pr-1", "READY_FOR_REVIEW", 1)]),
+      worktrees: worktreePort(),
+    });
+    await fixture.coordinator.start();
+    await fixture.coordinator.handleCommand("OPEN_APP");
+    await fixture.coordinator.activate({
+      activationId: "managed-pr:pr-1",
+      action: "OPEN_TARGET",
+    });
+    const delivered = await fixture.coordinator.notifyOutcome(
+      reviewOutcome({
+        worktree: {
+          operationId: "operation-1",
+          worktreeId: "worktree-1",
+          ownerType: "REVIEW_BUNDLE",
+          ownerId: "bundle-1",
+          managedPrId: "pr-1",
+          available: true,
+        },
+      }),
+    );
+    if (!("record" in delivered)) throw new Error("NOTIFICATION_NOT_RECORDED");
+    await fixture.coordinator.activate({
+      activationId: delivered.record.notificationId,
+      action: "OPEN_WORKTREE",
+    });
+    const snapshot = activity.query({ view: "ALL" });
+    const summaries = snapshot.events
+      .filter((event) => event.details.nativeAction !== undefined)
+      .map(presentActivity)
+      .map((copy) => copy.summary);
+    expect(summaries).toEqual(
+      expect.arrayContaining([
+        "PRMonitor opened its window.",
+        "PRMonitor accepted the request to open the related work.",
+        "PRMonitor opened the worktree folder.",
+        "PRMonitor sent a notification.",
+      ]),
+    );
+    expect(
+      summaries.filter(
+        (summary) => summary === "PRMonitor sent a notification.",
+      ),
+    ).toHaveLength(1);
+  });
   it("delivers action-time F22 attention through the native notification boundary", async () => {
     const fixture = coordinatorFixture();
     await fixture.coordinator.start();

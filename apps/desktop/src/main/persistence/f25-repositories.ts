@@ -10,6 +10,10 @@ import {
   isF25SynchronizationBatchReadModel,
   isF25SynchronizationResultReadModel,
 } from "../../shared/f25-synchronization";
+import {
+  f26ConflictResolutionReadModelSchema,
+  type F26UsageEvidence,
+} from "../../shared/f26-conflict-resolution";
 
 export interface F25PersistencePort {
   readonly persistAdmission: (input: {
@@ -55,15 +59,33 @@ function inputProjection(
   return { ...withoutAuthorizationId, authzId: authorizationId };
 }
 
+function storedUsage(usage: F26UsageEvidence): Record<string, unknown> {
+  const { tokens, ...rest } = usage;
+  return { ...rest, usageUnits: tokens };
+}
+
 function storedResult(
   result: F25SynchronizationResultReadModel,
 ): Record<string, unknown> {
-  const { input, handoff, aiUsage, ...withoutInput } = result;
+  const { input, handoff, aiUsage, conflictResolution, ...withoutInput } =
+    result;
   const { tokens, ...withoutTokens } = aiUsage;
   return {
     ...withoutInput,
     input: inputProjection(input),
     aiUsage: { ...withoutTokens, usageUnits: tokens },
+    ...(conflictResolution === undefined
+      ? {}
+      : {
+          conflictResolution: {
+            ...conflictResolution,
+            usage: storedUsage(conflictResolution.usage),
+            turnHistory: conflictResolution.turnHistory.map((turn) => ({
+              ...turn,
+              usage: storedUsage(turn.usage),
+            })),
+          },
+        }),
     ...(handoff === undefined
       ? {}
       : { handoff: { ...handoff, input: inputProjection(handoff.input) } }),
@@ -136,11 +158,58 @@ function restoreResult(value: unknown): F25SynchronizationResultReadModel {
     ...candidate,
     input,
     aiUsage: { ...withoutTokenCount, tokens: usageUnits },
+    ...(candidate.conflictResolution === undefined
+      ? {}
+      : {
+          conflictResolution: restoreConflictResolution(
+            candidate.conflictResolution,
+          ),
+        }),
     ...(handoff === undefined ? {} : { handoff }),
   };
   if (!isF25SynchronizationResultReadModel(restored))
     throw new Error("F25_PERSISTED_RESULT_INVALID");
   return restored;
+}
+
+function restoreConflictResolution(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("F25_PERSISTED_CONFLICT_INVALID");
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.usage !== "object" ||
+    candidate.usage === null ||
+    Array.isArray(candidate.usage)
+  )
+    throw new Error("F25_PERSISTED_CONFLICT_INVALID");
+  const usage = candidate.usage as Record<string, unknown>;
+  // Retain compatibility with earlier contract-shaped snapshots; the normal
+  // codec continues to reject secret-shaped field names on every new write.
+  if (typeof usage.tokens === "number")
+    return f26ConflictResolutionReadModelSchema.parse(value);
+  const { usageUnits, ...rest } = usage;
+  if (typeof usageUnits !== "number")
+    throw new Error("F25_PERSISTED_CONFLICT_INVALID");
+  if (!Array.isArray(candidate.turnHistory))
+    throw new Error("F25_PERSISTED_CONFLICT_INVALID");
+  const turnHistory = candidate.turnHistory.map((value: unknown) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      throw new Error("F25_PERSISTED_CONFLICT_INVALID");
+    const turn = value as Record<string, unknown>;
+    if (
+      typeof turn.usage !== "object" ||
+      turn.usage === null ||
+      Array.isArray(turn.usage)
+    )
+      throw new Error("F25_PERSISTED_CONFLICT_INVALID");
+    const { usageUnits, ...usage } = turn.usage as Record<string, unknown>;
+    return { ...turn, usage: { ...usage, tokens: usageUnits } };
+  });
+  return f26ConflictResolutionReadModelSchema.parse({
+    ...candidate,
+    usage: { ...rest, tokens: usageUnits },
+    turnHistory,
+  });
 }
 
 function resultInput(

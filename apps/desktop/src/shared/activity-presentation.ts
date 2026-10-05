@@ -118,6 +118,75 @@ const text = (
 export function presentActivity(
   event: ActivityEventRecord,
 ): ActivityPresentation {
+  if (
+    ["NOTIFICATION_SENT", "NOTIFICATION_FAILED"].includes(event.eventType) ||
+    ["NOTIFICATION_SENT", "NOTIFICATION_FAILED"].includes(event.reason.code)
+  ) {
+    const failed =
+      event.eventType === "NOTIFICATION_FAILED" ||
+      event.reason.code === "NOTIFICATION_FAILED";
+    const legacyActions: Readonly<Record<string, string>> = {
+      "Operation worktree opened": "OPEN_WORKTREE",
+      "Operation worktree could not be opened": "OPEN_WORKTREE",
+      "Operation worktree reference is missing": "OPEN_WORKTREE",
+      "Open Worktree target unavailable": "OPEN_WORKTREE",
+      "Native target opened": "OPEN_TARGET",
+      "Native target remains retryable": "OPEN_TARGET",
+      "PRMonitor window opened": "OPEN_APP",
+      "PRMonitor window open is retryable": "OPEN_APP",
+      "Native notification delivered": "DELIVER_NOTIFICATION",
+      "Native notification not delivered": "DELIVER_NOTIFICATION",
+    };
+    const nativeAction =
+      event.details.nativeAction ??
+      (event.details.command === "OPEN_APP" ? "OPEN_APP" : undefined) ??
+      legacyActions[event.summary] ??
+      legacyActions[event.reason.what];
+    if (nativeAction === "OPEN_WORKTREE")
+      return failed
+        ? text(
+            "PRMonitor could not open the worktree folder.",
+            "The saved work remains available.",
+            "Inspect the worktree path in the related work, then try again.",
+            true,
+          )
+        : text("PRMonitor opened the worktree folder.");
+    if (nativeAction === "OPEN_APP")
+      return failed
+        ? text(
+            "PRMonitor could not open its window.",
+            undefined,
+            "Try Open PRMonitor from the taskbar icon again.",
+            true,
+          )
+        : text("PRMonitor opened its window.");
+    if (nativeAction === "OPEN_TARGET")
+      return failed
+        ? text(
+            "PRMonitor could not open the related work.",
+            "The saved work remains available.",
+            "Open the related work from the PR inbox and try again.",
+            true,
+          )
+        : text("PRMonitor accepted the request to open the related work.");
+    if (nativeAction === "DELIVER_NOTIFICATION")
+      return failed
+        ? text(
+            "PRMonitor could not send a notification.",
+            "You can inspect the saved work in PRMonitor.",
+            "Open the PR inbox.",
+            true,
+          )
+        : text("PRMonitor sent a notification.");
+    return failed
+      ? text(
+          "A native action did not complete.",
+          undefined,
+          "Inspect the related work or application status before retrying.",
+          true,
+        )
+      : text("PRMonitor recorded a native action.");
+  }
   if (event.reason.code === "LIFECYCLE_RUNNING")
     return text(
       "PRMonitor started.",

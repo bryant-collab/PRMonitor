@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
-  "isolatedDataIdentity": "ae901548d962214c",
+  "isolatedDataIdentity": "944ffd4fe7b10cc8",
   "scenarios": [
     {
       "stage": "fresh",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "incomplete startup lands on setup; observed renderer never exposes ready inbox",
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
@@ -21,6 +22,7 @@
       "stage": "partial",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "incomplete startup lands on setup; observed renderer never exposes ready inbox",
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
@@ -35,6 +37,7 @@
       "stage": "restart",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "ready data cold-starts into empty inbox; Settings > Setup inspects readiness",
         "empty ready profile has no PR activity; genuine startup diagnostics are separately accessible without inventing PR work",
         "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
@@ -46,6 +49,7 @@
       "stage": "lost-auth",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "incomplete startup lands on setup; observed renderer never exposes ready inbox",
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
@@ -60,6 +64,7 @@
       "stage": "bootstrap-failure",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "incomplete startup lands on setup; observed renderer never exposes ready inbox",
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
@@ -73,6 +78,7 @@
       "stage": "bootstrap-fixed",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "incomplete startup lands on setup; observed renderer never exposes ready inbox",
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
@@ -86,8 +92,68 @@
       "stage": "shell",
       "ok": true,
       "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "existing PR edit → independent Add draft → Back and sidebar Inbox → Save writes only the existing PR draft; Add draft remains intact",
+        "native Home/End/arrow keys move selected detail tabs and keyboard focus together; tablist/tabpanel expose selection and relationships",
         "exact approved reference painted in a separate nonpersistent session; 3 known optional public prototype scripts blocked before network; product CSP unchanged",
         "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "guarded",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "exact A/B result navigation isolates answer drafts; returning rereads a changed saved result; empty answers and unapproved publication remain guarded",
+        "real owned Git worktree renders all 600 changed lines including the final line; six saved review panes remain reachable; publication without approval is rejected by the production service",
+        "missing review, sync result/batch and PR/settings targets produce explicit unavailable states without selecting unrelated saved work",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "settings",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "all four task drafts survive category and destination navigation; discard/save affects only the selected task; other saved revisions remain unchanged; leaving GitHub settings clears the unsaved credential field",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "lifecycle",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "real Electron tray menu callback reopens a closed window; saved review/sync records remain byte-equivalent; native accessibility tree exposes named controls and headings (no physical screen-reader claim)",
+        "native Shutdown callback persists COMPLETED before removing its tray and requesting ordinary app quit; all saved review and synchronization records survive"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "retained-restart",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "cold restart after actual native Shutdown preserves saved review and synchronization records",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "publication-uncertain",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "historical approval plus uncertain outcome rehydrates through real persistence; native review exposes reconciliation and withholds approve/publish; opening the target causes no repeated external effect",
         "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
       ],
       "fixtureRequests": 0,
@@ -96,7 +162,8 @@
   ],
   "limitations": [
     "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
-    "Explicit target opens a persisted historical review; Home/return checks unsaved-answer retention. Full review/publication journeys are separate acceptance work.",
-    "Chromium 125% zoom exercises reflow; physical Windows display scaling requires an interactive session."
+    "Native guarded journeys use real persisted records and an owned Git worktree. No live provider or external publication was authorized; positive provider/publication effects are covered by service integration tests with controlled ports.",
+    "Chromium zoom and forced-color emulation check reflow. Physical Windows DPI, independent text scaling, screen-reader speech and taskbar clicking require computer-control tooling unavailable in this execution environment.",
+    "Native lifecycle acceptance invokes the real Electron menu item's callback; it does not claim a physical Windows taskbar click."
   ]
 }

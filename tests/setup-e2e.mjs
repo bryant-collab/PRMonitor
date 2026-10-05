@@ -105,6 +105,11 @@ try {
     "bootstrap-failure",
     "bootstrap-fixed",
     "shell",
+    "guarded",
+    "settings",
+    "lifecycle",
+    "retained-restart",
+    "publication-uncertain",
   ]) {
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));
@@ -180,8 +185,9 @@ try {
         scenarios: results,
         limitations: [
           "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
-          "Explicit target opens a persisted historical review; Home/return checks unsaved-answer retention. Full review/publication journeys are separate acceptance work.",
-          "Chromium 125% zoom exercises reflow; physical Windows display scaling requires an interactive session.",
+          "Native guarded journeys use real persisted records and an owned Git worktree. No live provider or external publication was authorized; positive provider/publication effects are covered by service integration tests with controlled ports.",
+          "Chromium zoom and forced-color emulation check reflow. Physical Windows DPI, independent text scaling, screen-reader speech and taskbar clicking require computer-control tooling unavailable in this execution environment.",
+          "Native lifecycle acceptance invokes the real Electron menu item's callback; it does not claim a physical Windows taskbar click.",
         ],
       },
       null,

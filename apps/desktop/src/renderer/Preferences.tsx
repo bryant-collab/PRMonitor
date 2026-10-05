@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { customerExplanation } from "./customer-copy";
 import type { SettingsCategory } from "./shell-routing";
 import type { IpcResponse } from "../shared/ipc";
 import type {
@@ -189,12 +190,9 @@ export function Preferences({
         for (const type of taskTypes)
           if (
             JSON.stringify(current[type]) !== JSON.stringify(drafts?.[type]) ||
-            JSON.stringify(
-              preferences.taskProfiles.find((p) => p.taskType === type),
-            ) ===
-              JSON.stringify(
-                value.taskProfiles.find((p) => p.taskType === type),
-              )
+            preferences.taskProfiles.find((p) => p.taskType === type)
+              ?.revision ===
+              value.taskProfiles.find((p) => p.taskType === type)?.revision
           )
             next[type] = current[type];
         return next;
@@ -282,9 +280,7 @@ export function Preferences({
         aria-labelledby="preferences-heading"
       >
         <h2 id="preferences-heading">Preferences</h2>
-        <p className="section-help">
-          Loading the versioned AI Preferences boundary…
-        </p>
+        <p className="section-help">Loading AI settings…</p>
         {error !== "" ? (
           <p className="form-message" role="alert">
             {error}
@@ -487,8 +483,12 @@ export function Preferences({
                       <div>
                         <dt>Compatibility</dt>
                         <dd>
-                          {profile.availabilityReason ??
-                            "This task profile is available."}
+                          {customerExplanation(
+                            profile.availabilityReason,
+                            profile.availability === "AVAILABLE"
+                              ? "This task profile is available."
+                              : "Check the provider, model and execution policy for this task.",
+                          )}
                         </dd>
                       </div>
                     </dl>
@@ -535,9 +535,8 @@ export function Preferences({
             </span>
           </div>
           <p className="section-help">
-            Review proposals and read-only conversations always resolve to the
-            read-only floor. Every preset has publication authority set to
-            false.
+            Review proposals and read-only conversations cannot change code. No
+            AI policy permits publication.
           </p>
           <label>
             Configured policy
@@ -672,7 +671,7 @@ export function Preferences({
               </dd>
             </div>
             <div>
-              <dt>Current policy publication authority</dt>
+              <dt>AI can publish changes</dt>
               <dd>{String(preferences.policy.publicationAuthority)}</dd>
             </div>
           </dl>
@@ -694,9 +693,9 @@ export function Preferences({
             </span>
           </div>
           <p className="section-help">
-            Instructions are revisioned, bounded text. They are copied into
-            effective snapshots in the selected order and never interpreted as
-            executable policy.
+            PRMonitor saves each instruction version and uses the selected
+            order. Instruction text does not change the permissions for an
+            operation.
           </p>
           <div className="preferences-form">
             <label>

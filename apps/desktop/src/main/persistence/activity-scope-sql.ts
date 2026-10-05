@@ -21,6 +21,8 @@ const prAdapter = MANAGED_PR_RECOVERY_ADAPTERS.map(
 const matchingScope =
   "s.scope_key = activity_events.operation_id AND json_valid(activity_events.details_json) AND json_type(activity_events.details_json, '$.f28Event') = 'text'";
 export const ACTIVITY_MANAGED_PR_SQL = `CASE WHEN EXISTS (SELECT 1 FROM f28_recovery_scopes s WHERE ${matchingScope}) THEN (SELECT s.scope_id FROM f28_recovery_scopes s WHERE ${matchingScope} AND (s.scope_kind = 'managed_pr' OR (${prAdapter})) AND NOT (${emptyScope}) LIMIT 1) ELSE managed_pr_id END`;
+export const ACTIVITY_OWNER_TYPE_SQL = `CASE WHEN EXISTS (SELECT 1 FROM f28_recovery_scopes s WHERE ${matchingScope}) THEN (SELECT CASE WHEN s.scope_kind = 'application' OR (${emptyScope}) THEN 'APPLICATION' WHEN s.scope_kind = 'managed_pr' OR (${prAdapter}) THEN 'MANAGED_PR' ELSE s.scope_kind END FROM f28_recovery_scopes s WHERE ${matchingScope} LIMIT 1) ELSE owner_type END`;
+export const ACTIVITY_OWNER_ID_SQL = `CASE WHEN EXISTS (SELECT 1 FROM f28_recovery_scopes s WHERE ${matchingScope}) THEN (SELECT s.scope_id FROM f28_recovery_scopes s WHERE ${matchingScope} LIMIT 1) ELSE owner_id END`;
 export const ACTIVITY_SCOPE_SQL = `CASE
   WHEN EXISTS (SELECT 1 FROM f28_recovery_scopes s WHERE ${matchingScope} AND (s.scope_kind = 'application' OR (${emptyScope}))) THEN 'APPLICATION'
   WHEN EXISTS (SELECT 1 FROM f28_recovery_scopes s WHERE ${matchingScope} AND s.scope_kind <> 'application' AND NOT (${emptyScope})) THEN 'PR_WORK'

@@ -45,6 +45,14 @@ function deferred<T>() {
 }
 const pr = (id: string) => managedPrFixture(id, "READY_FOR_REVIEW", time);
 
+it("reopening the same saved target requests a fresh read without changing its identity", () => {
+  const target = savedWorkTarget("SYNCHRONIZATION_RESULT", "result-a");
+  const first = routeOpenTarget(initialShellRoute, target);
+  const reopened = routeOpenTarget(first, target);
+  expect(reopened.synchronizationResultId).toBe("result-a");
+  expect(reopened.activation).toBe(first.activation + 1);
+});
+
 it("unchanged authoritative Inbox reads preserve the revision required by branch-sync guards", () => {
   let records = [pr("pr-a"), pr("pr-b")],
     tick = 0;

@@ -1,5 +1,5 @@
 /* Electron-only acceptance entrypoint. Never launched against real user data. */
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, session, Tray, screen } = require("electron");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -21,6 +21,13 @@ const timeout = setTimeout(
   55000,
 );
 let finished = false;
+let nativeTray, nativeMenu;
+const setContextMenu = Tray.prototype.setContextMenu;
+Tray.prototype.setContextMenu = function (menu) {
+  nativeTray = this;
+  nativeMenu = menu;
+  return setContextMenu.call(this, menu);
+};
 
 async function finish(error, assertions = []) {
   if (finished) return;
@@ -35,7 +42,8 @@ async function finish(error, assertions = []) {
         assertions,
         fixtureRequests: network.length,
         forbiddenEffects: forbidden.length,
-        error: error?.message,
+        error:
+          error === undefined ? undefined : `${currentStep}: ${error.message}`,
       },
       null,
       2,
@@ -45,6 +53,7 @@ async function finish(error, assertions = []) {
 }
 
 async function waitFor(operation, label) {
+  currentStep = label;
   const end = Date.now() + 15000;
   while (Date.now() < end) {
     const value = await operation();
@@ -82,6 +91,10 @@ async function start() {
     await (
       await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
     ).seedShell(userData);
+  if (stage === "guarded")
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedGuardedWork(userData, root);
   if (stage === "bootstrap-failure") {
     app.relaunch = () => {
       retryRelaunches++;
@@ -155,7 +168,11 @@ async function start() {
             3000,
           ),
         ),
-      ]);
+      ]).catch((error) => {
+        throw Error(
+          `E2E_RENDERER:${currentStep}:${code.slice(0, 160)}:${error.message}`,
+        );
+      });
     } catch (error) {
       return Promise.reject(
         Error(`E2E_RENDERER_DESTROYED:${currentStep}:${error.message}`),
@@ -199,7 +216,25 @@ async function start() {
       (await window.webContents.capturePage()).toPNG(),
     );
   };
+  const setField = (selector, value) =>
+    evaluate(
+      `(()=>{const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw Error('E2E_FIELD_MISSING');const type=input.tagName==='TEXTAREA'?HTMLTextAreaElement:HTMLInputElement;Object.getOwnPropertyDescriptor(type.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+    );
+  const openTarget = (kind, id) =>
+    window.webContents.send("prmonitor:ipc:v1:event", {
+      schemaVersion: 1,
+      type: "open-target",
+      target: {
+        schemaVersion: 1,
+        kind,
+        ...(id === undefined ? {} : { id }),
+        requestId: `route-e2e-${Date.now().toString(36)}`,
+      },
+    });
   const assertions = [];
+  assertions.push(
+    `native display scale factor ${screen.getDisplayMatching(window.getBounds()).scaleFactor}; browser zoom ${window.webContents.getZoomFactor()}; physical Windows DPI/text scaling and screen-reader interaction are not simulated`,
+  );
   const read = await waitFor(readiness, "projection");
   if (
     [
@@ -374,6 +409,60 @@ async function start() {
         ),
       "unsaved PR context retained",
     );
+    const inspectedId = await evaluate(
+      "window.prmonitor.readManagedPrs().then(r=>r.value.value.managedPrs.find(p=>document.querySelector('.pr-detail-heading p').textContent===p.owner+'/'+p.repositoryName+' #'+p.number).id)",
+    );
+    for (const back of ["Back to PR inbox", "PR inbox"]) {
+      await click("Add PR");
+      await waitFor(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('form[aria-label=\"Add a pull request\"]'))",
+          ),
+        "Add draft screen",
+      );
+      await evaluate(
+        "document.querySelector('.optional-pr-settings').open=true",
+      );
+      await setField(
+        'form[aria-label="Add a pull request"] textarea',
+        "Independent Add context",
+      );
+      await click(back);
+      await waitFor(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('form[aria-label=\"Edit pull request configuration\"] textarea'))",
+          ),
+        "existing PR settings after Add",
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('form[aria-label=\"Edit pull request configuration\"] textarea').value",
+        ),
+        "Unsaved PR context survives navigation.",
+      );
+      await click("Save new configuration revision");
+      await waitFor(
+        () =>
+          evaluate(
+            `window.prmonitor.readManagedPr(${JSON.stringify(inspectedId)}).then(r=>r.ok&&r.value.managedPr.configuration.context==='Unsaved PR context survives navigation.')`,
+          ),
+        "correct persisted PR context",
+      );
+      await click("Add PR");
+      await waitFor(
+        () =>
+          evaluate(
+            "document.querySelector('form[aria-label=\"Add a pull request\"] textarea')?.value==='Independent Add context'",
+          ),
+        "Add draft remains independent",
+      );
+      await click("Back to PR inbox");
+    }
+    assertions.push(
+      "existing PR edit → independent Add draft → Back and sidebar Inbox → Save writes only the existing PR draft; Add draft remains intact",
+    );
     await click("Overview");
     for (const [width, height, zoom, name] of [
       [1280, 800, 1, "shell-desktop-1280"],
@@ -420,6 +509,29 @@ async function start() {
     }
     window.webContents.setZoomFactor(1);
     window.setContentSize(1280, 800);
+    await evaluate(
+      "document.querySelector('.pr-detail [role=tab][aria-selected=true]').focus()",
+    );
+    for (const [key, expected] of [
+      ["Home", "Overview"],
+      ["Right", "Review"],
+      ["End", "PR settings"],
+      ["Left", "Activity"],
+      ["Home", "Overview"],
+    ]) {
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: key });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: key });
+      await waitFor(
+        () =>
+          evaluate(
+            `document.activeElement.getAttribute('role')==='tab'&&document.activeElement.textContent.trim()===${JSON.stringify(expected)}&&document.activeElement.getAttribute('aria-selected')==='true'`,
+          ),
+        `native detail keyboard ${key}`,
+      );
+    }
+    assertions.push(
+      "native Home/End/arrow keys move selected detail tabs and keyboard focus together; tablist/tabpanel expose selection and relationships",
+    );
     await evaluate("document.querySelector('.inbox-inspect').focus()");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" });
@@ -443,7 +555,8 @@ async function start() {
     let blockedReferenceScripts = 0;
     referenceSession.webRequest.onBeforeRequest((details, callback) => {
       if (/^https?:/i.test(details.url)) {
-        if (optionalReferenceScripts.has(details.url)) blockedReferenceScripts++;
+        if (optionalReferenceScripts.has(details.url))
+          blockedReferenceScripts++;
         else forbidden.push("reference-network");
         callback({ cancel: true });
       } else callback({});
@@ -661,6 +774,436 @@ async function start() {
     await capture("completed-empty-inbox");
     assertions.push(
       "GitHub.com and GHES identity fixtures, four independent persisted profiles, and local auth complete all checks; zero PRs allows inbox",
+    );
+  }
+  if (stage === "guarded") {
+    const saved = await evaluate(
+      "window.prmonitor.readSynchronizationResult('guarded-sync-1')",
+    );
+    assert.equal(saved.value.result.conflictResolution.usage.tokens, 26);
+    assert.equal(saved.value.result.conflictResolution.usage.inputTokens, 17);
+    assert.equal(saved.value.result.conflictResolution.usage.outputTokens, 9);
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-1");
+    const activeSync = async (id, version) => {
+      await evaluate(
+        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+      );
+      return evaluate(
+        `Boolean(document.querySelector('.synchronization-result-card[data-sync-operation="${id}"]${version === undefined ? "" : `[data-sync-source-version="${version}"]`}'))`,
+      );
+    };
+    await waitFor(
+      () => activeSync("guarded-sync-1", 1),
+      "exact saved result A",
+    );
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.synchronization-review button')].find(b=>b.textContent.trim()==='Submit answer')?.disabled",
+      ),
+      true,
+    );
+    await setField(
+      ".synchronization-conflict-review textarea",
+      "Answer retained for result A",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.synchronization-result-list button')].find(b=>b.textContent.includes('Result 2 needs')).click()",
+    );
+    await waitFor(
+      () => activeSync("guarded-sync-2", 1),
+      "result B navigation owns root target",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.synchronization-conflict-review textarea').value",
+      ),
+      "",
+    );
+    await setField(
+      ".synchronization-conflict-review textarea",
+      "Answer retained for result B",
+    );
+    await click("Activity");
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-1");
+    await waitFor(
+      () => activeSync("guarded-sync-1", 1),
+      "explicit A after internal B",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.synchronization-conflict-review textarea').value",
+      ),
+      "Answer retained for result A",
+    );
+    await click("Activity");
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).advanceGuardedResult(userData);
+    openTarget("SYNCHRONIZATION_RESULT", "guarded-sync-1");
+    await waitFor(
+      () => activeSync("guarded-sync-1", 2),
+      "saved result advanced while away",
+    );
+    assert.equal(
+      (
+        await evaluate(
+          "window.prmonitor.readSynchronizationResult('guarded-sync-1')",
+        )
+      ).value.result.reason.what,
+      "Saved result updated while away.",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.synchronization-conflict-review textarea').value",
+      ),
+      "Answer retained for result A",
+    );
+    await capture("guarded-sync-saved-result");
+    const publish = await evaluate(
+      "window.prmonitor.publishSynchronizationPublication({operationId:'guarded-sync-1',idempotencyKey:'unapproved-native-publication'})",
+    );
+    assert.equal(publish.ok, false, JSON.stringify(publish));
+    assertions.push(
+      "exact A/B result navigation isolates answer drafts; returning rereads a changed saved result; empty answers and unapproved publication remain guarded",
+    );
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await waitFor(
+      () => visible("Guarded final review with complete saved changes"),
+      "saved final review",
+    );
+    await click("Files and changes");
+    await click("Refresh evidence");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('.review-condition'))"),
+      "fresh real worktree condition",
+    );
+    await click("Proposed Worktree Diff");
+    const actualDiff = await evaluate(
+      "window.prmonitor.readReviewBundleDiff('guarded-final-review','PROPOSED_WORKTREE')",
+    );
+    assert.ok(actualDiff.ok, JSON.stringify(actualDiff));
+    assert.ok(
+      actualDiff.value.diff?.files?.length > 0,
+      JSON.stringify({
+        diff: actualDiff,
+        operation: (
+          await (
+            await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+          ).readRetainedWork(userData)
+        ).worktree,
+      }),
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelectorAll('.review-diff-line-text').length >= 600",
+        ),
+      "complete local proposed diff",
+    );
+    assert.ok(
+      await evaluate(
+        "[...document.querySelectorAll('.review-diff-line-text')].some(e=>e.textContent.includes('changed299'))",
+      ),
+    );
+    await evaluate(
+      "document.querySelector('.review-diff-panel').scrollIntoView({block:'start'})",
+    );
+    await capture("guarded-review-complete-diff");
+    for (const pane of [
+      "Review",
+      "Conversation and revisions",
+      "Validation and instructions",
+      "Discard and re-evaluate",
+      "Publication",
+    ]) {
+      await evaluate(
+        `[...document.querySelectorAll('.workspace-panes button')].find(b=>b.textContent.trim()===${JSON.stringify(pane)}).click()`,
+      );
+      await waitFor(
+        () =>
+          evaluate(
+            `[...document.querySelectorAll('.workspace-panes button')].some(b=>b.textContent.trim()===${JSON.stringify(pane)}&&b.getAttribute('aria-pressed')==='true')`,
+          ),
+        `review pane ${pane}`,
+      );
+    }
+    await capture("guarded-review-publication");
+    const reviewPublish = await evaluate(
+      "window.prmonitor.publishReviewBundlePublication({bundleId:'guarded-final-review',idempotencyKey:'unapproved-native-review-publication'})",
+    );
+    assert.equal(reviewPublish.ok, true, JSON.stringify(reviewPublish));
+    assert.equal(reviewPublish.value.publication.status, "BLOCKED");
+    assert.equal(reviewPublish.value.publication.canPublish, false);
+    assert.equal(
+      reviewPublish.value.publication.reasons[0].code,
+      "PUBLICATION_INTENT_NOT_FOUND",
+    );
+    assertions.push(
+      "real owned Git worktree renders all 600 changed lines including the final line; six saved review panes remain reachable; publication without approval is rejected by the production service",
+    );
+    for (const kind of [
+      "REVIEW_BUNDLE",
+      "SYNCHRONIZATION_RESULT",
+      "SYNCHRONIZATION_BATCH",
+      "MANAGED_PR",
+      "MANAGED_PR_SETTINGS",
+    ]) {
+      openTarget(kind, "missing-guarded-target");
+      await waitFor(
+        () =>
+          evaluate(
+            "[...document.querySelectorAll('[role=alert],.empty-state')].some(e=>!e.closest('[hidden]')&&/unavailable|not found|could not|cannot|does not exist/i.test(e.textContent))",
+          ),
+        `missing ${kind}`,
+      );
+      assert.equal(
+        await evaluate(
+          "Boolean(document.querySelector('.synchronization-result-card'))",
+        ),
+        false,
+      );
+    }
+    assertions.push(
+      "missing review, sync result/batch and PR/settings targets produce explicit unavailable states without selecting unrelated saved work",
+    );
+  }
+  if (stage === "lifecycle") {
+    const fixtures = await import(
+      pathToFileURL(path.join(root, "fixtures.mjs")).href
+    );
+    const before = await fixtures.readRetainedWork(userData);
+    assert.ok(
+      before.reviews.some((r) => r.bundleId === "guarded-final-review"),
+    );
+    assert.ok(nativeTray && !nativeTray.isDestroyed());
+    window.close();
+    await waitFor(
+      () => BrowserWindow.getAllWindows().length === 0,
+      "native close keeps tray process",
+    );
+    assert.equal(nativeTray.isDestroyed(), false);
+    const open = nativeMenu.items.find(
+      (item) => item.label === "Open PRMonitor",
+    );
+    assert.ok(open?.enabled);
+    open.click(open, undefined, {});
+    window = await waitFor(
+      () => BrowserWindow.getAllWindows().find((item) => !item.isDestroyed()),
+      "native tray opens window",
+    );
+    await waitFor(
+      () => visible("PR inbox").catch(() => false),
+      "tray reopened renderer",
+    );
+    const afterOpen = await fixtures.readRetainedWork(userData);
+    assert.deepEqual(afterOpen.reviews, before.reviews);
+    assert.deepEqual(afterOpen.results, before.results);
+    app.setAccessibilitySupportEnabled(true);
+    window.webContents.debugger.attach("1.3");
+    const ax = await window.webContents.debugger.sendCommand(
+      "Accessibility.getFullAXTree",
+    );
+    assert.ok(
+      ax.nodes.some(
+        (node) =>
+          node.role?.value === "button" && node.name?.value === "Settings",
+      ),
+    );
+    assert.ok(ax.nodes.some((node) => node.role?.value === "heading"));
+    window.webContents.debugger.detach();
+    assertions.push(
+      "real Electron tray menu callback reopens a closed window; saved review/sync records remain byte-equivalent; native accessibility tree exposes named controls and headings (no physical screen-reader claim)",
+    );
+    const ordinaryQuit = app.quit.bind(app);
+    let quitRequested = false;
+    app.quit = () => {
+      quitRequested = true;
+    };
+    const shutdown = nativeMenu.items.find(
+      (item) => item.label === "Shutdown PRMonitor",
+    );
+    assert.ok(shutdown?.enabled);
+    shutdown.click(shutdown, undefined, {});
+    await waitFor(() => quitRequested, "native shutdown completed before quit");
+    assert.equal(nativeTray.isDestroyed(), true);
+    const after = await fixtures.readRetainedWork(userData);
+    assert.equal(after.shutdown.state, "COMPLETED");
+    assert.deepEqual(after.reviews, before.reviews);
+    assert.deepEqual(after.results, before.results);
+    await fs.writeFile(
+      path.join(root, "retained-work.json"),
+      JSON.stringify({ reviews: after.reviews, results: after.results }),
+    );
+    assertions.push(
+      "native Shutdown callback persists COMPLETED before removing its tray and requesting ordinary app quit; all saved review and synchronization records survive",
+    );
+    assert.equal(forbidden.length, 0);
+    finished = true;
+    clearTimeout(timeout);
+    await fs.writeFile(
+      path.join(root, `${stage}.json`),
+      JSON.stringify(
+        {
+          stage,
+          ok: true,
+          assertions,
+          fixtureRequests: network.length,
+          forbiddenEffects: forbidden.length,
+        },
+        null,
+        2,
+      ),
+    );
+    app.quit = ordinaryQuit;
+    ordinaryQuit();
+    return;
+  }
+  if (stage === "settings") {
+    await click("Settings");
+    const category = async (label) => {
+      await evaluate(
+        `[...document.querySelectorAll('.settings-categories button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}).click()`,
+      );
+      await evaluate(
+        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+      );
+    };
+    await category("AI task profiles");
+    await waitFor(
+      () =>
+        evaluate("Boolean(document.querySelector('.preference-card input'))"),
+      "native task editor",
+    );
+    const task = async (id) => {
+      await evaluate(
+        `(()=>{const s=document.querySelector('.preference-grid select');s.value=${JSON.stringify(id)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      );
+      await evaluate("new Promise(resolve=>requestAnimationFrame(resolve))");
+    };
+    const values = await preferences();
+    const modelSelector =
+      ".preference-card .preferences-form label:nth-child(2) input";
+    for (const profile of values.taskProfiles) {
+      await task(profile.taskType);
+      await setField(modelSelector, `unsaved-${profile.taskType}`);
+    }
+    for (const label of [
+      "Execution policy",
+      "Monitoring and work limits",
+      "Common instructions",
+      "Repository build and validation",
+      "Support diagnostics",
+      "GitHub connections",
+    ]) {
+      await category(label);
+      assert.ok(
+        await evaluate(
+          "[...document.querySelectorAll('.settings-categories button')].some(b=>b.getAttribute('aria-pressed')==='true')",
+        ),
+      );
+    }
+    await setField('input[type="password"]', "unsaved-nonsecret-fixture");
+    await click("Activity");
+    await click("Settings");
+    await category("GitHub connections");
+    assert.equal(
+      await evaluate(
+        "document.querySelector('input[type=\"password\"]').value",
+      ),
+      "",
+    );
+    await category("AI task profiles");
+    for (const profile of values.taskProfiles) {
+      await task(profile.taskType);
+      assert.equal(
+        await evaluate(
+          `document.querySelector(${JSON.stringify(modelSelector)}).value`,
+        ),
+        `unsaved-${profile.taskType}`,
+      );
+    }
+    const first = values.taskProfiles[0];
+    await task(first.taskType);
+    await click("Discard task draft");
+    assert.equal(
+      await evaluate(
+        `document.querySelector(${JSON.stringify(modelSelector)}).value`,
+      ),
+      first.modelId,
+    );
+    await click("Save task profile");
+    await waitFor(
+      async () =>
+        (await preferences()).taskProfiles.find(
+          (p) => p.taskType === first.taskType,
+        ).revision > first.revision,
+      "native task save commits only selected profile",
+    );
+    for (const profile of values.taskProfiles.slice(1)) {
+      await task(profile.taskType);
+      assert.equal(
+        await evaluate(
+          `document.querySelector(${JSON.stringify(modelSelector)}).value`,
+        ),
+        `unsaved-${profile.taskType}`,
+      );
+      assert.equal(
+        (await preferences()).taskProfiles.find(
+          (p) => p.taskType === profile.taskType,
+        ).revision,
+        profile.revision,
+      );
+    }
+    await capture("settings-independent-task-drafts");
+    assertions.push(
+      "all four task drafts survive category and destination navigation; discard/save affects only the selected task; other saved revisions remain unchanged; leaving GitHub settings clears the unsaved credential field",
+    );
+  }
+  if (stage === "retained-restart") {
+    const previous = JSON.parse(
+      await fs.readFile(path.join(root, "retained-work.json"), "utf8"),
+    );
+    const saved = await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).readRetainedWork(userData);
+    assert.deepEqual(saved.reviews, previous.reviews);
+    assert.deepEqual(saved.results, previous.results);
+    await waitFor(() => visible("PR inbox"), "ordinary retained restart");
+    assertions.push(
+      "cold restart after actual native Shutdown preserves saved review and synchronization records",
+    );
+  }
+  if (stage === "publication-uncertain") {
+    const before = await evaluate(
+      "window.prmonitor.readReviewBundlePublication('guarded-final-review')",
+    );
+    assert.ok(before.ok && before.value.publication.candidate);
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedUncertainPublication(userData, before.value.publication.candidate);
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await waitFor(
+      () => visible("Guarded final review with complete saved changes"),
+      "historical uncertain review",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.workspace-panes button')].find(b=>b.textContent.trim()==='Publication').click()",
+    );
+    await waitFor(
+      () => visible("Reconcile publication state"),
+      "uncertain publication recovery control",
+    );
+    assert.equal(await visible("Publish approved Review Bundle"), false);
+    assert.equal(await visible("Approve exact publication"), false);
+    const read = await evaluate(
+      "window.prmonitor.readReviewBundlePublication('guarded-final-review')",
+    );
+    assert.equal(read.value.publication.status, "RECOVERING");
+    assert.equal(read.value.publication.canPublish, false);
+    assert.equal(read.value.publication.canReconcile, true);
+    await capture("guarded-publication-uncertain");
+    assertions.push(
+      "historical approval plus uncertain outcome rehydrates through real persistence; native review exposes reconciliation and withholds approve/publish; opening the target causes no repeated external effect",
     );
   }
   if (stage === "restart") {

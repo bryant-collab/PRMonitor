@@ -20,6 +20,28 @@ profile; prerequisite loss also reloads the renderer before target navigation.
 One additional shell process seeds twenty real managed PRs in the owned fixture,
 pauses watching before production startup and verifies inspection, sync selection,
 draft retention, Activity views, desktop/narrow/zoom layout and forced colors.
+Five more processes cover exact sync-result navigation and draft ownership,
+complete owned Git diff and guarded final review, independent task-setting
+drafts, native tray/Shutdown, retained cold restart and historical uncertain
+publication. The exact twelve-stage assertions are in the evidence JSON.
+
+The guarded Git fixture creates a baseline commit and registered operation-owned
+source/worktree before the application effect guard is installed. Once production
+main starts, Codex subprocesses, commit/push and unexpected network are forbidden.
+Historical approval/outcome fixtures never issue an external effect. Native
+MenuItem callbacks exercise the real tray adapter; actual Windows taskbar clicks,
+physical DPI/text scaling and screen-reader speech remain separate tooling limits.
+
+For isolated local NSIS acceptance after the desktop build:
+
+```powershell
+node tests/installer-e2e.mjs
+```
+
+This uses a unique test app identity and disables shortcuts to protect any
+existing PRMonitor installation. It installs/upgrades an owned Temp prefix,
+preserves a real SQLite record, runs installed sandboxed smoke, uninstalls its
+own identity, and validates ownership/path boundaries before temporary cleanup.
 
 Every run creates a marked temporary directory and isolates Electron user data,
 session data and home before importing main. Windows bootstrap keeps its required

@@ -59,4 +59,6 @@ The previous viewer promoted producer summary and generic what/why/next-action p
 
 ## Terminology
 
+Native action refinement: `NOTIFICATION_SENT/FAILED` also historically recorded window, saved-target and worktree actions. Closed producer `nativeAction` values and known legacy summaries now distinguish those actions. Only `DELIVER_NOTIFICATION` claims notification delivery; an unknown native event uses factual generic action copy. The coordinator/persistence/presentation test exercises actual producers.
+
 PR / pull request: the GitHub review being watched. Branch sync: preparing changes between the explicitly selected source branch and PR head. Saved review: the persisted proposal/final-review workspace. Application diagnostics: lifecycle, tray, health and empty recovery checks. Check interrupted work: the existing recovery command, which can retry already eligible work; it does not grant approval or silently continue stopped AI work. Raw support data: original safe identifiers, codes and structured evidence.

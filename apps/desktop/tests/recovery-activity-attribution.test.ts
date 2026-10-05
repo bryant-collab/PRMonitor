@@ -10,6 +10,10 @@ import { ActivityService } from "../src/main/activity-service";
 import { activityScope } from "../src/shared/activity-presentation";
 import { recoveryActivityAttribution } from "../src/shared/recovery-attribution";
 import type { ActivityEventInput } from "../src/shared/activity";
+import {
+  matchesActivityQuery,
+  normalizeActivityQuery,
+} from "../src/shared/activity";
 import type { F28RecoveryScopeInput } from "../src/shared/f28-recovery";
 
 const time = "2026-10-05T12:00:00.000Z";
@@ -118,6 +122,20 @@ it("empty application checks stay out of PR history; legacy recovery scopes reta
     expect(events[0]?.managedPrId).toBe("unmanaged-pr");
     expect(events[0]?.summary).toBe("Original producer summary");
     expect(activityScope(events[0]!)).toBe("PR_WORK");
+    for (const query of [
+      { ownerType: "MANAGED_PR", ownerId: "unmanaged-pr", limit: 1 },
+      { ownerType: "APPLICATION", ownerId: "ai-work", limit: 1 },
+    ]) {
+      const page = reopened.query(query);
+      expect(page.events).toHaveLength(1);
+      expect(
+        matchesActivityQuery(page.events[0]!, normalizeActivityQuery(query)),
+      ).toBe(true);
+    }
+    expect(
+      reopened.query({ ownerType: "publication", ownerId: "unmanaged-pr" })
+        .events,
+    ).toEqual([]);
     expect(
       store.read(
         "SELECT details_json, payload_json FROM activity_events WHERE activity_event_id = ?",

@@ -1,4 +1,11 @@
 import path from "node:path";
+export {
+  seedGuardedWork,
+  advanceGuardedResult,
+  readRetainedWork,
+  seedUncertainPublication,
+  installerData,
+} from "./guarded-e2e-fixtures";
 import {
   initializePersistence,
   createPersistenceRepositories,

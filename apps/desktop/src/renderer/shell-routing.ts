@@ -41,6 +41,7 @@ export type SettingsCategory =
   | "setup"
   | "support";
 export interface ShellRoute {
+  readonly activation: number;
   readonly destination: ShellDestination;
   readonly selectedManagedPrId?: string;
   readonly detailTab: PrDetailTab;
@@ -50,6 +51,7 @@ export interface ShellRoute {
   readonly synchronizationResultId?: string;
 }
 export const initialShellRoute: ShellRoute = {
+  activation: 0,
   destination: "home",
   detailTab: "overview",
 };
@@ -59,6 +61,7 @@ export function routeOpenTarget(
   current: ShellRoute,
   target: OpenTarget,
 ): ShellRoute {
+  current = { ...current, activation: current.activation + 1 };
   switch (target.kind) {
     case "HOME":
       return { ...current, destination: "home" };

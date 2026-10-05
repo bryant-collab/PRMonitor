@@ -1,6 +1,8 @@
 import { customerExplanation } from "./customer-copy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveSynchronizationTarget } from "./synchronization-target";
+import { savedWorkTarget } from "./shell-routing";
+import type { OpenTarget } from "../shared/routing";
 import type { F26RetryAction } from "../shared/f26-conflict-resolution";
 import type { F25ChangeEvidence } from "../shared/f25-synchronization";
 import type {
@@ -9,6 +11,12 @@ import type {
 } from "../shared/f27-synchronization";
 
 interface SynchronizationReviewProps {
+  readonly pullRequests?: readonly {
+    readonly id: string;
+    readonly label: string;
+  }[];
+  readonly activation?: number;
+  readonly onNavigate: (target: OpenTarget) => void;
   readonly batchId?: string;
   readonly resultId?: string;
   readonly visible?: boolean;
@@ -73,6 +81,9 @@ function ChangeEvidenceDetails({
 }
 
 export function SynchronizationReview({
+  activation = 0,
+  onNavigate,
+  pullRequests = [],
   batchId,
   resultId,
   visible = true,
@@ -92,6 +103,17 @@ export function SynchronizationReview({
   const [conflictInput, setConflictInput] = useState("");
   const requestedTarget = useRef({ batchId, resultId });
   const readGeneration = useRef(0);
+  const acknowledgedCandidate = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (result === undefined) return;
+    const identity = `${result.operationId}:${result.candidateHash}:${result.revision}`;
+    if (acknowledgedCandidate.current !== identity) {
+      setCompleteDiff(false);
+      setNoCodeChange(false);
+      setConfirmClearAll(false);
+      acknowledgedCandidate.current = identity;
+    }
+  }, [result]);
 
   const readResult = useCallback(async (operationId: string) => {
     const generation = ++readGeneration.current;
@@ -143,6 +165,18 @@ export function SynchronizationReview({
       ++readGeneration.current;
     };
   }, [batchId, resultId, load]);
+
+  const lastActivation = useRef({ activation, visible });
+  useEffect(() => {
+    const previous = lastActivation.current;
+    lastActivation.current = { activation, visible };
+    if (visible && (!previous.visible || previous.activation !== activation)) {
+      requestedTarget.current = { batchId, resultId };
+      setResult(undefined);
+      setError("");
+      void load();
+    }
+  }, [activation, visible, batchId, resultId, load]);
 
   const selectedBatch = useMemo(
     () => batches.find((item) => item.batchId === selectedBatchId),
@@ -341,7 +375,7 @@ export function SynchronizationReview({
     >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">synchronization review result review</p>
+          <p className="eyebrow">Saved branch synchronization</p>
           <h2 id="synchronization-review-heading">Synchronization results</h2>
         </div>
         <button type="button" onClick={() => void load()} disabled={busy}>
@@ -350,7 +384,10 @@ export function SynchronizationReview({
       </div>
       {error !== "" ? (
         <p className="form-message" role="alert">
-          {error}
+          {customerExplanation(
+            error,
+            "The synchronization action did not complete. Refresh the saved result before retrying.",
+          )}
         </p>
       ) : null}
       {batches.length > 0 ? (
@@ -368,11 +405,11 @@ export function SynchronizationReview({
                     : "review-row"
                 }
                 key={batch.batchId}
-                onClick={() => {
-                  setSelectedBatchId(batch.batchId);
-                  const first = batch.rows[0];
-                  if (first !== undefined) void readResult(first.operationId);
-                }}
+                onClick={() =>
+                  onNavigate(
+                    savedWorkTarget("SYNCHRONIZATION_BATCH", batch.batchId),
+                  )
+                }
               >
                 <span>{short(batch.batchId)}</span>
                 <span>
@@ -404,11 +441,25 @@ export function SynchronizationReview({
                           : "review-row"
                       }
                       key={row.operationId}
-                      onClick={() => void readResult(row.operationId)}
+                      onClick={() =>
+                        onNavigate(
+                          savedWorkTarget(
+                            "SYNCHRONIZATION_RESULT",
+                            row.operationId,
+                          ),
+                        )
+                      }
                     >
-                      <span>{short(row.operationId)}</span>
                       <span>
-                        {label(row.status)} · {row.reason.what}
+                        {pullRequests.find((pr) => pr.id === row.managedPrId)
+                          ?.label ?? "Saved pull request"}
+                      </span>
+                      <span>
+                        {label(row.status)} ·{" "}
+                        {customerExplanation(
+                          row.reason.what,
+                          "Inspect this saved result for its permitted next action.",
+                        )}
                       </span>
                     </button>
                   ))}
@@ -422,11 +473,17 @@ export function SynchronizationReview({
             ) : (
               <article
                 className="synchronization-result-card"
+                data-sync-operation={result.operationId}
+                data-sync-source-version={result.sourceVersion}
                 aria-labelledby="synchronization-result-heading"
               >
                 <div className="profile-card-heading">
                   <div>
-                    <p className="eyebrow">{short(result.managedPrId)}</p>
+                    <p className="eyebrow">
+                      {pullRequests.find((pr) => pr.id === result.managedPrId)
+                        ?.label ??
+                        `${result.input.row.sourceRepository.owner}/${result.input.row.sourceRepository.name}: ${result.input.row.prHeadBranch}`}
+                    </p>
                     <h3 id="synchronization-result-heading">
                       {label(result.status)}
                     </h3>
@@ -471,7 +528,9 @@ export function SynchronizationReview({
                   </div>
                   <div>
                     <dt>Validation</dt>
-                    <dd>{result.validation?.status ?? "not recorded"}</dd>
+                    <dd>
+                      {label(result.validation?.status ?? "not recorded")}
+                    </dd>
                   </div>
                   <div>
                     <dt>AI usage</dt>
@@ -483,7 +542,7 @@ export function SynchronizationReview({
                   </div>
                   <div>
                     <dt>Freshness</dt>
-                    <dd>{result.freshness?.outcome ?? "not checked"}</dd>
+                    <dd>{label(result.freshness?.outcome ?? "not checked")}</dd>
                   </div>
                   <div>
                     <dt>Candidate hash</dt>
@@ -504,7 +563,7 @@ export function SynchronizationReview({
                 ) : null}
                 {result.worktree?.condition !== undefined ? (
                   <details>
-                    <summary>Canonical worktree condition evidence</summary>
+                    <summary>Local worktree condition</summary>
                     <dl className="profile-details synchronization-evidence">
                       <div>
                         <dt>Classification</dt>
@@ -647,7 +706,7 @@ export function SynchronizationReview({
                         <ul>
                           {result.conflictResolution.turnHistory.map((turn) => (
                             <li key={turn.turnId}>
-                              {turn.turnId}: {turn.providerStatus};{" "}
+                              {turn.turnId}: {label(turn.providerStatus)};{" "}
                               {turn.changedPaths.length} changed path(s);{" "}
                               {turn.remainingIssues.length} remaining issue(s)
                             </li>

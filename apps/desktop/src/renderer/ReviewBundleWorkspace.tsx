@@ -20,6 +20,7 @@ import type { F23PublicationReadModel } from "../shared/f23-release";
 import { F22ChoiceControls } from "./F22ChoiceControls";
 
 interface ReviewBundleWorkspaceProps {
+  readonly activation?: number;
   readonly bundleId: string;
   readonly visible?: boolean;
 }
@@ -82,8 +83,11 @@ function responseError(response: {
   readonly error?: { readonly message: string };
 }): string {
   return response.ok
-    ? "The main process returned an invalid Review Bundle response."
-    : (response.error?.message ?? "The Review Bundle action failed safely.");
+    ? "PRMonitor could not read this review. Refresh the saved work."
+    : customerExplanation(
+        response.error?.message,
+        "The review action did not complete. Refresh the saved work before retrying.",
+      );
 }
 
 function DiffLines({
@@ -105,7 +109,12 @@ function DiffLines({
     <>
       <div className="review-diff-toolbar">
         <p className="review-diff-message" role="status">
-          {view.message}
+          {customerExplanation(
+            view.message,
+            view.complete
+              ? "Complete recorded diff."
+              : "Inspect or refresh the worktree before relying on these changes.",
+          )}
         </p>
         <button
           type="button"
@@ -244,7 +253,7 @@ function ValidationPanel({
       <p
         className={`review-validation-status review-validation-${validation.status}`}
       >
-        Deterministic result: {readable(validation.status)}
+        Check result: {readable(validation.status)}
       </p>
       <dl className="review-evidence-grid">
         <div>
@@ -331,6 +340,7 @@ function ValidationPanel({
 }
 
 export function ReviewBundleWorkspace({
+  activation = 0,
   bundleId,
   visible = true,
 }: ReviewBundleWorkspaceProps) {
@@ -351,6 +361,7 @@ export function ReviewBundleWorkspace({
   const [publication, setPublication] = useState<F23PublicationReadModel>();
   const [conversation, setConversation] = useState<F21ConversationReadModel>();
   const [selectedItemId, setSelectedItemId] = useState<string>();
+  const publicationCandidate = useRef<string | undefined>(undefined);
   const [diffMode, setDiffMode] = useState<F20DiffMode>("PROPOSED_WORKTREE");
   const [diff, setDiff] = useState<F20DiffView>();
   const [loading, setLoading] = useState(true);
@@ -461,6 +472,15 @@ export function ReviewBundleWorkspace({
         publicationResponse.value.kind === "review-bundle-publication"
       ) {
         const nextPublication = publicationResponse.value.publication;
+        if (
+          publicationCandidate.current !==
+          nextPublication.candidate?.candidateHash
+        ) {
+          setPublicationAcknowledged(false);
+          setPublicationUnattributedAcknowledged(false);
+          publicationCandidate.current =
+            nextPublication.candidate?.candidateHash;
+        }
         setPublication(nextPublication);
         if (nextPublication.candidate !== undefined) {
           setPublicationResponses((current) => {
@@ -494,6 +514,14 @@ export function ReviewBundleWorkspace({
       ++readGeneration.current;
     };
   }, [readWorkspace]);
+
+  const lastActivation = useRef({ activation, visible });
+  useEffect(() => {
+    const previous = lastActivation.current;
+    lastActivation.current = { activation, visible };
+    if (visible && (!previous.visible || previous.activation !== activation))
+      void readWorkspace();
+  }, [activation, visible, readWorkspace]);
 
   useEffect(() => {
     if (selectedItem === undefined) return;
@@ -981,9 +1009,9 @@ export function ReviewBundleWorkspace({
       }
       setActionMessage(
         response.value.outcome === "COMPLETED"
-          ? "The explicit action action completed and its durable evidence is available."
+          ? "The action completed. Its saved results are available."
           : response.value.outcome === "CANCELLED"
-            ? "The operation worktree was kept and the action action was cancelled."
+            ? "The worktree was kept and the action was cancelled."
             : "The action action remains gated; inspect the recorded reason below.",
       );
     } else if (response !== undefined) {
@@ -1065,7 +1093,7 @@ export function ReviewBundleWorkspace({
       setActionMessage(
         response.value.workspace.f22PendingAction?.status === "UNKNOWN"
           ? "action still needs recorded reconciliation; no effect was retried."
-          : "action durable action reconciliation completed.",
+          : "The saved action was checked.",
       );
     } else if (response !== undefined) {
       setActionMessage(responseError(response));
@@ -1089,9 +1117,9 @@ export function ReviewBundleWorkspace({
       if (response?.ok && response.value.kind === "review-bundle-path-action") {
         setActionMessage(
           response.value.result.ok
-            ? "The canonical worktree action completed."
+            ? "The worktree action completed."
             : (response.value.result.reason?.what ??
-                "The canonical worktree action was not completed."),
+                "The worktree action did not complete."),
         );
       } else if (response !== undefined) {
         setActionMessage(responseError(response));
@@ -1215,10 +1243,10 @@ export function ReviewBundleWorkspace({
         setPublication(response.value.publication);
         setActionMessage(
           actionType === "reconcile"
-            ? "The durable publication state was reconciled; no blind effect was retried."
+            ? "The saved publication outcome was checked."
             : actionType === "retry-responses"
               ? "Only pending or failed responses were retried; code was not republished."
-              : "The publication state was updated by the main process.",
+              : "The saved publication outcome was updated.",
         );
       } else if (response !== undefined) {
         setActionMessage(responseError(response));
@@ -1357,15 +1385,13 @@ export function ReviewBundleWorkspace({
             >
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">
-                    publication human-approved publication
-                  </p>
+                  <p className="eyebrow">Publish after approval</p>
                   <h3 id="review-publication-heading">
                     {readable(publication.status)}
                   </h3>
                 </div>
                 <span className="review-authority-label">
-                  Authority: main process only
+                  Publication requires your approval
                 </span>
               </div>
               {publication.candidate !== undefined ? (
@@ -1512,8 +1538,14 @@ export function ReviewBundleWorkspace({
                   ) : null}
                   {publication.reasons.map((reason) => (
                     <p className="review-evidence-note" key={reason.code}>
-                      <strong>{readable(reason.code)}:</strong> {reason.what}{" "}
-                      {reason.why}
+                      {customerExplanation(
+                        reason.what,
+                        "Publication is stopped. Review the saved evidence before continuing.",
+                      )}{" "}
+                      {customerExplanation(
+                        reason.why,
+                        "Open support details for the recorded reason.",
+                      )}
                     </p>
                   ))}
                   <div className="review-publication-actions">
@@ -1607,9 +1639,9 @@ export function ReviewBundleWorkspace({
               {workspace.f22PendingAction?.status === "UNKNOWN" ? (
                 <>
                   <p className="review-evidence-note" role="alert">
-                    action stopped during a delegated effect. The worktree,
-                    hold, and evidence remain preserved until the main process
-                    reconciles the durable action.
+                    action stopped before its outcome was confirmed. The
+                    worktree, waiting state and evidence remain saved until
+                    PRMonitor checks the outcome.
                   </p>
                   <button
                     type="button"
@@ -1617,7 +1649,7 @@ export function ReviewBundleWorkspace({
                     disabled={busy}
                     onClick={() => void reconcileF22()}
                   >
-                    Reconcile action action
+                    Check pending action outcome
                   </button>
                 </>
               ) : null}
@@ -1664,7 +1696,7 @@ export function ReviewBundleWorkspace({
                     disabled={busy}
                     onClick={() => void cancelF22Preview()}
                   >
-                    Cancel pending action action
+                    Cancel pending action
                   </button>
                 ) : null}
                 {workspace.f22.actions.discard &&
@@ -2056,7 +2088,7 @@ export function ReviewBundleWorkspace({
             <div className="review-item-detail">
               {selectedItem === undefined ? (
                 <p className="review-empty">
-                  Select an item to inspect its immutable feedback and evidence.
+                  Select an item to inspect its saved feedback and evidence.
                 </p>
               ) : (
                 <>
@@ -2072,7 +2104,7 @@ export function ReviewBundleWorkspace({
                         </h3>
                       </div>
                       <span className="review-authority-label">
-                        Immutable feedback
+                        Original feedback
                       </span>
                     </div>
                     <dl className="review-evidence-grid">
@@ -2388,7 +2420,7 @@ export function ReviewBundleWorkspace({
                   </h3>
                 </div>
                 <span className="review-authority-label">
-                  No publication authority
+                  This action cannot publish changes
                 </span>
               </div>
               <p className="review-control-help">
@@ -2448,8 +2480,8 @@ export function ReviewBundleWorkspace({
                 />
               </label>
               <p id="review-conversation-help" className="field-help">
-                Conversation text is stored with the immutable task snapshot. It
-                never changes mode implicitly.
+                Choose whether to ask a question or request code changes.
+                Submitted text is saved with this conversation.
               </p>
               <div className="review-button-row">
                 <button
@@ -2586,7 +2618,7 @@ export function ReviewBundleWorkspace({
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Deterministic evidence</p>
+                <p className="eyebrow">Recorded check results</p>
                 <h3 id="review-evidence-heading">
                   Validation, AI work, configuration, and worktree
                 </h3>
@@ -2643,7 +2675,7 @@ export function ReviewBundleWorkspace({
                 </dl>
                 {workspace.configuration.prIntentContext !== undefined ? (
                   <details>
-                    <summary>PR Intent / Context snapshot</summary>
+                    <summary>Saved PR intent and context</summary>
                     <pre className="review-feedback">
                       {workspace.configuration.prIntentContext}
                     </pre>
@@ -2726,15 +2758,15 @@ export function ReviewBundleWorkspace({
               </div>
               <dl className="review-evidence-grid">
                 <div>
-                  <dt>prBaseSha</dt>
+                  <dt>PR base revision</dt>
                   <dd>{workspace.worktree.prBaseSha}</dd>
                 </div>
                 <div>
-                  <dt>prHeadSha</dt>
+                  <dt>PR head revision</dt>
                   <dd>{workspace.worktree.prHeadSha}</dd>
                 </div>
                 <div>
-                  <dt>worktreeBaselineSha</dt>
+                  <dt>Worktree baseline revision</dt>
                   <dd>{workspace.worktree.worktreeBaselineSha}</dd>
                 </div>
                 <div>
@@ -2747,9 +2779,8 @@ export function ReviewBundleWorkspace({
               </dl>
               {condition === undefined ? (
                 <p className="review-evidence-note">
-                  No fresh WorktreeCondition is committed yet. Refresh evidence
-                  before destructive, validation, or publication-related
-                  decisions.
+                  The local changes have not been checked recently. Refresh
+                  evidence before clearing changes, validating or publishing.
                 </p>
               ) : (
                 <div
@@ -2782,9 +2813,8 @@ export function ReviewBundleWorkspace({
                   </span>
                   {unsafeCondition ? (
                     <span>
-                      This condition blocks clear, replace, validate-against,
-                      and publication-as-verified actions until the owning
-                      workflow obtains fresh evidence or an explicit decision.
+                      These changes need fresh evidence or your decision before
+                      PRMonitor can clear, replace, validate or publish them.
                     </span>
                   ) : null}
                 </div>
@@ -2842,19 +2872,23 @@ export function ReviewBundleWorkspace({
             {diff !== undefined ? (
               <>
                 <p className="review-diff-purpose">
-                  <strong>{diff.authority}</strong> · {diff.purpose}
+                  {diff.mode === "PROPOSED_WORKTREE"
+                    ? "Complete changes in this operation worktree. Publication requires fresh evidence and your approval."
+                    : diff.mode === "PR_CONTEXT"
+                      ? "Pull request context. These changes cannot be approved for publication from this view."
+                      : "Changes related to the selected feedback item."}
                 </p>
                 <dl className="review-evidence-grid">
                   <div>
-                    <dt>prBaseSha</dt>
+                    <dt>PR base revision</dt>
                     <dd>{diff.prBaseSha}</dd>
                   </div>
                   <div>
-                    <dt>prHeadSha</dt>
+                    <dt>PR head revision</dt>
                     <dd>{diff.prHeadSha}</dd>
                   </div>
                   <div>
-                    <dt>worktreeBaselineSha</dt>
+                    <dt>Worktree baseline revision</dt>
                     <dd>{diff.worktreeBaselineSha}</dd>
                   </div>
                   <div>
@@ -2973,7 +3007,7 @@ function AiWorkSummary({
               {report.actualChangedFiles.join(", ") || "none recorded"}
             </span>
             <span>
-              Deterministic problems:{" "}
+              Check problems:{" "}
               {report.deterministicProblems.join("; ") || "none"}
             </span>
             <span>Next action: {readable(report.nextAction)}</span>
