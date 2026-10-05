@@ -19,6 +19,7 @@ The implementation builds on the reviewed setup head `2372e2a3aa1016e32734871c37
 - Aggregate: 432 desktop tests in 46 files, 43 validation-contract tests, 17 spec-linter tests, 18 release tests passed.
 - `npm run check` passed: runtime pins; all TypeScript boundaries; lint; formatting; artifact build; sandboxed production Windows smoke; regression suites. Later CSS corrections also passed the native layout journey.
 - Windows unpacked artifact build passed with Electron 44.4.3 and `electron-builder --publish never`.
+- Desktop aggregate file workers are bounded to two after genuine exact-head Windows fixture timeouts. All tests, assertions, explicit concurrency scenarios and five-second deadlines remain unchanged; the failed job is retained in startup-recovery.md.
 - Release tests reject runtime database/cache/fixture payloads both within archives and beside them. No test or sandbox gate was removed or weakened.
 
 ## Pending acceptance and limits

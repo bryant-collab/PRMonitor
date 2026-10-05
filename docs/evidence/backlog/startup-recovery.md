@@ -89,3 +89,22 @@ observations show settings SQLite exec totals of 3,203/3,939 ms, longest
 passing jobs. SQLite transaction calls are an observed contributor to startup
 time, but these passes do not prove the cause of the earlier stalled runs.
 No durability setting, transaction order, deadline or assertion changes.
+
+At `06f44d1d872e7efcf1a95f9d2e723277db7592a2`, the
+[PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37281781644/job/111671284419)
+passes aggregate and all eighteen native journeys. The
+[push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37281776731/job/111671270168)
+fails two unchanged aggregate tests at their existing five-second deadlines:
+F03 durable-family round-trip takes 8,340 ms and F13 detached-worktree
+preparation/idempotent replay takes 5,016 ms. Native acceptance never starts
+in that push job. These are genuine failed tests, not dependency blockers.
+The added dirty-handoff regression and cancellation completion test pass.
+
+Vitest 5.0.1 derives file workers from available CPU count by default. The
+desktop script now explicitly bounds file workers to two to reduce competing
+Git processes and synchronous durable SQLite fixture I/O. Every test, assertion,
+explicit concurrency scenario and existing deadline stays unchanged; no
+transaction durability setting changes. Parallel fixture load is a plausible
+contributor, not a proven sole cause of the earlier startup or aggregate stalls.
+The failed job remains visible, and new exact-head aggregate/native CI must pass
+before claiming the bounded run is successful.
