@@ -25,9 +25,17 @@ test("smoke failures expose fixed categories without child-output contents", () 
   }
 });
 
-test("compatibility diagnostics expose only fixed application startup reasons",()=>{
-  assert.equal(classifyApplicationSmokeReason('private/path PRMONITOR_SMOKE_ERROR:ACCESSIBILITY_PROBE_FAILED:private text'), 'ACCESSIBILITY_PROBE_FAILED');
-  assert.equal(classifyApplicationSmokeReason('PRMONITOR_SMOKE_ERROR:PRIVATE_TEXT'), 'UNCLASSIFIED');
+test("compatibility diagnostics expose only fixed application startup reasons", () => {
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "private/path PRMONITOR_SMOKE_ERROR:ACCESSIBILITY_PROBE_FAILED:private text",
+    ),
+    "ACCESSIBILITY_PROBE_FAILED",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason("PRMONITOR_SMOKE_ERROR:PRIVATE_TEXT"),
+    "UNCLASSIFIED",
+  );
 });
 
 test("sandbox subreasons distinguish helper configuration from namespace rejection without exposing child text", () => {

@@ -19,9 +19,16 @@ if (process.platform === "linux") {
     ["--user", "--map-root-user", "--", "true"],
     { timeout: 5000, stdio: "ignore" },
   );
-  const linked = spawnSync("ldd", [path.join(root, "release/linux-unpacked/prmonitor")], { timeout: 5000, maxBuffer: 131072, encoding: "utf8" });
-  const linkText = `${linked.stdout ?? ''}\n${linked.stderr ?? ''}`;
-  const libc = spawnSync("getconf", ["GNU_LIBC_VERSION"], { timeout:5000, encoding:"utf8" });
+  const linked = spawnSync(
+    "ldd",
+    [path.join(root, "release/linux-unpacked/prmonitor")],
+    { timeout: 5000, maxBuffer: 131072, encoding: "utf8" },
+  );
+  const linkText = `${linked.stdout ?? ""}\n${linked.stderr ?? ""}`;
+  const libc = spawnSync("getconf", ["GNU_LIBC_VERSION"], {
+    timeout: 5000,
+    encoding: "utf8",
+  });
   console.log(
     JSON.stringify(
       {
@@ -41,10 +48,20 @@ if (process.platform === "linux") {
             ? "unavailable"
             : { uid: helper.uid, mode: (helper.mode & 0o7777).toString(8) },
         namespaceProbeExit: probe.status ?? "unavailable",
-        libcVersion: /^glibc \d+\.\d+$/.test(libc.stdout?.trim() ?? '') ? libc.stdout.trim() : "unavailable",
+        libcVersion: /^glibc \d+\.\d+$/.test(libc.stdout?.trim() ?? "")
+          ? libc.stdout.trim()
+          : "unavailable",
         linkerExit: linked.status ?? "unavailable",
-        missingLibraryNames: [...linkText.matchAll(/^\s*(lib[A-Za-z0-9_.+-]+) => not found/gm)].map(match => match[1]),
-        referencedLibcVersions: [...new Set([...linkText.matchAll(/GLIBC(?:XX)?_\d+(?:\.\d+)+/g)].map(match=>match[0]))],
+        missingLibraryNames: [
+          ...linkText.matchAll(/^\s*(lib[A-Za-z0-9_.+-]+) => not found/gm),
+        ].map((match) => match[1]),
+        referencedLibcVersions: [
+          ...new Set(
+            [...linkText.matchAll(/GLIBC(?:XX)?_\d+(?:\.\d+)+/g)].map(
+              (match) => match[0],
+            ),
+          ),
+        ],
       },
       null,
       2,
