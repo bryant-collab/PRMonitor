@@ -19,6 +19,12 @@ const stage = process.env.PRMONITOR_E2E_STAGE;
 const evidence = process.env.PRMONITOR_E2E_EVIDENCE;
 const network = [];
 const forbidden = [];
+const startupDiagnostics =
+  require("./setup-startup-diagnostics.cjs").observeStartup({
+    app,
+    root,
+    bootstrap: stage.startsWith("bootstrap"),
+  });
 const ipcAudit = [];
 const registerHandler = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) =>
@@ -49,6 +55,7 @@ const setContextMenu = Tray.prototype.setContextMenu;
 Tray.prototype.setContextMenu = function (menu) {
   nativeTray = this;
   nativeMenu = menu;
+  startupDiagnostics.note("TRAY_CREATED");
   return setContextMenu.call(this, menu);
 };
 
@@ -65,6 +72,7 @@ async function finish(error, assertions = []) {
         assertions,
         fixtureRequests: network.length,
         forbiddenEffects: forbidden.length,
+        startupDiagnostics: startupDiagnostics.snapshot(),
         error:
           error === undefined ? undefined : `${currentStep}: ${error.message}`,
       },
@@ -143,7 +151,11 @@ async function start() {
         forbidden.push("process-effect");
         throw new Error("E2E_FORBIDDEN_PROCESS_EFFECT");
       }
-      return original.call(this, command, ...args);
+      const begin = Date.now();
+      const work = original.call(this, command, ...args);
+      if (/^git(?:\.exe)?$/i.test(path.basename(String(command))))
+        startupDiagnostics.trackGit(work, begin);
+      return work;
     };
   }
   syncBuiltinESMExports();
@@ -1115,6 +1127,7 @@ async function start() {
           assertions,
           fixtureRequests: network.length,
           forbiddenEffects: forbidden.length,
+          startupDiagnostics: startupDiagnostics.snapshot(),
         },
         null,
         2,
@@ -1582,6 +1595,74 @@ async function start() {
     const inputs =
       '.preference-section[aria-labelledby="common-instructions-heading"]';
     const recordsBefore = (await preferences()).commonInstructionProfiles;
+    const selectedBefore = (await preferences()).selectedCommonInstructionIds;
+    await setField(
+      `${inputs} .preferences-form input:not([type="checkbox"])`,
+      "Default unselected instruction",
+    );
+    await setField(
+      `${inputs} .preferences-form textarea`,
+      "Default instruction initially has no selected authority.",
+    );
+    await click("Create instruction");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.instruction-list article h4')].some(e=>e.textContent==='Default unselected instruction')",
+        ),
+      "default unselected instruction renders without reload",
+    );
+    assert.deepEqual(
+      (await preferences()).selectedCommonInstructionIds,
+      selectedBefore,
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.instruction-list article')].find(e=>e.querySelector('h4')?.textContent==='Default unselected instruction').querySelector('button').click()",
+    );
+    await setField(
+      `${inputs} .preferences-form textarea`,
+      "Edited default unselected instruction",
+    );
+    await evaluate(
+      `(()=>{const e=[...document.querySelectorAll(${JSON.stringify(inputs + ' .preferences-form input[type="checkbox"]')})].find(e=>e.closest('label').textContent.includes('Use for new tasks'));if(!e.checked)e.click();})()`,
+    );
+    await click("Save instruction revision");
+    await waitFor(async () => {
+      const saved = await preferences();
+      return saved.commonInstructionProfiles.some(
+        (p) =>
+          p.name === "Default unselected instruction" &&
+          p.revision === 2 &&
+          p.instructionText === "Edited default unselected instruction" &&
+          saved.selectedCommonInstructionIds.includes(p.profileId),
+      );
+    }, "default instruction edited and selected in same session");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.instruction-list article')].some(e=>e.querySelector('h4')?.textContent==='Default unselected instruction'&&[...e.querySelectorAll('button')].some(b=>b.textContent.trim()==='Delete'&&!b.disabled))",
+        ),
+      "default instruction delete available",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.instruction-list article')].find(e=>e.querySelector('h4')?.textContent==='Default unselected instruction').querySelectorAll('button')[1].click()",
+    );
+    await waitFor(
+      async () =>
+        !(await preferences()).commonInstructionProfiles.some(
+          (p) => p.name === "Default unselected instruction",
+        ),
+      "only default fixture instruction deleted",
+    );
+    assert.deepEqual(
+      (await preferences()).commonInstructionProfiles,
+      recordsBefore,
+    );
+    assert.deepEqual(
+      (await preferences()).selectedCommonInstructionIds,
+      selectedBefore,
+    );
+    await click("New");
     for (const name of ["Owned instruction A", "Owned instruction B"]) {
       await setField(
         `${inputs} .preferences-form input:not([type="checkbox"])`,
@@ -1636,6 +1717,44 @@ async function start() {
         ),
       "reordered card and move guards follow draft order",
     );
+    await setField(
+      `${inputs} .preferences-form input:not([type="checkbox"])`,
+      "Unselected order fixture",
+    );
+    await setField(
+      `${inputs} .preferences-form textarea`,
+      "Preserve the existing unsaved order.",
+    );
+    await click("Create instruction");
+    await waitFor(
+      () => visible("Unselected order fixture"),
+      "unselected card appears beside unsaved order",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.instruction-list article h4')?.textContent",
+      ),
+      "Owned instruction A",
+    );
+    assert.equal(
+      (await preferences()).selectedCommonInstructionIds[0],
+      created.find((p) => p.name === "Owned instruction B").profileId,
+    );
+    await instructionButton("Unselected order fixture", "Delete");
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.instruction-list article h4')].some(e=>e.textContent==='Unselected order fixture')",
+        ),
+      "unselected order fixture deleted",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.instruction-list article h4')?.textContent",
+      ),
+      "Owned instruction A",
+    );
+    await click("New");
     await instructionButton("Owned instruction B", "Move up");
     await waitFor(
       () =>
@@ -1685,6 +1804,7 @@ async function start() {
       recordsBefore,
     );
     assertions.push(
+      "default-unselected instruction appears without reload; create/delete preserve unsaved card order and persisted selection; edit/select/delete preserve unrelated profiles",
       "real isolated instruction create/select/order/edit/delete commands preserve versioned ownership; no instruction authorizes external effects",
     );
     await evaluate(

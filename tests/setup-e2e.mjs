@@ -14,6 +14,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { observeClosedProcessTree } from "./setup-process-diagnostics.mjs";
 
 const repository = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -127,6 +128,7 @@ try {
     const childEnvironment = { ...environment, PRMONITOR_E2E_STAGE: stage };
     if (stage !== "fresh" && stage !== "lost-auth")
       childEnvironment.OPENAI_API_KEY = "setup-e2e-nonsecret-fixture";
+    const processStarted = Date.now();
     const child = spawn(
       electron,
       [
@@ -177,9 +179,16 @@ try {
         throw new Error(`E2E_CHILD_NO_RESULT: exit ${code}`);
       }),
     );
+    result.closedProcessTree = await observeClosedProcessTree(
+      child.pid,
+      processStarted,
+    );
     results.push(result);
     process.stdout.write(
       `setup-e2e: ${stage}: ${result.ok ? "PASS" : "FAIL"}\n`,
+    );
+    process.stdout.write(
+      `setup-e2e diagnostics: ${JSON.stringify({ stage, startup: result.startupDiagnostics, closedProcessTree: result.closedProcessTree })}\n`,
     );
     if (code !== 0 || !result.ok)
       throw new Error(result.error || "E2E_CHILD_FAILED");

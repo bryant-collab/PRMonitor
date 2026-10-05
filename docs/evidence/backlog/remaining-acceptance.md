@@ -50,9 +50,9 @@ userNamespaceEnabled=1, apparmorUserNamespaceRestriction=1, NoNewPrivs=0,
 Seccomp=0, sandbox helper uid=1001/mode=0755, namespace probe exit=1.
 The same pre-JavaScript failure exists in baseline run 37238773164.
 
-The explicitly authorized separate branch `codex/ubuntu22-compat-check`, latest
-commit `27753dc5752210d18cb57e7bd9b249a6f49e6fc5`, changes runs-on to ubuntu-22.04
-and adds read-only closed-label diagnostics. [Latest experiment](https://github.com/bryant-collab/PRMonitor/actions/runs/37264227675/job/111617528977)
+The explicitly authorized separate branch `codex/ubuntu22-compat-check`, earlier
+commit `27753dc5752210d18cb57e7bd9b249a6f49e6fc5`, changed runs-on to ubuntu-22.04
+and added read-only closed-label diagnostics. [Earlier experiment](https://github.com/bryant-collab/PRMonitor/actions/runs/37264227675/job/111617528977)
 passes production artifact startup/accessibility smoke with the sandbox enabled.
 Read-only values show AppArmor restriction=0, namespace probe exit=0 and glibc
 2.35; the helper remains uid=1001/mode=0755. Both jobs subsequently fail the
@@ -61,9 +61,18 @@ All gates remain intact. The linker probe exits 1 against an unavailable fixed
 artifact name, so its empty library lists do not establish library compatibility.
 Earlier run 37262131924 failed startup code=1/UNCLASSIFIED; the diagnostic revision
 37263615899 stopped at formatting before startup. These failures stay visible.
-The latest sandboxed startup pass supports an environment-sensitive failure;
-it does not establish a sole application root cause or a full aggregate pass.
-The pin is not adopted in PR #4, and no compatibility PR was opened.
+The subsequent experiment `0b13e9738f20c25955333fc39114d54000de0a7e` retains the
+actual Windows and ubuntu-latest jobs and adds a separate Ubuntu 22.04 job,
+preserving the unchanged foundation contract. Its [Ubuntu 22.04 job](https://github.com/bryant-collab/PRMonitor/actions/runs/37267725882/job/111627957924)
+passes the full pinned aggregate, including production sandboxed startup and
+accessibility smoke. The [Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37267725882/job/111627957636)
+passes aggregate and all fifteen native stages. The retained
+[ubuntu-latest job](https://github.com/bryant-collab/PRMonitor/actions/runs/37267725882/job/111627957835)
+still fails before application JavaScript. The compatibility result establishes
+a safe environment alternative with all gates intact; it does not establish a
+sole application root cause. No host security setting changed. The artifact
+linker probe now uses the correct executable name. The experiment is not
+adopted in PR #4, and no compatibility PR was opened.
 
 Further safe diagnosis can classify fixed application startup reasons, dynamic
 library availability and the Electron version without printing private child

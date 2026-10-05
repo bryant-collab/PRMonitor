@@ -197,11 +197,21 @@ export function Preferences({
             next[type] = current[type];
         return next;
       });
-      if (
-        JSON.stringify(preferences.selectedCommonInstructionIds) !==
-        JSON.stringify(value.selectedCommonInstructionIds)
-      )
-        setInstructionOrder(selectedOrder(value));
+      setInstructionOrder((current) => {
+        const available = new Set(
+          value.commonInstructionProfiles.map((p) => p.profileId),
+        );
+        const retained = current.filter((profileId) =>
+          available.has(profileId),
+        );
+        const retainedIds = new Set(retained);
+        return [
+          ...retained,
+          ...selectedOrder(value).filter(
+            (profileId) => !retainedIds.has(profileId),
+          ),
+        ];
+      });
       setMessage(`Saved Preferences revision ${value.settingsRevision}.`);
     } catch {
       setError(
