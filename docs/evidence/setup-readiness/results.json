@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "isolatedDataIdentity": "3992867d9ffca2fa",
+  "isolatedDataIdentity": "36dbb1af5a8e077a",
   "scenarios": [
     {
       "stage": "fresh",
@@ -18,7 +18,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1708,
+        "elapsedMs": 1725,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 2,
@@ -34,27 +34,27 @@
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 190
+            "elapsedMs": 195
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 203
+            "elapsedMs": 208
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 243
+            "elapsedMs": 252
           },
           {
             "event": "WINDOW_CLOSED",
-            "elapsedMs": 1360
+            "elapsedMs": 1372
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1611
+            "elapsedMs": 1626
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1671
+            "elapsedMs": 1685
           }
         ],
         "git": {
@@ -62,11 +62,11 @@
           "completed": 3,
           "active": 1,
           "peakActive": 2,
-          "longestMs": 45
+          "longestMs": 43
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 356,
-        "freeMemoryMb": 19960,
+        "appWorkingSetMb": 361,
+        "freeMemoryMb": 19837,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -75,7 +75,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 360
+          "ageMs": 364
         }
       },
       "closedProcessTree": {
@@ -87,7 +87,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20136
+        "freeMemoryMb": 20029
       }
     },
     {
@@ -105,7 +105,7 @@
       "fixtureRequests": 2,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1015,
+        "elapsedMs": 1010,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -113,19 +113,19 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 20
+            "elapsedMs": 21
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 81
+            "elapsedMs": 83
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 155
+            "elapsedMs": 156
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 167
+            "elapsedMs": 168
           },
           {
             "event": "RENDERER_LOADED",
@@ -136,12 +136,12 @@
           "started": 17,
           "completed": 17,
           "active": 0,
-          "peakActive": 8,
-          "longestMs": 44
+          "peakActive": 7,
+          "longestMs": 50
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 377,
-        "freeMemoryMb": 19905,
+        "appWorkingSetMb": 378,
+        "freeMemoryMb": 19883,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -150,7 +150,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 920
+          "ageMs": 924
         }
       },
       "closedProcessTree": {
@@ -162,7 +162,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20113
+        "freeMemoryMb": 20096
       }
     },
     {
@@ -177,7 +177,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1230,
+        "elapsedMs": 1219,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -189,19 +189,19 @@
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 84
+            "elapsedMs": 82
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 159
+            "elapsedMs": 157
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 173
+            "elapsedMs": 170
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 210
+            "elapsedMs": 206
           }
         ],
         "git": {
@@ -209,11 +209,11 @@
           "completed": 2,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 50
+          "longestMs": 38
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 402,
-        "freeMemoryMb": 19881,
+        "appWorkingSetMb": 399,
+        "freeMemoryMb": 19874,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -222,7 +222,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1131
+          "ageMs": 1124
         }
       },
       "closedProcessTree": {
@@ -234,7 +234,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20084
+        "freeMemoryMb": 20092
       }
     },
     {
@@ -252,7 +252,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 905,
+        "elapsedMs": 815,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -264,19 +264,19 @@
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 111
+            "elapsedMs": 112
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 181
+            "elapsedMs": 182
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 194
+            "elapsedMs": 195
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 232
+            "elapsedMs": 231
           }
         ],
         "git": {
@@ -287,8 +287,8 @@
           "longestMs": 37
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 412,
-        "freeMemoryMb": 19882,
+        "appWorkingSetMb": 410,
+        "freeMemoryMb": 19850,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -297,7 +297,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 785
+          "ageMs": 694
         }
       },
       "closedProcessTree": {
@@ -309,7 +309,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20117
+        "freeMemoryMb": 20088
       }
     },
     {
@@ -326,7 +326,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 580,
+        "elapsedMs": 576,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -334,19 +334,19 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 21
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 83
+            "elapsedMs": 89
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 100
+            "elapsedMs": 106
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 137
+            "elapsedMs": 142
           }
         ],
         "git": {
@@ -357,8 +357,8 @@
           "longestMs": 0
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 355,
-        "freeMemoryMb": 19899,
+        "appWorkingSetMb": 347,
+        "freeMemoryMb": 19884,
         "recovery": {
           "state": "UNAVAILABLE"
         }
@@ -372,7 +372,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20113
+        "freeMemoryMb": 20079
       }
     },
     {
@@ -389,7 +389,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 567,
+        "elapsedMs": 665,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -397,23 +397,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 21
+            "elapsedMs": 22
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 82
+            "elapsedMs": 83
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 177
+            "elapsedMs": 202
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 190
+            "elapsedMs": 217
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 227
+            "elapsedMs": 254
           }
         ],
         "git": {
@@ -421,11 +421,11 @@
           "completed": 2,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 37
+          "longestMs": 36
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 364,
-        "freeMemoryMb": 19894,
+        "appWorkingSetMb": 367,
+        "freeMemoryMb": 19876,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -434,7 +434,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 452
+          "ageMs": 532
         }
       },
       "closedProcessTree": {
@@ -446,7 +446,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20074
+        "freeMemoryMb": 20072
       }
     },
     {
@@ -471,43 +471,43 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 23
+            "elapsedMs": 21
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 140
+            "elapsedMs": 138
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 568
+            "elapsedMs": 535
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 580
+            "elapsedMs": 547
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 620
+            "elapsedMs": 584
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1460
+            "elapsedMs": 1443
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1573
+            "elapsedMs": 1560
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 3825
+            "elapsedMs": 3828
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 3936
+            "elapsedMs": 3947
           },
           {
             "event": "WINDOW_CLOSED",
-            "elapsedMs": 4202
+            "elapsedMs": 4201
           }
         ],
         "git": {
@@ -515,11 +515,11 @@
           "completed": 4,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 36
+          "longestMs": 37
         },
         "appProcessCount": 6,
-        "appWorkingSetMb": 687,
-        "freeMemoryMb": 19767,
+        "appWorkingSetMb": 681,
+        "freeMemoryMb": 19732,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -528,7 +528,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 4052
+          "ageMs": 4055
         }
       },
       "closedProcessTree": {
@@ -540,7 +540,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20134
+        "freeMemoryMb": 20060
       }
     },
     {
@@ -556,7 +556,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 7244,
+        "elapsedMs": 3602,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -568,31 +568,31 @@
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 475
+            "elapsedMs": 476
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 4931
+            "elapsedMs": 1292
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 4943
+            "elapsedMs": 1305
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 4980
+            "elapsedMs": 1342
           }
         ],
         "git": {
-          "started": 177,
-          "completed": 177,
+          "started": 44,
+          "completed": 44,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 36
+          "longestMs": 38
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 461,
-        "freeMemoryMb": 19759,
+        "appWorkingSetMb": 457,
+        "freeMemoryMb": 19790,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -601,7 +601,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 6538
+          "ageMs": 2892
         }
       },
       "closedProcessTree": {
@@ -613,7 +613,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 20041
+        "freeMemoryMb": 20061
       }
     },
     {
@@ -627,7 +627,161 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 5475,
+        "elapsedMs": 1808,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 83
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 902
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 915
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 953
+          }
+        ],
+        "git": {
+          "started": 17,
+          "completed": 17,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 36
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 401,
+        "freeMemoryMb": 19802,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 121,
+          "completed": 121,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 1493
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20043
+      }
+    },
+    {
+      "stage": "lifecycle",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "real Electron tray menu callback reopens a closed window; saved review/sync records remain byte-equivalent; native accessibility tree exposes named controls and headings (no physical screen-reader claim)",
+        "native Shutdown callback persists COMPLETED before removing its tray and requesting ordinary app quit; all saved review and synchronization records survive"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1765,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 2,
+        "windowsClosed": 1,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 21
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 82
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 913
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 926
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 966
+          },
+          {
+            "event": "WINDOW_CLOSED",
+            "elapsedMs": 1113
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 1311
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 1369
+          }
+        ],
+        "git": {
+          "started": 24,
+          "completed": 24,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 53
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 373,
+        "freeMemoryMb": 19812,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 121,
+          "completed": 121,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 656
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 20037
+      }
+    },
+    {
+      "stage": "retained-restart",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "cold restart after actual native Shutdown preserves saved review and synchronization records",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1137,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -643,181 +797,27 @@
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 4567
+            "elapsedMs": 944
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 4580
+            "elapsedMs": 956
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 4616
+            "elapsedMs": 1005
           }
         ],
         "git": {
-          "started": 150,
-          "completed": 150,
-          "active": 0,
-          "peakActive": 2,
-          "longestMs": 37
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 408,
-        "freeMemoryMb": 19727,
-        "recovery": {
-          "state": "COMPLETED",
-          "stage": "FINALIZE",
-          "scopes": 121,
-          "completed": 121,
-          "attention": 0,
-          "retries": 0,
-          "createdThisProcess": true,
-          "ageMs": 5147
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19940
-      }
-    },
-    {
-      "stage": "lifecycle",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "real Electron tray menu callback reopens a closed window; saved review/sync records remain byte-equivalent; native accessibility tree exposes named controls and headings (no physical screen-reader claim)",
-        "native Shutdown callback persists COMPLETED before removing its tray and requesting ordinary app quit; all saved review and synchronization records survive"
-      ],
-      "fixtureRequests": 0,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 5318,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 2,
-        "windowsClosed": 1,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 21
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 83
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 4630
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 4643
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 4680
-          },
-          {
-            "event": "WINDOW_CLOSED",
-            "elapsedMs": 4824
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 5042
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 5102
-          }
-        ],
-        "git": {
-          "started": 157,
-          "completed": 157,
-          "active": 0,
-          "peakActive": 2,
-          "longestMs": 68
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 374,
-        "freeMemoryMb": 19695,
-        "recovery": {
-          "state": "RUNNING",
-          "stage": "LOCAL_WORK",
-          "scopes": 121,
-          "completed": 41,
-          "attention": 0,
-          "retries": 80,
-          "createdThisProcess": true,
-          "ageMs": 498
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19909
-      }
-    },
-    {
-      "stage": "retained-restart",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "cold restart after actual native Shutdown preserves saved review and synchronization records",
-        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
-      ],
-      "fixtureRequests": 0,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 4833,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 1,
-        "windowsClosed": 0,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 23
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 85
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 4642
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 4655
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 4692
-          }
-        ],
-        "git": {
-          "started": 149,
-          "completed": 149,
+          "started": 16,
+          "completed": 16,
           "active": 0,
           "peakActive": 2,
           "longestMs": 36
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 376,
-        "freeMemoryMb": 19610,
+        "appWorkingSetMb": 377,
+        "freeMemoryMb": 19791,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -826,7 +826,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 4485
+          "ageMs": 804
         }
       },
       "closedProcessTree": {
@@ -838,7 +838,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19819
+        "freeMemoryMb": 20006
       }
     },
     {
@@ -852,78 +852,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 5392,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 1,
-        "windowsClosed": 0,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 20
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 81
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 4648
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 4660
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 4695
-          }
-        ],
-        "git": {
-          "started": 156,
-          "completed": 156,
-          "active": 0,
-          "peakActive": 2,
-          "longestMs": 37
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 397,
-        "freeMemoryMb": 19757,
-        "recovery": {
-          "state": "COMPLETED",
-          "stage": "FINALIZE",
-          "scopes": 121,
-          "completed": 121,
-          "attention": 0,
-          "retries": 0,
-          "createdThisProcess": true,
-          "ageMs": 5042
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19953
-      }
-    },
-    {
-      "stage": "add-success",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "actual Add metadata GET and persistence, Back/sidebar return, selected identity, empty saved work and Settings save belong to each new PR; original PR persisted configuration and unsaved draft remain independent",
-        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
-      ],
-      "fixtureRequests": 2,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 5852,
+        "elapsedMs": 1700,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -939,43 +868,27 @@
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 4680
+            "elapsedMs": 935
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 4693
+            "elapsedMs": 948
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 4730
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 4948
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 5060
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 5077
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 5269
+            "elapsedMs": 985
           }
         ],
         "git": {
-          "started": 151,
-          "completed": 151,
+          "started": 23,
+          "completed": 23,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 36
+          "longestMs": 35
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 436,
-        "freeMemoryMb": 19679,
+        "appWorkingSetMb": 396,
+        "freeMemoryMb": 19773,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -984,7 +897,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 5481
+          "ageMs": 1356
         }
       },
       "closedProcessTree": {
@@ -996,94 +909,21 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19944
+        "freeMemoryMb": 20011
       }
     },
     {
-      "stage": "conditional-review",
+      "stage": "add-success",
       "ok": true,
       "assertions": [
         "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "proposal empty-answer guard, saved entry instruction/answer through F21 persistence, Accept/Override through owning F18 versioned commands, immutable original recommendation, empty conversation guard and explicit revision mode exercised in production renderer/preload/main without provider contact",
+        "actual Add metadata GET and persistence, Back/sidebar return, selected identity, empty saved work and Settings save belong to each new PR; original PR persisted configuration and unsaved draft remain independent",
         "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
-      "fixtureRequests": 0,
+      "fixtureRequests": 2,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 5997,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 1,
-        "windowsClosed": 0,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 22
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 83
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 5115
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 5129
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 5166
-          }
-        ],
-        "git": {
-          "started": 163,
-          "completed": 163,
-          "active": 0,
-          "peakActive": 2,
-          "longestMs": 36
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 414,
-        "freeMemoryMb": 19629,
-        "recovery": {
-          "state": "COMPLETED",
-          "stage": "FINALIZE",
-          "scopes": 133,
-          "completed": 133,
-          "attention": 0,
-          "retries": 0,
-          "createdThisProcess": true,
-          "ageMs": 5640
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19873
-      }
-    },
-    {
-      "stage": "conditional-settings",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "default-unselected instruction appears without reload; create/delete preserve unsaved card order and persisted selection; edit/select/delete preserve unrelated profiles",
-        "real isolated instruction create/select/order/edit/delete commands preserve versioned ownership; no instruction authorizes external effects",
-        "repository guidance save uses real typed IPC and persistence, preserves other repository records and grants no execution or publication authority",
-        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
-      ],
-      "fixtureRequests": 0,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 6143,
+        "elapsedMs": 2140,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1099,36 +939,52 @@
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 5176
+            "elapsedMs": 971
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 5189
+            "elapsedMs": 983
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 5225
+            "elapsedMs": 1022
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1234
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1345
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1363
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1556
           }
         ],
         "git": {
-          "started": 163,
-          "completed": 163,
+          "started": 18,
+          "completed": 18,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 37
+          "longestMs": 36
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 413,
-        "freeMemoryMb": 19573,
+        "appWorkingSetMb": 437,
+        "freeMemoryMb": 19747,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
-          "scopes": 133,
-          "completed": 133,
+          "scopes": 121,
+          "completed": 121,
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 5779
+          "ageMs": 1768
         }
       },
       "closedProcessTree": {
@@ -1140,7 +996,151 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19800
+        "freeMemoryMb": 19978
+      }
+    },
+    {
+      "stage": "conditional-review",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "proposal empty-answer guard, saved entry instruction/answer through F21 persistence, Accept/Override through owning F18 versioned commands, immutable original recommendation, empty conversation guard and explicit revision mode exercised in production renderer/preload/main without provider contact",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 1899,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 84
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 984
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 997
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 1036
+          }
+        ],
+        "git": {
+          "started": 16,
+          "completed": 16,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 35
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 410,
+        "freeMemoryMb": 19708,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 133,
+          "completed": 133,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 1540
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19998
+      }
+    },
+    {
+      "stage": "conditional-settings",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "default-unselected instruction appears without reload; create/delete preserve unsaved card order and persisted selection; edit/select/delete preserve unrelated profiles",
+        "real isolated instruction create/select/order/edit/delete commands preserve versioned ownership; no instruction authorizes external effects",
+        "repository guidance save uses real typed IPC and persistence, preserves other repository records and grants no execution or publication authority",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 2011,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 85
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 1000
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 1013
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 1062
+          }
+        ],
+        "git": {
+          "started": 16,
+          "completed": 16,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 37
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 403,
+        "freeMemoryMb": 19749,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 133,
+          "completed": 133,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 1647
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19996
       }
     }
   ],

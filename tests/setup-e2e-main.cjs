@@ -214,6 +214,12 @@ async function start() {
     () => BrowserWindow.getAllWindows().find((item) => !item.isDestroyed()),
     "window",
   );
+  if (["retained-restart", "conditional-settings"].includes(stage)) {
+    assert.ok(
+      startupDiagnostics.snapshot().git.started < 30,
+      "global worktree recovery must not repeat its full Git scan for every managed PR",
+    );
+  }
   window.setSize(1280, 1100);
   window.webContents.setZoomFactor(1);
   const evaluate = (code) => {

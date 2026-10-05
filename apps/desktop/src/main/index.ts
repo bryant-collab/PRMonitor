@@ -2002,9 +2002,11 @@ async function startMainProcess(): Promise<void> {
           "managed_pr",
           "scheduler",
         ),
-      recover: ({ sessionId, scope }) => {
+      reconcileSession: () => {
         prWatcher?.reconcileStartup();
         reviewScheduler?.read();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "SCHEDULER_RECOVERY_RECONCILED",
@@ -2020,8 +2022,10 @@ async function startMainProcess(): Promise<void> {
       stage: "HOLDS",
       listScopes: () =>
         f28ManagedPrScopes("f28-holds", "HOLDS", "managed_pr", "holds"),
-      recover: ({ sessionId, scope }) => {
+      reconcileSession: () => {
         f11EligibilityService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "HOLDS_RECOVERY_RECONCILED",
@@ -2042,9 +2046,11 @@ async function startMainProcess(): Promise<void> {
           "managed_pr",
           "local-work",
         ),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f13WorktreeService?.reconcileStartup();
         await f14ValidationService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "LOCAL_WORK_RECOVERY_RECONCILED",
@@ -2060,9 +2066,11 @@ async function startMainProcess(): Promise<void> {
       stage: "AI",
       listScopes: () =>
         f28ManagedPrScopes("f28-ai", "AI", "ai_operation", "ai-work"),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f21ConversationService?.reconcileStartup();
         await f26AiWorkAdapter?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "AI_RECOVERY_RECONCILED",
@@ -2084,8 +2092,10 @@ async function startMainProcess(): Promise<void> {
           "publication",
           "review-publication",
         ),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f23PublicationService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "REVIEW_PUBLICATION_RECOVERY_RECONCILED",
@@ -2107,8 +2117,10 @@ async function startMainProcess(): Promise<void> {
           "publication",
           "sync-publication",
         ),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f27SynchronizationService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "SYNC_PUBLICATION_RECOVERY_RECONCILED",

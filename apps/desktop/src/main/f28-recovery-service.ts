@@ -49,6 +49,10 @@ export interface F28RecoveryOwner {
   readonly owner: string;
   readonly stage: Exclude<F28RecoveryStage, "LIFECYCLE" | "FINALIZE">;
   readonly requiresNetwork?: boolean;
+  /** Global durable-state scan, once per owner in this recovery session. */
+  readonly reconcileSession?: (
+    context: Omit<F28RecoveryOwnerContext, "scope" | "attemptNumber">,
+  ) => void | Promise<void>;
   readonly listScopes?: () =>
     | readonly F28RecoveryScopeInput[]
     | Promise<readonly F28RecoveryScopeInput[]>;
@@ -343,6 +347,7 @@ export class F28RecoveryCoordinator {
     if (scopes.length === 0)
       this.options.persistence.putScope(APPLICATION_SCOPE, session.sessionId);
 
+    const reconciliations = new Map<string, Promise<void>>();
     for (const stage of F28_RECOVERY_STAGES) {
       if (stage === "FINALIZE") break;
       this.options.persistence.updateStage(session.sessionId, stage);
@@ -436,6 +441,21 @@ export class F28RecoveryCoordinator {
           };
         } else {
           try {
+            if (owner.reconcileSession !== undefined) {
+              let reconciliation = reconciliations.get(owner.owner);
+              if (reconciliation === undefined) {
+                const {
+                  scope: _scope,
+                  attemptNumber: _attempt,
+                  ...sessionContext
+                } = context;
+                reconciliation = Promise.resolve().then(() =>
+                  owner.reconcileSession!(sessionContext),
+                );
+                reconciliations.set(owner.owner, reconciliation);
+              }
+              await reconciliation;
+            }
             outcome = f28OwnerOutcomeSchema.parse(await owner.recover(context));
           } catch (error) {
             outcome = outcomeForOwnerFailure(
