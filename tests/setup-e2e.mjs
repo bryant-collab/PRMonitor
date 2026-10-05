@@ -7,6 +7,7 @@ import {
   readFile,
   writeFile,
   lstat,
+  realpath,
   readdir,
   rm,
 } from "node:fs/promises";
@@ -30,7 +31,12 @@ if (
   "f7b3c0cd8ba6d0eed0c9ebe414187285daa7268dafc9dc7ee78f6afc6d4503a0"
 )
   throw Error("E2E_REFERENCE_HASH_MISMATCH");
-const root = await mkdtemp(path.join(os.tmpdir(), "prmonitor-setup-e2e-"));
+// Windows CI can expose Temp through an 8.3 alias. Persist F13's canonical
+// ownership paths without changing its production path-movement guard.
+const temporaryRoot = await realpath(os.tmpdir());
+const root = await realpath(
+  await mkdtemp(path.join(temporaryRoot, "prmonitor-setup-e2e-")),
+);
 await require("esbuild").build({
   entryPoints: [path.join(repository, "tests/setup-e2e-fixtures.ts")],
   outfile: path.join(root, "fixtures.mjs"),
@@ -91,6 +97,8 @@ for (const name of [
   if (process.env[name] !== undefined) environment[name] = process.env[name];
 }
 Object.assign(environment, {
+  TEMP: temporaryRoot,
+  TMP: temporaryRoot,
   PRMONITOR_E2E_ROOT: root,
   PRMONITOR_E2E_EVIDENCE: evidence,
   HOME: path.join(root, "home"),
@@ -215,8 +223,8 @@ try {
     );
   };
   if (
-    !within(os.tmpdir(), root) ||
-    path.resolve(os.tmpdir()) === path.resolve(root)
+    !within(temporaryRoot, root) ||
+    path.resolve(temporaryRoot) === path.resolve(root)
   )
     throw Error("E2E_CLEANUP_OUTSIDE_TEMP");
   const visit = async (directory) => {

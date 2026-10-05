@@ -58,6 +58,11 @@ the runner verifies the ownership marker, temporary-directory containment, and
 absence of reparse points. Evidence contains an opaque hash of the isolated data
 root. It never accesses real app data or credentials.
 
+The runner resolves Windows short-path Temp aliases before marking or persisting
+owned paths. Its children receive canonical Temp inputs, and cleanup checks the
+same canonical temporary root. This retains production path-movement guards;
+an actual 8.3 Temp alias is included in local Windows acceptance.
+
 The initialization fixture obstructs the owned database directory with a file.
 Readiness reads do not trigger relaunch. Two explicit retries coalesce into one
 relaunch request, intercepted only by the harness, and leave obstruction bytes
