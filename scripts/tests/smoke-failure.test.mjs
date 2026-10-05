@@ -28,6 +28,7 @@ test("smoke failures expose fixed categories without child-output contents", () 
 test("startup diagnostics require an exact closed protocol reason and never disclose private details", () => {
   for (const reason of [
     "ACCESSIBILITY_TARGET_MISSING",
+    "ACCESSIBILITY_RENDERER_SETTLE_FAILED",
     "ACCESSIBILITY_SEMANTICS_FAILED",
     "ACCESSIBILITY_KEYBOARD_FAILED",
     "ACCESSIBILITY_WINDOW_FOCUS_FAILED",

@@ -39,8 +39,10 @@ and back up any existing PRMonitor data before trying a new build.
 
 Git is an external prerequisite. Configure a supported provider, model and
 authentication through the application's setup flow before starting AI work.
-Electron `44.4.3` and Codex SDK `0.155.1` are pinned in the packaged dependency
-identity; see `release-manifest.json` for the exact runtime/dependency versions.
+The build pins Electron `44.4.3` and Codex SDK `0.155.1`.
+`release-manifest.json` records the exact source commit and build runtimes;
+the source `package-lock.json` at that commit records the complete dependency
+versions.
 
 ## Verification scope
 

@@ -188,7 +188,7 @@ After PR #4 merged at `8ce96f150261f34b46bd118e6469279a0f3a6d65`,
 [post-merge run 37311380458](https://github.com/bryant-collab/PRMonitor/actions/runs/37311380458)
 passes Ubuntu but Windows fails `ACCESSIBILITY_KEYBOARD_FAILED` before native
 acceptance. Publication is withheld while this required gate is repaired.
-The smoke probe now waits for the Add route's actual heading focus, then
+The smoke probe now waits for the Add form and its renderer frames, then
 observes the owned native window and document focus before sending one Tab
 and one Enter. The temporary body's focusability is retained until input
 completes and removed in `finally`. The original ten-second accessibility and
@@ -198,3 +198,15 @@ the privacy contract checks them. Electron's pinned API requires its containing
 BrowserWindow to be focused for native input. The preceding failure does not
 establish whether native focus, route focus or navigation starting position
 caused it, and remains evidence rather than a discarded retry.
+
+The first focused repair `6bec7dbdc1f93eb8dff19151112a3c9351546ef3`
+adds an exact Add-heading focus prerequisite that passes locally but fails
+`ACCESSIBILITY_TARGET_MISSING` on required CI jobs in
+[push 37313035154](https://github.com/bryant-collab/PRMonitor/actions/runs/37313035154)
+and [PR 37313040685](https://github.com/bryant-collab/PRMonitor/actions/runs/37313040685).
+That extra prerequisite is corrected to the original actual form/heading/control
+presence check plus two renderer frames, bounded by the same remaining probe
+deadline. It does not require asynchronous route focus to choose exactly the
+heading. Native window/document focus is still observed before the one Tab and
+Enter pair, and every original semantic/keyboard/forced-color assertion remains.
+The failed repair stays visible; publication still requires green exact-head CI.

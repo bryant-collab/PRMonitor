@@ -422,7 +422,7 @@ async function runAccessibilityProbe(
     formReady = await window.webContents.executeJavaScript(
       `(() => {
         const form = document.querySelector('form[aria-label="Add a pull request"]');
-        return Boolean(form && document.activeElement?.id === 'managed-pr-heading' &&
+        return Boolean(form && document.querySelector('#managed-pr-heading') &&
           form.querySelectorAll('input, textarea, select, button').length >= 7);
       })()`,
       true,
@@ -435,6 +435,24 @@ async function runAccessibilityProbe(
       ok: false,
       forcedColors: false,
       reason: "ACCESSIBILITY_TARGET_MISSING",
+    };
+  // Let the rendered route's pending layout/focus effects finish before the
+  // native keyboard probe establishes its own starting point. A route may
+  // legitimately focus a field instead of its heading after asynchronous reads.
+  const routeSettled = await window.webContents.executeJavaScript(
+    `new Promise(resolve => {
+      const timer = setTimeout(() => resolve(false), ${Math.max(0, deadline - Date.now())});
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        clearTimeout(timer); resolve(true);
+      }));
+    })`,
+    true,
+  );
+  if (!routeSettled)
+    return {
+      ok: false,
+      forcedColors: false,
+      reason: "ACCESSIBILITY_RENDERER_SETTLE_FAILED",
     };
   await window.webContents.executeJavaScript(
     `(() => {
