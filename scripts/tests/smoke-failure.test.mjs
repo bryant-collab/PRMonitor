@@ -26,6 +26,26 @@ test("smoke failures expose fixed categories without child-output contents", () 
 });
 
 test("startup diagnostics require an exact closed protocol reason and never disclose private details", () => {
+  for (const reason of [
+    "ACCESSIBILITY_TARGET_MISSING",
+    "ACCESSIBILITY_SEMANTICS_FAILED",
+    "ACCESSIBILITY_KEYBOARD_FAILED",
+    "ACCESSIBILITY_FORCED_COLORS_FAILED",
+    "ACCESSIBILITY_FORCED_KEYBOARD_FAILED",
+  ]) {
+    assert.equal(
+      classifyApplicationSmokeReason(
+        `private/path\nPRMONITOR_SMOKE_ERROR:${reason}:private text`,
+      ),
+      reason,
+    );
+    assert.equal(
+      classifyApplicationSmokeReason(
+        `PRMONITOR_SMOKE_ERROR:${reason}_PRIVATE_TEXT`,
+      ),
+      "UNCLASSIFIED",
+    );
+  }
   assert.equal(
     classifyApplicationSmokeReason(
       "private/path\nPRMONITOR_SMOKE_ERROR:ACCESSIBILITY_PROBE_FAILED:private text",

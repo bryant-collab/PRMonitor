@@ -129,3 +129,20 @@ attributes restore LF bytes that both consider clean. No product Git policy or
 worktree guard changes. Desktop file workers are now bounded to one as an
 isolation experiment; explicit concurrent scenarios and all deadlines remain.
 Both preceding failures remain evidence, and new exact-head CI is required.
+
+At `c7a3a0dca4cf1d4aa7dcaf42b950a59770b4ddb1`, both
+[push 37295102283](https://github.com/bryant-collab/PRMonitor/actions/runs/37295102283)
+and [PR 37295109933](https://github.com/bryant-collab/PRMonitor/actions/runs/37295109933)
+pass Windows aggregate and the first eighteen native journeys, then refuse the
+publication fixture's initial F13 snapshot. The Ubuntu 22.04 jobs pass normal
+installation and build checks and reach application JavaScript, then fail the
+production accessibility probe. These failures remain required failures.
+
+The follow-up reuses the accessibility probe's existing ten-second deadline to
+wait for actual Add form readiness instead of a fixed 50-ms delay, and reports
+only closed diagnostic categories for semantics, keyboard and forced colors.
+It preserves every assertion and the parent smoke deadline. The owned native
+fixture also reports the F13 refusal category and worktree classification without
+private paths or content. A local checkout with command-local `core.autocrlf=true`
+passes the focused ten-stage matrix; this does not confirm the CI root cause.
+Product worktree guards, Git isolation and security settings are unchanged.

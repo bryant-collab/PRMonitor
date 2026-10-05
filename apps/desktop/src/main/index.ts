@@ -401,7 +401,7 @@ function smokeFailure(reason: string, error?: unknown): void {
 
 async function runAccessibilityProbe(
   window: BrowserWindow,
-): Promise<{ ok: boolean; forcedColors: boolean }> {
+): Promise<{ ok: boolean; forcedColors: boolean; reason?: string }> {
   // Exercise the real focused Add PR route; settings and forms are absent from unrelated views.
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
@@ -415,7 +415,27 @@ async function runAccessibilityProbe(
     if (opened) break;
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
   }
-  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  // Route activation and the Add form's IPC reads complete asynchronously.
+  // Reuse the existing probe deadline instead of assuming a fixed render delay.
+  let formReady = false;
+  while (Date.now() < deadline) {
+    formReady = await window.webContents.executeJavaScript(
+      `(() => {
+        const form = document.querySelector('form[aria-label="Add a pull request"]');
+        return Boolean(form && document.querySelector('#managed-pr-heading') &&
+          form.querySelectorAll('input, textarea, select, button').length >= 7);
+      })()`,
+      true,
+    );
+    if (formReady) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+  if (!formReady)
+    return {
+      ok: false,
+      forcedColors: false,
+      reason: "ACCESSIBILITY_TARGET_MISSING",
+    };
   await window.webContents.executeJavaScript(
     `(() => {
     const optional = document.querySelector('.optional-pr-settings');
@@ -430,9 +450,14 @@ async function runAccessibilityProbe(
     ok: boolean;
     forcedColors: boolean;
   };
-  if (!normal.ok) return normal;
+  if (!normal.ok)
+    return { ...normal, reason: "ACCESSIBILITY_SEMANTICS_FAILED" };
   if (!(await runKeyboardProbe(window))) {
-    return { ok: false, forcedColors: false };
+    return {
+      ok: false,
+      forcedColors: false,
+      reason: "ACCESSIBILITY_KEYBOARD_FAILED",
+    };
   }
 
   try {
@@ -454,7 +479,14 @@ async function runAccessibilityProbe(
     );
     window.webContents.debugger.detach();
     if (!forced.ok || !forced.forcedColors || !forcedKeyboard)
-      return { ok: false, forcedColors: forced.forcedColors };
+      return {
+        ok: false,
+        forcedColors: forced.forcedColors,
+        reason:
+          !forced.ok || !forced.forcedColors
+            ? "ACCESSIBILITY_FORCED_COLORS_FAILED"
+            : "ACCESSIBILITY_FORCED_KEYBOARD_FAILED",
+      };
   } catch (error) {
     try {
       if (window.webContents.debugger.isAttached())
@@ -3077,7 +3109,7 @@ async function startMainProcess(): Promise<void> {
     }
     const probe = await runAccessibilityProbe(smokeWindow);
     if (!probe.ok || !probe.forcedColors || smokeReady) {
-      smokeFailure("ACCESSIBILITY_PROBE_FAILED");
+      smokeFailure(probe.reason ?? "ACCESSIBILITY_PROBE_FAILED");
       return;
     }
     smokeReady = true;

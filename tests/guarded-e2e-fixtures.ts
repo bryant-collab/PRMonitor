@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import {
   initializePersistence,
@@ -329,11 +329,25 @@ export async function seedGuardedWork(
     });
     await mkdir(operationRoot, { recursive: true });
     git("clone", "--no-hardlinks", clone, source);
-    execFileSync("git", ["worktree", "add", "--detach", worktree, baseline], {
-      cwd: source,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    // Deliberately exercise the system-autocrlf checkout boundary within this
+    // owned repository; F13 keeps its production isolated Git environment.
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "core.autocrlf=true",
+        "worktree",
+        "add",
+        "--detach",
+        worktree,
+        baseline,
+      ],
+      {
+        cwd: source,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     const attributionService = new F13WorktreeService({
       repositories: new F13PersistenceRepositories(store),
     });
@@ -345,8 +359,24 @@ export async function seedGuardedWork(
             turnId: "owned-publication-historical-turn",
           })
         : undefined;
-    if (beforePublication?.ok === false)
-      throw Error("OWNED_PUBLICATION_BEFORE_SNAPSHOT_FAILED");
+    if (beforePublication?.ok === false) {
+      const reason =
+        beforePublication.reason?.code === "WORKTREE_CONDITION_UNVERIFIED"
+          ? "WORKTREE_CONDITION_UNVERIFIED"
+          : "OTHER_F13_REFUSAL";
+      const inspected = await attributionService.inspectOperation(
+        operationId,
+        bundleId,
+        "INSPECTION",
+      );
+      const attributes = await readFile(
+        path.join(worktree, ".gitattributes"),
+        "utf8",
+      );
+      throw Error(
+        `OWNED_PUBLICATION_BEFORE_SNAPSHOT_FAILED:${reason}:${inspected.condition.classification}:${attributes.includes("\r\n") ? "ATTRIBUTES_CRLF" : "ATTRIBUTES_LF"}`,
+      );
+    }
     await writeFile(
       path.join(worktree, "source.ts"),
       Array.from(
