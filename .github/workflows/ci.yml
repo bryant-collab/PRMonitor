@@ -26,6 +26,24 @@ jobs:
 
   ubuntu:
     name: Ubuntu Xvfb foundation check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-git
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm install --global npm@11.17.0
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" npm run check
+      - name: Read-only Linux sandbox diagnostics
+        if: always()
+        run: node scripts/linux-sandbox-diagnostics.mjs
+
+  ubuntu22:
+    name: Ubuntu 22.04 diagnostic compatibility check
     # Temporary diagnostic compatibility experiment, not a release decision.
     # Ubuntu 22.04 retires 2027-04-17; production sandbox and all checks stay on.
     runs-on: ubuntu-22.04

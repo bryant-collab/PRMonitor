@@ -21,7 +21,7 @@ if (process.platform === "linux") {
   );
   const linked = spawnSync(
     "ldd",
-    [path.join(root, "release/linux-unpacked/prmonitor")],
+    [path.join(root, "release/linux-unpacked/PRMonitor")],
     { timeout: 5000, maxBuffer: 131072, encoding: "utf8" },
   );
   const linkText = `${linked.stdout ?? ""}\n${linked.stderr ?? ""}`;
