@@ -72,7 +72,25 @@ exports.closedLifecycleObservation = function (status, intent) {
   };
 };
 
-exports.observeStartup = function ({ app, root, bootstrap }) {
+// Shared with the launcher so observations follow the exact isolated profile.
+exports.userDataDirectoryForStage = function (root, stage) {
+  const profile = stage.startsWith("bootstrap")
+    ? "bootstrap-user-data"
+    : stage === "conditional-publication"
+      ? "publication-user-data"
+      : stage === "conditional-sync"
+        ? "sync-user-data"
+        : stage === "conditional-preferences"
+          ? "preferences-user-data"
+          : "user-data";
+  return path.join(root, profile);
+};
+
+exports.observeStartup = function ({ app, root, stage }) {
+  const databasePath = path.join(
+    exports.userDataDirectoryForStage(root, stage),
+    "database/prmonitor.sqlite",
+  );
   const started = Date.now();
   const events = [];
   const git = {
@@ -86,14 +104,7 @@ exports.observeStartup = function ({ app, root, bootstrap }) {
   const lifecycle = () => {
     let db;
     try {
-      db = new DatabaseSync(
-        path.join(
-          root,
-          bootstrap ? "bootstrap-user-data" : "user-data",
-          "database/prmonitor.sqlite",
-        ),
-        { readOnly: true },
-      );
+      db = new DatabaseSync(databasePath, { readOnly: true });
       db.exec("PRAGMA busy_timeout=0");
       const setting = db
         .prepare(
@@ -154,14 +165,7 @@ exports.observeStartup = function ({ app, root, bootstrap }) {
   const recovery = () => {
     let db;
     try {
-      db = new DatabaseSync(
-        path.join(
-          root,
-          bootstrap ? "bootstrap-user-data" : "user-data",
-          "database/prmonitor.sqlite",
-        ),
-        { readOnly: true },
-      );
+      db = new DatabaseSync(databasePath, { readOnly: true });
       db.exec("PRAGMA busy_timeout=0");
       const row = db
         .prepare(

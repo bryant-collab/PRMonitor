@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "isolatedDataIdentity": "8d328c4f500123e7",
+  "isolatedDataIdentity": "454889826899c36f",
   "scenarios": [
     {
       "stage": "fresh",
@@ -18,7 +18,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1774,
+        "elapsedMs": 1699,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 2,
@@ -26,48 +26,48 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 24
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 98
+            "elapsedMs": 101
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 203
+            "elapsedMs": 199
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 216
+            "elapsedMs": 211
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 260
+            "elapsedMs": 253
           },
           {
             "event": "WINDOW_CLOSED",
-            "elapsedMs": 1333
+            "elapsedMs": 1337
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1598
+            "elapsedMs": 1601
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1661
+            "elapsedMs": 1659
           }
         ],
         "git": {
           "started": 4,
-          "completed": 4,
-          "exited": 4,
-          "active": 0,
+          "completed": 3,
+          "exited": 3,
+          "active": 1,
           "peakActive": 2,
-          "longestMs": 53
+          "longestMs": 44
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 364,
-        "freeMemoryMb": 19322,
+        "appWorkingSetMb": 357,
+        "freeMemoryMb": 19359,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -76,7 +76,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 453
+          "ageMs": 373
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -89,50 +89,71 @@
           "started": 3,
           "completed": 3,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 2
+          "longestMs": 2,
+          "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 6,
           "completed": 6,
           "active": 0,
-          "longestMs": 5,
-          "totalMs": 11
+          "longestMs": 40,
+          "totalMs": 47
         },
         "SQL_EXEC": {
           "started": 214,
           "completed": 214,
           "active": 0,
           "longestMs": 9,
-          "totalMs": 67
+          "totalMs": 72
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 22,
+          "completed": 22,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 22
         },
         "SQL_GET": {
           "started": 288,
           "completed": 288,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 2
+          "totalMs": 3
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 96,
+          "completed": 96,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
         },
         "SQL_RUN": {
           "started": 136,
           "completed": 136,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 3
+          "totalMs": 2
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 96,
+          "completed": 96,
+          "active": 0,
+          "longestMs": 8,
+          "totalMs": 50
         },
         "SQL_ALL": {
-          "started": 149,
-          "completed": 149,
+          "started": 143,
+          "completed": 143,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 1
+          "totalMs": 2
         },
         "FS_LSTAT": {
           "started": 4,
           "completed": 4,
           "active": 0,
-          "longestMs": 43,
-          "totalMs": 46
+          "longestMs": 2,
+          "totalMs": 6
         }
       },
       "closedProcessTree": {
@@ -144,7 +165,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19465
+        "freeMemoryMb": 19542
       }
     },
     {
@@ -162,7 +183,7 @@
       "fixtureRequests": 2,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1292,
+        "elapsedMs": 1012,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -170,23 +191,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 23
+            "elapsedMs": 21
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 342
+            "elapsedMs": 82
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 430
+            "elapsedMs": 155
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 443
+            "elapsedMs": 168
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 482
+            "elapsedMs": 206
           }
         ],
         "git": {
@@ -194,12 +215,12 @@
           "completed": 17,
           "exited": 17,
           "active": 0,
-          "peakActive": 8,
-          "longestMs": 50
+          "peakActive": 7,
+          "longestMs": 52
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 383,
-        "freeMemoryMb": 19702,
+        "appWorkingSetMb": 379,
+        "freeMemoryMb": 19314,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -208,7 +229,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 924
+          "ageMs": 916
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -222,21 +243,28 @@
           "completed": 5,
           "active": 0,
           "longestMs": 3,
-          "totalMs": 5
+          "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 19,
           "completed": 19,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 45
+          "longestMs": 10,
+          "totalMs": 61
         },
         "SQL_EXEC": {
           "started": 153,
           "completed": 153,
           "active": 0,
           "longestMs": 9,
-          "totalMs": 39
+          "totalMs": 41
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
         },
         "SQL_GET": {
           "started": 276,
@@ -250,41 +278,55 @@
           "completed": 150,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 4
+          "totalMs": 7
         },
         "SQL_RUN": {
           "started": 93,
           "completed": 93,
           "active": 0,
-          "longestMs": 11,
-          "totalMs": 12
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 75,
+          "completed": 75,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 75,
+          "completed": 75,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 38
         },
         "FS_LSTAT": {
           "started": 17,
           "completed": 17,
           "active": 0,
           "longestMs": 6,
-          "totalMs": 26
+          "totalMs": 19
         },
         "FS_WRITEFILE": {
           "started": 2,
           "completed": 2,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 1
+          "totalMs": 2
         },
         "FS_RENAME": {
           "started": 2,
           "completed": 2,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
+          "longestMs": 0,
+          "totalMs": 0
         },
         "FS_READFILE": {
           "started": 2,
           "completed": 2,
           "active": 0,
-          "longestMs": 3,
+          "longestMs": 4,
           "totalMs": 6
         }
       },
@@ -297,7 +339,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19862
+        "freeMemoryMb": 19505
       }
     },
     {
@@ -312,7 +354,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1247,
+        "elapsedMs": 1210,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -324,19 +366,19 @@
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 88
+            "elapsedMs": 85
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 166
+            "elapsedMs": 159
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 179
+            "elapsedMs": 171
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 219
+            "elapsedMs": 210
           }
         ],
         "git": {
@@ -345,11 +387,11 @@
           "exited": 2,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 52
+          "longestMs": 34
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 398,
-        "freeMemoryMb": 19482,
+        "appWorkingSetMb": 400,
+        "freeMemoryMb": 19300,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -358,354 +400,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1144
-        },
-        "lifecycle": {
-          "phase": "RUNNING",
-          "incompleteHandoff": false,
-          "shutdown": "NO_INTENT"
-        }
-      },
-      "ioDiagnostics": {
-        "FS_MKDIR": {
-          "started": 3,
-          "completed": 3,
-          "active": 0,
-          "longestMs": 2,
-          "totalMs": 3
-        },
-        "FS_REALPATH": {
-          "started": 4,
-          "completed": 4,
-          "active": 0,
-          "longestMs": 9,
-          "totalMs": 10
-        },
-        "SQL_EXEC": {
-          "started": 111,
-          "completed": 111,
-          "active": 0,
-          "longestMs": 2,
-          "totalMs": 18
-        },
-        "SQL_GET": {
-          "started": 188,
-          "completed": 188,
-          "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
-        },
-        "SQL_ALL": {
-          "started": 92,
-          "completed": 92,
-          "active": 0,
-          "longestMs": 2,
-          "totalMs": 5
-        },
-        "SQL_RUN": {
-          "started": 61,
-          "completed": 61,
-          "active": 0,
-          "longestMs": 1,
-          "totalMs": 3
-        },
-        "FS_LSTAT": {
-          "started": 2,
-          "completed": 2,
-          "active": 0,
-          "longestMs": 3,
-          "totalMs": 6
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19747
-      }
-    },
-    {
-      "stage": "lost-auth",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
-        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
-        "Tab reaches a labeled actionable control from the setup heading",
-        "recreated renderer recomputes incomplete readiness and resumes setup",
-        "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
-        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
-      ],
-      "fixtureRequests": 0,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 820,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 1,
-        "windowsClosed": 0,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 22
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 114
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 184
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 197
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 237
-          }
-        ],
-        "git": {
-          "started": 4,
-          "completed": 4,
-          "exited": 4,
-          "active": 0,
-          "peakActive": 2,
-          "longestMs": 37
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 407,
-        "freeMemoryMb": 19343,
-        "recovery": {
-          "state": "COMPLETED",
-          "stage": "FINALIZE",
-          "scopes": 7,
-          "completed": 7,
-          "attention": 0,
-          "retries": 0,
-          "createdThisProcess": true,
-          "ageMs": 696
-        },
-        "lifecycle": {
-          "phase": "RUNNING",
-          "incompleteHandoff": false,
-          "shutdown": "NO_INTENT"
-        }
-      },
-      "ioDiagnostics": {
-        "FS_MKDIR": {
-          "started": 3,
-          "completed": 3,
-          "active": 0,
-          "longestMs": 2,
-          "totalMs": 2
-        },
-        "FS_REALPATH": {
-          "started": 6,
-          "completed": 6,
-          "active": 0,
-          "longestMs": 8,
-          "totalMs": 14
-        },
-        "SQL_EXEC": {
-          "started": 185,
-          "completed": 185,
-          "active": 0,
-          "longestMs": 1,
-          "totalMs": 22
-        },
-        "SQL_GET": {
-          "started": 367,
-          "completed": 367,
-          "active": 0,
-          "longestMs": 1,
-          "totalMs": 5
-        },
-        "SQL_ALL": {
-          "started": 230,
-          "completed": 230,
-          "active": 0,
-          "longestMs": 2,
-          "totalMs": 8
-        },
-        "SQL_RUN": {
-          "started": 63,
-          "completed": 63,
-          "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
-        },
-        "FS_LSTAT": {
-          "started": 4,
-          "completed": 4,
-          "active": 0,
-          "longestMs": 4,
-          "totalMs": 8
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19404
-      }
-    },
-    {
-      "stage": "bootstrap-failure",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
-        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
-        "Tab reaches a labeled actionable control from the setup heading",
-        "initialization failure exposes setup; ordinary reads never relaunch; explicit duplicate Retry coalesces; obstruction bytes remain intact; no domain network started",
-        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
-      ],
-      "fixtureRequests": 0,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 574,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 1,
-        "windowsClosed": 0,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 22
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 92
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 109
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 146
-          }
-        ],
-        "git": {
-          "started": 0,
-          "completed": 0,
-          "exited": 0,
-          "active": 0,
-          "peakActive": 0,
-          "longestMs": 0
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 354,
-        "freeMemoryMb": 19150,
-        "recovery": {
-          "state": "UNAVAILABLE"
-        },
-        "lifecycle": {
-          "phase": "UNAVAILABLE",
-          "shutdown": "UNAVAILABLE"
-        }
-      },
-      "ioDiagnostics": {
-        "FS_MKDIR": {
-          "started": 1,
-          "completed": 1,
-          "active": 0,
-          "longestMs": 2,
-          "totalMs": 2
-        },
-        "FS_READFILE": {
-          "started": 2,
-          "completed": 2,
-          "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
-        }
-      },
-      "closedProcessTree": {
-        "state": "OBSERVED",
-        "descendants": 0,
-        "kinds": {
-          "electron": 0,
-          "git": 0,
-          "other": 0
-        },
-        "workingSetMb": 0,
-        "freeMemoryMb": 19325
-      }
-    },
-    {
-      "stage": "bootstrap-fixed",
-      "ok": true,
-      "assertions": [
-        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
-        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
-        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
-        "Tab reaches a labeled actionable control from the setup heading",
-        "after external repair of the owned obstruction, fresh process starts normally and recomputes incomplete configuration",
-        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
-      ],
-      "fixtureRequests": 0,
-      "forbiddenEffects": 0,
-      "startupDiagnostics": {
-        "elapsedMs": 589,
-        "appReady": true,
-        "primaryLockAcquired": true,
-        "windowsCreated": 1,
-        "windowsClosed": 0,
-        "events": [
-          {
-            "event": "APP_READY",
-            "elapsedMs": 24
-          },
-          {
-            "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 95
-          },
-          {
-            "event": "TRAY_CREATED",
-            "elapsedMs": 195
-          },
-          {
-            "event": "WINDOW_CREATED",
-            "elapsedMs": 208
-          },
-          {
-            "event": "RENDERER_LOADED",
-            "elapsedMs": 249
-          }
-        ],
-        "git": {
-          "started": 2,
-          "completed": 2,
-          "exited": 2,
-          "active": 0,
-          "peakActive": 2,
-          "longestMs": 37
-        },
-        "appProcessCount": 4,
-        "appWorkingSetMb": 369,
-        "freeMemoryMb": 19034,
-        "recovery": {
-          "state": "COMPLETED",
-          "stage": "FINALIZE",
-          "scopes": 7,
-          "completed": 7,
-          "attention": 0,
-          "retries": 0,
-          "createdThisProcess": true,
-          "ageMs": 458
+          "ageMs": 1111
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -726,42 +421,63 @@
           "completed": 4,
           "active": 0,
           "longestMs": 7,
-          "totalMs": 8
+          "totalMs": 9
         },
         "SQL_EXEC": {
-          "started": 130,
-          "completed": 130,
+          "started": 111,
+          "completed": 111,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 46
+          "longestMs": 2,
+          "totalMs": 24
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
         },
         "SQL_GET": {
-          "started": 150,
-          "completed": 150,
-          "active": 0,
-          "longestMs": 0,
-          "totalMs": 0
-        },
-        "SQL_RUN": {
-          "started": 81,
-          "completed": 81,
-          "active": 0,
-          "longestMs": 0,
-          "totalMs": 0
-        },
-        "SQL_ALL": {
-          "started": 89,
-          "completed": 89,
+          "started": 188,
+          "completed": 188,
           "active": 0,
           "longestMs": 1,
+          "totalMs": 2
+        },
+        "SQL_ALL": {
+          "started": 92,
+          "completed": 92,
+          "active": 0,
+          "longestMs": 2,
           "totalMs": 3
+        },
+        "SQL_RUN": {
+          "started": 61,
+          "completed": 61,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 2
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 54,
+          "completed": 54,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 54,
+          "completed": 54,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 22
         },
         "FS_LSTAT": {
           "started": 2,
           "completed": 2,
           "active": 0,
-          "longestMs": 2,
-          "totalMs": 4
+          "longestMs": 3,
+          "totalMs": 5
         }
       },
       "closedProcessTree": {
@@ -773,7 +489,396 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19349
+        "freeMemoryMb": 19521
+      }
+    },
+    {
+      "stage": "lost-auth",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "recreated renderer recomputes incomplete readiness and resumes setup",
+        "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 898,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 114
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 183
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 196
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 234
+          }
+        ],
+        "git": {
+          "started": 4,
+          "completed": 4,
+          "exited": 4,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 34
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 411,
+        "freeMemoryMb": 19281,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 773
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 3
+        },
+        "FS_REALPATH": {
+          "started": 6,
+          "completed": 6,
+          "active": 0,
+          "longestMs": 7,
+          "totalMs": 10
+        },
+        "SQL_EXEC": {
+          "started": 185,
+          "completed": 185,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 19
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
+        },
+        "SQL_GET": {
+          "started": 367,
+          "completed": 367,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "SQL_ALL": {
+          "started": 230,
+          "completed": 230,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 6
+        },
+        "SQL_RUN": {
+          "started": 63,
+          "completed": 63,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 2
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 91,
+          "completed": 91,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 91,
+          "completed": 91,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 17
+        },
+        "FS_LSTAT": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 5
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19520
+      }
+    },
+    {
+      "stage": "bootstrap-failure",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "initialization failure exposes setup; ordinary reads never relaunch; explicit duplicate Retry coalesces; obstruction bytes remain intact; no domain network started",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 575,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 84
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 101
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 136
+          }
+        ],
+        "git": {
+          "started": 0,
+          "completed": 0,
+          "exited": 0,
+          "active": 0,
+          "peakActive": 0,
+          "longestMs": 0
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 348,
+        "freeMemoryMb": 19335,
+        "recovery": {
+          "state": "UNAVAILABLE"
+        },
+        "lifecycle": {
+          "phase": "UNAVAILABLE",
+          "shutdown": "UNAVAILABLE"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 1,
+          "completed": 1,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 3
+        },
+        "FS_READFILE": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19527
+      }
+    },
+    {
+      "stage": "bootstrap-fixed",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "incomplete startup lands on setup; observed renderer never exposes ready inbox",
+        "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
+        "Tab reaches a labeled actionable control from the setup heading",
+        "after external repair of the owned obstruction, fresh process starts normally and recomputes incomplete configuration",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0,
+      "startupDiagnostics": {
+        "elapsedMs": 577,
+        "appReady": true,
+        "primaryLockAcquired": true,
+        "windowsCreated": 1,
+        "windowsClosed": 0,
+        "events": [
+          {
+            "event": "APP_READY",
+            "elapsedMs": 22
+          },
+          {
+            "event": "PRIMARY_LOCK_ACQUIRED",
+            "elapsedMs": 82
+          },
+          {
+            "event": "TRAY_CREATED",
+            "elapsedMs": 177
+          },
+          {
+            "event": "WINDOW_CREATED",
+            "elapsedMs": 190
+          },
+          {
+            "event": "RENDERER_LOADED",
+            "elapsedMs": 229
+          }
+        ],
+        "git": {
+          "started": 2,
+          "completed": 2,
+          "exited": 2,
+          "active": 0,
+          "peakActive": 2,
+          "longestMs": 37
+        },
+        "appProcessCount": 4,
+        "appWorkingSetMb": 373,
+        "freeMemoryMb": 19311,
+        "recovery": {
+          "state": "COMPLETED",
+          "stage": "FINALIZE",
+          "scopes": 7,
+          "completed": 7,
+          "attention": 0,
+          "retries": 0,
+          "createdThisProcess": true,
+          "ageMs": 462
+        },
+        "lifecycle": {
+          "phase": "RUNNING",
+          "incompleteHandoff": false,
+          "shutdown": "NO_INTENT"
+        }
+      },
+      "ioDiagnostics": {
+        "FS_MKDIR": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
+        },
+        "FS_REALPATH": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 6,
+          "totalMs": 6
+        },
+        "SQL_EXEC": {
+          "started": 130,
+          "completed": 130,
+          "active": 0,
+          "longestMs": 8,
+          "totalMs": 39
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 22,
+          "completed": 22,
+          "active": 0,
+          "longestMs": 8,
+          "totalMs": 20
+        },
+        "SQL_GET": {
+          "started": 150,
+          "completed": 150,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 54,
+          "completed": 54,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        },
+        "SQL_RUN": {
+          "started": 81,
+          "completed": 81,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 54,
+          "completed": 54,
+          "active": 0,
+          "longestMs": 4,
+          "totalMs": 19
+        },
+        "SQL_ALL": {
+          "started": 89,
+          "completed": 89,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
+        },
+        "FS_LSTAT": {
+          "started": 2,
+          "completed": 2,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 2
+        }
+      },
+      "closedProcessTree": {
+        "state": "OBSERVED",
+        "descendants": 0,
+        "kinds": {
+          "electron": 0,
+          "git": 0,
+          "other": 0
+        },
+        "workingSetMb": 0,
+        "freeMemoryMb": 19669
       }
     },
     {
@@ -790,7 +895,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 4275,
+        "elapsedMs": 4378,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 2,
@@ -802,39 +907,39 @@
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 145
+            "elapsedMs": 146
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 558
+            "elapsedMs": 545
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 571
+            "elapsedMs": 559
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 608
+            "elapsedMs": 596
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1526
+            "elapsedMs": 1561
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1636
+            "elapsedMs": 1672
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 3904
+            "elapsedMs": 3992
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 4023
+            "elapsedMs": 4105
           },
           {
             "event": "WINDOW_CLOSED",
-            "elapsedMs": 4275
+            "elapsedMs": 4377
           }
         ],
         "git": {
@@ -843,11 +948,11 @@
           "exited": 4,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 36
+          "longestMs": 35
         },
         "appProcessCount": 6,
-        "appWorkingSetMb": 683,
-        "freeMemoryMb": 19081,
+        "appWorkingSetMb": 682,
+        "freeMemoryMb": 19342,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -856,7 +961,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 4118
+          "ageMs": 4223
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -877,42 +982,63 @@
           "completed": 6,
           "active": 0,
           "longestMs": 11,
-          "totalMs": 14
+          "totalMs": 11
         },
         "SQL_EXEC": {
           "started": 2409,
           "completed": 2409,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 211
+          "longestMs": 10,
+          "totalMs": 238
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
         },
         "SQL_GET": {
           "started": 3276,
           "completed": 3276,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 15
+          "totalMs": 14
         },
         "SQL_ALL": {
           "started": 143,
           "completed": 143,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 15
+          "longestMs": 2,
+          "totalMs": 10
         },
         "SQL_RUN": {
           "started": 768,
           "completed": 768,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 17
+          "totalMs": 8
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1203,
+          "completed": 1203,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 9
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1203,
+          "completed": 1203,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 228
         },
         "FS_LSTAT": {
           "started": 4,
           "completed": 4,
           "active": 0,
           "longestMs": 6,
-          "totalMs": 9
+          "totalMs": 8
         }
       },
       "closedProcessTree": {
@@ -924,7 +1050,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19306
+        "freeMemoryMb": 19701
       }
     },
     {
@@ -941,7 +1067,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 4296,
+        "elapsedMs": 4142,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -949,23 +1075,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 23
+            "elapsedMs": 22
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 560
+            "elapsedMs": 469
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1403
+            "elapsedMs": 1269
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1417
+            "elapsedMs": 1282
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1458
+            "elapsedMs": 1322
           }
         ],
         "git": {
@@ -974,11 +1100,11 @@
           "exited": 58,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 40
+          "longestMs": 37
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 474,
-        "freeMemoryMb": 18986,
+        "appWorkingSetMb": 473,
+        "freeMemoryMb": 19388,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -987,7 +1113,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 3496
+          "ageMs": 3441
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1000,50 +1126,71 @@
           "started": 9,
           "completed": 9,
           "active": 0,
-          "longestMs": 5,
-          "totalMs": 7
+          "longestMs": 3,
+          "totalMs": 5
         },
         "FS_REALPATH": {
           "started": 26,
           "completed": 26,
           "active": 0,
-          "longestMs": 2,
-          "totalMs": 7
+          "longestMs": 4,
+          "totalMs": 9
         },
         "SQL_EXEC": {
           "started": 2566,
           "completed": 2566,
           "active": 0,
-          "longestMs": 8,
-          "totalMs": 279
+          "longestMs": 10,
+          "totalMs": 275
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 6,
+          "completed": 6,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 24
         },
         "SQL_GET": {
           "started": 3555,
           "completed": 3555,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 32
+          "longestMs": 4,
+          "totalMs": 23
         },
         "SQL_ALL": {
           "started": 573,
           "completed": 573,
           "active": 0,
           "longestMs": 9,
-          "totalMs": 45
+          "totalMs": 42
         },
         "SQL_RUN": {
           "started": 835,
           "completed": 835,
           "active": 0,
-          "longestMs": 2,
+          "longestMs": 1,
           "totalMs": 15
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1280,
+          "completed": 1280,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 10
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1280,
+          "completed": 1280,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 239
         },
         "FS_LSTAT": {
           "started": 28,
           "completed": 28,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 14
+          "longestMs": 5,
+          "totalMs": 9
         }
       },
       "closedProcessTree": {
@@ -1055,7 +1202,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19218
+        "freeMemoryMb": 19680
       }
     },
     {
@@ -1070,7 +1217,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1948,
+        "elapsedMs": 1923,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1078,23 +1225,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 21
+            "elapsedMs": 22
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 90
+            "elapsedMs": 84
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 928
+            "elapsedMs": 901
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 941
+            "elapsedMs": 914
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 983
+            "elapsedMs": 950
           }
         ],
         "git": {
@@ -1103,11 +1250,11 @@
           "exited": 17,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 35
+          "longestMs": 34
         },
         "appProcessCount": 4,
         "appWorkingSetMb": 392,
-        "freeMemoryMb": 19008,
+        "freeMemoryMb": 19456,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1116,7 +1263,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1625
+          "ageMs": 1605
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1130,49 +1277,70 @@
           "completed": 3,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 2
+          "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 9,
           "completed": 9,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 2
+          "longestMs": 7,
+          "totalMs": 8
         },
         "SQL_EXEC": {
           "started": 1837,
           "completed": 1837,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 253
+          "longestMs": 4,
+          "totalMs": 219
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 1
         },
         "SQL_GET": {
           "started": 2553,
           "completed": 2553,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 16
+          "totalMs": 17
         },
         "SQL_ALL": {
           "started": 108,
           "completed": 108,
           "active": 0,
           "longestMs": 10,
-          "totalMs": 28
+          "totalMs": 21
         },
         "SQL_RUN": {
           "started": 763,
           "completed": 763,
           "active": 0,
+          "longestMs": 2,
+          "totalMs": 12
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 917,
+          "completed": 917,
+          "active": 0,
           "longestMs": 1,
           "totalMs": 8
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 917,
+          "completed": 917,
+          "active": 0,
+          "longestMs": 4,
+          "totalMs": 209
         },
         "FS_LSTAT": {
           "started": 11,
           "completed": 11,
           "active": 0,
-          "longestMs": 8,
-          "totalMs": 12
+          "longestMs": 3,
+          "totalMs": 3
         }
       },
       "closedProcessTree": {
@@ -1184,7 +1352,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19244
+        "freeMemoryMb": 19633
       }
     },
     {
@@ -1198,7 +1366,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1860,
+        "elapsedMs": 1792,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 2,
@@ -1206,35 +1374,35 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 91
+            "elapsedMs": 89
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 938
+            "elapsedMs": 948
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 951
+            "elapsedMs": 960
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 992
+            "elapsedMs": 998
           },
           {
             "event": "WINDOW_CLOSED",
-            "elapsedMs": 1164
+            "elapsedMs": 1137
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1372
+            "elapsedMs": 1327
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1434
+            "elapsedMs": 1384
           }
         ],
         "git": {
@@ -1243,11 +1411,11 @@
           "exited": 24,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 47
+          "longestMs": 59
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 374,
-        "freeMemoryMb": 19033,
+        "appWorkingSetMb": 373,
+        "freeMemoryMb": 19438,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1256,7 +1424,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 700
+          "ageMs": 660
         },
         "lifecycle": {
           "phase": "STOPPED",
@@ -1275,7 +1443,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19248
+        "freeMemoryMb": 19627
       }
     },
     {
@@ -1289,7 +1457,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1165,
+        "elapsedMs": 1110,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1297,23 +1465,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 21
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 93
+            "elapsedMs": 83
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 960
+            "elapsedMs": 914
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 973
+            "elapsedMs": 927
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1027
+            "elapsedMs": 976
           }
         ],
         "git": {
@@ -1322,11 +1490,11 @@
           "exited": 16,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 36
+          "longestMs": 35
         },
         "appProcessCount": 4,
         "appWorkingSetMb": 373,
-        "freeMemoryMb": 19086,
+        "freeMemoryMb": 19423,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1335,7 +1503,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 813
+          "ageMs": 776
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1350,42 +1518,63 @@
           "completed": 5,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 2
+          "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 10,
           "completed": 10,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 9
+          "longestMs": 10,
+          "totalMs": 13
         },
         "SQL_EXEC": {
           "started": 1828,
           "completed": 1828,
           "active": 0,
-          "longestMs": 5,
-          "totalMs": 229
+          "longestMs": 4,
+          "totalMs": 221
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 6,
+          "completed": 6,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 3
         },
         "SQL_GET": {
           "started": 2471,
           "completed": 2471,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 23
+          "totalMs": 11
         },
         "SQL_ALL": {
           "started": 113,
           "completed": 113,
           "active": 0,
-          "longestMs": 20,
-          "totalMs": 53
+          "longestMs": 18,
+          "totalMs": 58
         },
         "SQL_RUN": {
           "started": 762,
           "completed": 762,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 16
+          "totalMs": 15
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 911,
+          "completed": 911,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 6
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 911,
+          "completed": 911,
+          "active": 0,
+          "longestMs": 4,
+          "totalMs": 211
         },
         "FS_LSTAT": {
           "started": 10,
@@ -1398,8 +1587,8 @@
           "started": 1,
           "completed": 1,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
+          "longestMs": 0,
+          "totalMs": 0
         }
       },
       "closedProcessTree": {
@@ -1411,7 +1600,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19309
+        "freeMemoryMb": 19629
       }
     },
     {
@@ -1425,7 +1614,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1711,
+        "elapsedMs": 1678,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1433,23 +1622,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 21
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 88
+            "elapsedMs": 84
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 945
+            "elapsedMs": 919
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 958
+            "elapsedMs": 931
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1000
+            "elapsedMs": 970
           }
         ],
         "git": {
@@ -1458,11 +1647,11 @@
           "exited": 23,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 38
+          "longestMs": 34
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 395,
-        "freeMemoryMb": 19062,
+        "appWorkingSetMb": 397,
+        "freeMemoryMb": 19392,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1471,7 +1660,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1367
+          "ageMs": 1333
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1485,36 +1674,43 @@
           "started": 5,
           "completed": 5,
           "active": 0,
-          "longestMs": 3,
+          "longestMs": 2,
           "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 12,
           "completed": 12,
           "active": 0,
-          "longestMs": 10,
-          "totalMs": 13
+          "longestMs": 1,
+          "totalMs": 2
         },
         "SQL_EXEC": {
           "started": 1966,
           "completed": 1966,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 249
+          "longestMs": 10,
+          "totalMs": 229
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 12
         },
         "SQL_GET": {
           "started": 2607,
           "completed": 2607,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 15
+          "totalMs": 24
         },
         "SQL_ALL": {
           "started": 184,
           "completed": 184,
           "active": 0,
-          "longestMs": 22,
-          "totalMs": 65
+          "longestMs": 20,
+          "totalMs": 50
         },
         "SQL_RUN": {
           "started": 773,
@@ -1523,12 +1719,26 @@
           "longestMs": 1,
           "totalMs": 14
         },
+        "SQL_EXEC_BEGIN": {
+          "started": 981,
+          "completed": 981,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 3
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 981,
+          "completed": 981,
+          "active": 0,
+          "longestMs": 4,
+          "totalMs": 214
+        },
         "FS_LSTAT": {
           "started": 13,
           "completed": 13,
           "active": 0,
-          "longestMs": 8,
-          "totalMs": 12
+          "longestMs": 7,
+          "totalMs": 14
         }
       },
       "closedProcessTree": {
@@ -1540,7 +1750,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19259
+        "freeMemoryMb": 19626
       }
     },
     {
@@ -1554,7 +1764,7 @@
       "fixtureRequests": 2,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 2209,
+        "elapsedMs": 2193,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1562,39 +1772,39 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 23
+            "elapsedMs": 22
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 91
+            "elapsedMs": 85
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1006
+            "elapsedMs": 959
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1020
+            "elapsedMs": 972
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1058
+            "elapsedMs": 1010
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1291
+            "elapsedMs": 1247
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1399
+            "elapsedMs": 1352
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1418
+            "elapsedMs": 1371
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1623
+            "elapsedMs": 1575
           }
         ],
         "git": {
@@ -1603,11 +1813,11 @@
           "exited": 18,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 37
+          "longestMs": 39
         },
         "appProcessCount": 4,
         "appWorkingSetMb": 435,
-        "freeMemoryMb": 18987,
+        "freeMemoryMb": 19363,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1616,7 +1826,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1826
+          "ageMs": 1830
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1630,57 +1840,78 @@
           "started": 3,
           "completed": 3,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 3
+          "longestMs": 2,
+          "totalMs": 2
         },
         "FS_REALPATH": {
           "started": 9,
           "completed": 9,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 11
+          "longestMs": 1,
+          "totalMs": 4
         },
         "SQL_EXEC": {
           "started": 2927,
           "completed": 2927,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 252
+          "longestMs": 5,
+          "totalMs": 229
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
         },
         "SQL_GET": {
           "started": 3663,
           "completed": 3663,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 24
+          "totalMs": 26
         },
         "SQL_ALL": {
           "started": 212,
           "completed": 212,
           "active": 0,
           "longestMs": 22,
-          "totalMs": 39
+          "totalMs": 40
         },
         "SQL_RUN": {
           "started": 784,
           "completed": 784,
           "active": 0,
-          "longestMs": 2,
+          "longestMs": 1,
+          "totalMs": 16
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1462,
+          "completed": 1462,
+          "active": 0,
+          "longestMs": 1,
           "totalMs": 10
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1462,
+          "completed": 1462,
+          "active": 0,
+          "longestMs": 5,
+          "totalMs": 217
         },
         "FS_LSTAT": {
           "started": 11,
           "completed": 11,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 12
+          "longestMs": 7,
+          "totalMs": 9
         },
         "FS_READFILE": {
           "started": 2,
           "completed": 2,
           "active": 0,
-          "longestMs": 2,
-          "totalMs": 4
+          "longestMs": 3,
+          "totalMs": 5
         }
       },
       "closedProcessTree": {
@@ -1692,7 +1923,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19241
+        "freeMemoryMb": 19632
       }
     },
     {
@@ -1706,7 +1937,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1934,
+        "elapsedMs": 1800,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1714,23 +1945,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 90
+            "elapsedMs": 86
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1016
+            "elapsedMs": 971
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1029
+            "elapsedMs": 983
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1075
+            "elapsedMs": 1021
           }
         ],
         "git": {
@@ -1742,8 +1973,8 @@
           "longestMs": 36
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 411,
-        "freeMemoryMb": 18975,
+        "appWorkingSetMb": 413,
+        "freeMemoryMb": 19365,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1752,7 +1983,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1569
+          "ageMs": 1446
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1773,43 +2004,64 @@
           "started": 10,
           "completed": 10,
           "active": 0,
-          "longestMs": 13,
-          "totalMs": 14
+          "longestMs": 0,
+          "totalMs": 0
         },
         "SQL_EXEC": {
           "started": 2486,
           "completed": 2486,
           "active": 0,
-          "longestMs": 8,
-          "totalMs": 270
+          "longestMs": 12,
+          "totalMs": 254
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 12,
+          "totalMs": 14
         },
         "SQL_GET": {
           "started": 3556,
           "completed": 3556,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 39
+          "longestMs": 2,
+          "totalMs": 29
         },
         "SQL_ALL": {
           "started": 615,
           "completed": 615,
           "active": 0,
-          "longestMs": 28,
-          "totalMs": 81
+          "longestMs": 27,
+          "totalMs": 76
         },
         "SQL_RUN": {
           "started": 859,
           "completed": 859,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 24
+          "longestMs": 1,
+          "totalMs": 14
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1241,
+          "completed": 1241,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 9
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1241,
+          "completed": 1241,
+          "active": 0,
+          "longestMs": 5,
+          "totalMs": 230
         },
         "FS_LSTAT": {
           "started": 10,
           "completed": 10,
           "active": 0,
-          "longestMs": 7,
-          "totalMs": 13
+          "longestMs": 6,
+          "totalMs": 9
         }
       },
       "closedProcessTree": {
@@ -1821,7 +2073,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19205
+        "freeMemoryMb": 19582
       }
     },
     {
@@ -1837,7 +2089,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 2002,
+        "elapsedMs": 1958,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1845,23 +2097,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 21
+            "elapsedMs": 22
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 87
+            "elapsedMs": 84
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1013
+            "elapsedMs": 987
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1027
+            "elapsedMs": 1000
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1079
+            "elapsedMs": 1050
           }
         ],
         "git": {
@@ -1873,8 +2125,8 @@
           "longestMs": 36
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 410,
-        "freeMemoryMb": 18943,
+        "appWorkingSetMb": 415,
+        "freeMemoryMb": 19367,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -1883,7 +2135,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 1645
+          "ageMs": 1603
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -1898,49 +2150,70 @@
           "completed": 3,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 3
+          "totalMs": 2
         },
         "FS_REALPATH": {
           "started": 8,
           "completed": 8,
           "active": 0,
-          "longestMs": 13,
-          "totalMs": 14
+          "longestMs": 6,
+          "totalMs": 9
         },
         "SQL_EXEC": {
           "started": 2041,
           "completed": 2041,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 270
+          "longestMs": 5,
+          "totalMs": 250
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 5,
+          "completed": 5,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
         },
         "SQL_GET": {
           "started": 2768,
           "completed": 2768,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 26
+          "totalMs": 22
         },
         "SQL_ALL": {
           "started": 105,
           "completed": 105,
           "active": 0,
-          "longestMs": 30,
-          "totalMs": 45
+          "longestMs": 27,
+          "totalMs": 41
         },
         "SQL_RUN": {
           "started": 850,
           "completed": 850,
           "active": 0,
+          "longestMs": 4,
+          "totalMs": 16
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1018,
+          "completed": 1018,
+          "active": 0,
           "longestMs": 1,
-          "totalMs": 15
+          "totalMs": 7
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1018,
+          "completed": 1018,
+          "active": 0,
+          "longestMs": 5,
+          "totalMs": 240
         },
         "FS_LSTAT": {
           "started": 10,
           "completed": 10,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 10
+          "longestMs": 4,
+          "totalMs": 4
         }
       },
       "closedProcessTree": {
@@ -1952,7 +2225,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19138
+        "freeMemoryMb": 19622
       }
     },
     {
@@ -1969,7 +2242,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 10734,
+        "elapsedMs": 10396,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -1977,23 +2250,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 142
+            "elapsedMs": 129
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1068
+            "elapsedMs": 1016
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1078
+            "elapsedMs": 1026
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1241
+            "elapsedMs": 1186
           }
         ],
         "git": {
@@ -2002,11 +2275,11 @@
           "exited": 252,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 212
+          "longestMs": 77
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 482,
-        "freeMemoryMb": 19074,
+        "appWorkingSetMb": 487,
+        "freeMemoryMb": 19288,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -2015,7 +2288,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 10322
+          "ageMs": 10110
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -2030,63 +2303,84 @@
           "completed": 7,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 4
+          "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 75,
           "completed": 75,
           "active": 0,
-          "longestMs": 8,
-          "totalMs": 27
+          "longestMs": 4,
+          "totalMs": 15
         },
         "SQL_EXEC": {
           "started": 7549,
           "completed": 7549,
           "active": 0,
-          "longestMs": 12,
-          "totalMs": 397
+          "longestMs": 11,
+          "totalMs": 421
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 5,
+          "completed": 5,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 20
         },
         "SQL_GET": {
           "started": 7051,
           "completed": 7051,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 49
+          "totalMs": 44
         },
         "SQL_ALL": {
           "started": 2080,
           "completed": 2080,
           "active": 0,
           "longestMs": 36,
-          "totalMs": 157
+          "totalMs": 148
         },
         "SQL_RUN": {
           "started": 1368,
           "completed": 1368,
           "active": 0,
+          "longestMs": 9,
+          "totalMs": 32
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 3772,
+          "completed": 3772,
+          "active": 0,
           "longestMs": 1,
           "totalMs": 23
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 3772,
+          "completed": 3772,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 377
         },
         "FS_LSTAT": {
           "started": 105,
           "completed": 105,
           "active": 0,
-          "longestMs": 18,
-          "totalMs": 60
+          "longestMs": 7,
+          "totalMs": 42
         },
         "FS_READFILE": {
           "started": 5,
           "completed": 5,
           "active": 0,
-          "longestMs": 7,
-          "totalMs": 8
+          "longestMs": 6,
+          "totalMs": 7
         },
         "FS_WRITEFILE": {
           "started": 1,
           "completed": 1,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
+          "longestMs": 0,
+          "totalMs": 0
         }
       },
       "closedProcessTree": {
@@ -2098,7 +2392,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19413
+        "freeMemoryMb": 19589
       }
     },
     {
@@ -2112,7 +2406,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 3585,
+        "elapsedMs": 3552,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -2120,23 +2414,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 29
+            "elapsedMs": 24
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 108
+            "elapsedMs": 85
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1064
+            "elapsedMs": 1004
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1076
+            "elapsedMs": 1016
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1114
+            "elapsedMs": 1054
           }
         ],
         "git": {
@@ -2145,11 +2439,11 @@
           "exited": 23,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 39
+          "longestMs": 35
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 491,
-        "freeMemoryMb": 19049,
+        "appWorkingSetMb": 486,
+        "freeMemoryMb": 19298,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -2158,7 +2452,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 3190
+          "ageMs": 3181
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -2172,29 +2466,36 @@
           "started": 7,
           "completed": 7,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 4
+          "longestMs": 2,
+          "totalMs": 2
         },
         "FS_REALPATH": {
           "started": 14,
           "completed": 14,
           "active": 0,
-          "longestMs": 12,
-          "totalMs": 17
+          "longestMs": 2,
+          "totalMs": 6
         },
         "SQL_EXEC": {
           "started": 2565,
           "completed": 2565,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 332
+          "longestMs": 10,
+          "totalMs": 306
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 7,
+          "completed": 7,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 21
         },
         "SQL_GET": {
           "started": 3041,
           "completed": 3041,
           "active": 0,
-          "longestMs": 4,
-          "totalMs": 74
+          "longestMs": 3,
+          "totalMs": 79
         },
         "SQL_ALL": {
           "started": 187,
@@ -2208,14 +2509,35 @@
           "completed": 908,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 23
+          "totalMs": 14
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1279,
+          "completed": 1279,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 8
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1278,
+          "completed": 1278,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 276
         },
         "FS_LSTAT": {
           "started": 13,
           "completed": 13,
           "active": 0,
-          "longestMs": 7,
-          "totalMs": 14
+          "longestMs": 9,
+          "totalMs": 12
+        },
+        "SQL_EXEC_ROLLBACK": {
+          "started": 1,
+          "completed": 1,
+          "active": 0,
+          "longestMs": 0,
+          "totalMs": 0
         }
       },
       "closedProcessTree": {
@@ -2227,7 +2549,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19619
+        "freeMemoryMb": 19598
       }
     },
     {
@@ -2242,7 +2564,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 4726,
+        "elapsedMs": 4572,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -2250,23 +2572,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 144
+            "elapsedMs": 137
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1110
+            "elapsedMs": 1046
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1121
+            "elapsedMs": 1057
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1160
+            "elapsedMs": 1094
           }
         ],
         "git": {
@@ -2275,11 +2597,11 @@
           "exited": 83,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 67
+          "longestMs": 39
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 510,
-        "freeMemoryMb": 19379,
+        "appWorkingSetMb": 482,
+        "freeMemoryMb": 19242,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
@@ -2288,7 +2610,7 @@
           "attention": 0,
           "retries": 0,
           "createdThisProcess": true,
-          "ageMs": 4291
+          "ageMs": 4157
         },
         "lifecycle": {
           "phase": "RUNNING",
@@ -2309,43 +2631,64 @@
           "started": 29,
           "completed": 29,
           "active": 0,
-          "longestMs": 9,
-          "totalMs": 15
+          "longestMs": 2,
+          "totalMs": 7
         },
         "SQL_EXEC": {
           "started": 5024,
           "completed": 5024,
           "active": 0,
           "longestMs": 10,
-          "totalMs": 314
+          "totalMs": 313
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 11
         },
         "SQL_GET": {
           "started": 5442,
           "completed": 5442,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 54
+          "longestMs": 1,
+          "totalMs": 65
         },
         "SQL_ALL": {
           "started": 1533,
           "completed": 1533,
           "active": 0,
-          "longestMs": 44,
-          "totalMs": 130
+          "longestMs": 43,
+          "totalMs": 121
         },
         "SQL_RUN": {
           "started": 941,
           "completed": 941,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 33
+          "totalMs": 13
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 2510,
+          "completed": 2510,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 13
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 2510,
+          "completed": 2510,
+          "active": 0,
+          "longestMs": 9,
+          "totalMs": 285
         },
         "FS_LSTAT": {
           "started": 38,
           "completed": 38,
           "active": 0,
-          "longestMs": 8,
-          "totalMs": 16
+          "longestMs": 12,
+          "totalMs": 29
         },
         "FS_READFILE": {
           "started": 6,
@@ -2364,7 +2707,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19708
+        "freeMemoryMb": 19565
       }
     },
     {
@@ -2378,7 +2721,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 4058,
+        "elapsedMs": 3949,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -2386,23 +2729,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 21
+            "elapsedMs": 22
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 1007
+            "elapsedMs": 922
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 1819
+            "elapsedMs": 1717
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 1829
+            "elapsedMs": 1726
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 1867
+            "elapsedMs": 1763
           }
         ],
         "git": {
@@ -2414,23 +2757,22 @@
           "longestMs": 35
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 416,
-        "freeMemoryMb": 19438,
+        "appWorkingSetMb": 413,
+        "freeMemoryMb": 19277,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
-          "scopes": 133,
-          "completed": 133,
+          "scopes": 127,
+          "completed": 127,
           "attention": 0,
           "retries": 0,
-          "createdThisProcess": false,
-          "ageMs": 4879
+          "createdThisProcess": true,
+          "ageMs": 2814
         },
         "lifecycle": {
           "phase": "RUNNING",
           "incompleteHandoff": false,
-          "shutdown": "COMPLETED",
-          "shutdownReason": "SHUTDOWN_COMPLETE"
+          "shutdown": "NO_INTENT"
         }
       },
       "ioDiagnostics": {
@@ -2438,57 +2780,78 @@
           "started": 5,
           "completed": 5,
           "active": 0,
-          "longestMs": 2,
-          "totalMs": 3
+          "longestMs": 1,
+          "totalMs": 1
         },
         "FS_REALPATH": {
           "started": 24,
           "completed": 24,
           "active": 0,
           "longestMs": 12,
-          "totalMs": 17
+          "totalMs": 16
         },
         "SQL_EXEC": {
           "started": 2694,
           "completed": 2694,
           "active": 0,
-          "longestMs": 12,
-          "totalMs": 264
+          "longestMs": 11,
+          "totalMs": 271
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 4,
+          "completed": 4,
+          "active": 0,
+          "longestMs": 11,
+          "totalMs": 12
         },
         "SQL_GET": {
           "started": 3441,
           "completed": 3441,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 31
+          "totalMs": 22
         },
         "SQL_ALL": {
           "started": 461,
           "completed": 461,
           "active": 0,
-          "longestMs": 10,
-          "totalMs": 27
+          "longestMs": 9,
+          "totalMs": 26
         },
         "SQL_RUN": {
           "started": 891,
           "completed": 891,
           "active": 0,
           "longestMs": 1,
+          "totalMs": 19
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1345,
+          "completed": 1345,
+          "active": 0,
+          "longestMs": 1,
           "totalMs": 15
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1345,
+          "completed": 1345,
+          "active": 0,
+          "longestMs": 10,
+          "totalMs": 245
         },
         "FS_LSTAT": {
           "started": 31,
           "completed": 31,
           "active": 0,
-          "longestMs": 6,
-          "totalMs": 23
+          "longestMs": 5,
+          "totalMs": 21
         },
         "FS_READFILE": {
           "started": 2,
           "completed": 2,
           "active": 0,
-          "longestMs": 1,
-          "totalMs": 1
+          "longestMs": 0,
+          "totalMs": 0
         }
       },
       "closedProcessTree": {
@@ -2500,7 +2863,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19708
+        "freeMemoryMb": 19521
       }
     },
     {
@@ -2515,7 +2878,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 10702,
+        "elapsedMs": 10398,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -2523,23 +2886,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 23
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 2495
+            "elapsedMs": 2285
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 4417
+            "elapsedMs": 4172
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 4426
+            "elapsedMs": 4182
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 4464
+            "elapsedMs": 4219
           }
         ],
         "git": {
@@ -2548,26 +2911,25 @@
           "exited": 220,
           "active": 0,
           "peakActive": 2,
-          "longestMs": 36
+          "longestMs": 34
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 441,
-        "freeMemoryMb": 19339,
+        "appWorkingSetMb": 442,
+        "freeMemoryMb": 19141,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
-          "scopes": 133,
-          "completed": 133,
+          "scopes": 121,
+          "completed": 121,
           "attention": 0,
           "retries": 0,
-          "createdThisProcess": false,
-          "ageMs": 16149
+          "createdThisProcess": true,
+          "ageMs": 7342
         },
         "lifecycle": {
           "phase": "RUNNING",
           "incompleteHandoff": false,
-          "shutdown": "COMPLETED",
-          "shutdownReason": "SHUTDOWN_COMPLETE"
+          "shutdown": "NO_INTENT"
         }
       },
       "ioDiagnostics": {
@@ -2576,56 +2938,77 @@
           "completed": 3,
           "active": 0,
           "longestMs": 2,
-          "totalMs": 4
+          "totalMs": 3
         },
         "FS_REALPATH": {
           "started": 79,
           "completed": 79,
           "active": 0,
-          "longestMs": 10,
-          "totalMs": 26
+          "longestMs": 1,
+          "totalMs": 11
         },
         "SQL_EXEC": {
           "started": 3513,
           "completed": 3513,
           "active": 0,
           "longestMs": 3,
-          "totalMs": 290
+          "totalMs": 274
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
         },
         "SQL_GET": {
           "started": 3484,
           "completed": 3484,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 22
+          "longestMs": 1,
+          "totalMs": 25
         },
         "SQL_ALL": {
           "started": 487,
           "completed": 487,
           "active": 0,
           "longestMs": 7,
-          "totalMs": 23
+          "totalMs": 17
         },
         "SQL_RUN": {
           "started": 1032,
           "completed": 1032,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 15
+          "totalMs": 17
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1755,
+          "completed": 1755,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 10
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1755,
+          "completed": 1755,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 257
         },
         "FS_LSTAT": {
           "started": 116,
           "completed": 116,
           "active": 0,
-          "longestMs": 5,
-          "totalMs": 15
+          "longestMs": 7,
+          "totalMs": 20
         },
         "FS_READFILE": {
           "started": 12,
           "completed": 12,
           "active": 0,
-          "longestMs": 3,
-          "totalMs": 9
+          "longestMs": 2,
+          "totalMs": 2
         },
         "FS_WRITEFILE": {
           "started": 4,
@@ -2644,7 +3027,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19568
+        "freeMemoryMb": 19534
       }
     },
     {
@@ -2658,7 +3041,7 @@
       "fixtureRequests": 0,
       "forbiddenEffects": 0,
       "startupDiagnostics": {
-        "elapsedMs": 1149,
+        "elapsedMs": 1160,
         "appReady": true,
         "primaryLockAcquired": true,
         "windowsCreated": 1,
@@ -2666,23 +3049,23 @@
         "events": [
           {
             "event": "APP_READY",
-            "elapsedMs": 22
+            "elapsedMs": 21
           },
           {
             "event": "PRIMARY_LOCK_ACQUIRED",
-            "elapsedMs": 67
+            "elapsedMs": 71
           },
           {
             "event": "TRAY_CREATED",
-            "elapsedMs": 463
+            "elapsedMs": 479
           },
           {
             "event": "WINDOW_CREATED",
-            "elapsedMs": 473
+            "elapsedMs": 489
           },
           {
             "event": "RENDERER_LOADED",
-            "elapsedMs": 511
+            "elapsedMs": 528
           }
         ],
         "git": {
@@ -2691,26 +3074,25 @@
           "exited": 28,
           "active": 0,
           "peakActive": 6,
-          "longestMs": 47
+          "longestMs": 44
         },
         "appProcessCount": 4,
-        "appWorkingSetMb": 393,
-        "freeMemoryMb": 19382,
+        "appWorkingSetMb": 407,
+        "freeMemoryMb": 19335,
         "recovery": {
           "state": "COMPLETED",
           "stage": "FINALIZE",
-          "scopes": 133,
-          "completed": 133,
+          "scopes": 121,
+          "completed": 121,
           "attention": 0,
           "retries": 0,
-          "createdThisProcess": false,
-          "ageMs": 17883
+          "createdThisProcess": true,
+          "ageMs": 1072
         },
         "lifecycle": {
           "phase": "RUNNING",
           "incompleteHandoff": false,
-          "shutdown": "COMPLETED",
-          "shutdownReason": "SHUTDOWN_COMPLETE"
+          "shutdown": "NO_INTENT"
         }
       },
       "ioDiagnostics": {
@@ -2718,7 +3100,7 @@
           "started": 3,
           "completed": 3,
           "active": 0,
-          "longestMs": 3,
+          "longestMs": 2,
           "totalMs": 3
         },
         "FS_REALPATH": {
@@ -2726,42 +3108,63 @@
           "completed": 30,
           "active": 0,
           "longestMs": 7,
-          "totalMs": 35
+          "totalMs": 49
         },
         "SQL_EXEC": {
           "started": 2971,
           "completed": 2971,
           "active": 0,
           "longestMs": 3,
-          "totalMs": 211
+          "totalMs": 223
+        },
+        "SQL_EXEC_OTHER": {
+          "started": 3,
+          "completed": 3,
+          "active": 0,
+          "longestMs": 2,
+          "totalMs": 2
         },
         "SQL_GET": {
           "started": 3958,
           "completed": 3958,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 18
+          "totalMs": 17
         },
         "SQL_ALL": {
           "started": 221,
           "completed": 221,
           "active": 0,
           "longestMs": 7,
-          "totalMs": 30
+          "totalMs": 24
         },
         "SQL_RUN": {
           "started": 763,
           "completed": 763,
           "active": 0,
           "longestMs": 1,
-          "totalMs": 18
+          "totalMs": 14
+        },
+        "SQL_EXEC_BEGIN": {
+          "started": 1484,
+          "completed": 1484,
+          "active": 0,
+          "longestMs": 1,
+          "totalMs": 8
+        },
+        "SQL_EXEC_COMMIT": {
+          "started": 1484,
+          "completed": 1484,
+          "active": 0,
+          "longestMs": 3,
+          "totalMs": 213
         },
         "FS_LSTAT": {
           "started": 29,
           "completed": 29,
           "active": 0,
           "longestMs": 7,
-          "totalMs": 42
+          "totalMs": 25
         }
       },
       "closedProcessTree": {
@@ -2773,7 +3176,7 @@
           "other": 0
         },
         "workingSetMb": 0,
-        "freeMemoryMb": 19599
+        "freeMemoryMb": 19565
       }
     }
   ],

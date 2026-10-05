@@ -77,5 +77,19 @@ test("IO observations retain pending promises and thrown objects without exposin
     longestMs: 3,
     totalMs: 3,
   });
+  assert.equal(observer.snapshot().SQL_EXEC_OTHER.completed, 1);
+  for (const [sql, kind] of [
+    [" BEGIN IMMEDIATE; ", "BEGIN"],
+    ["COMMIT", "COMMIT"],
+    ["ROLLBACK", "ROLLBACK"],
+  ]) {
+    assert.throws(
+      () => new DatabaseSync().exec(sql),
+      (error) => error === problem,
+    );
+    assert.equal(observer.snapshot()[`SQL_EXEC_${kind}`].completed, 1);
+    assert.equal(observer.snapshot()[`SQL_EXEC_${kind}`].totalMs, 3);
+  }
+  assert.equal(observer.snapshot().SQL_EXEC.completed, 4);
   assert.ok(!JSON.stringify(observer.snapshot()).includes("private"));
 });

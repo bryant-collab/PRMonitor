@@ -23,7 +23,7 @@ const startupDiagnostics =
   require("./setup-startup-diagnostics.cjs").observeStartup({
     app,
     root,
-    bootstrap: stage.startsWith("bootstrap"),
+    stage,
   });
 const ipcAudit = [];
 let ioDiagnostics;
@@ -112,18 +112,11 @@ async function start() {
   );
   assert.equal(marker.owner, "prmonitor-setup-e2e");
   assert.equal(marker.root, path.resolve(root));
-  const userData = path.join(
-    root,
-    stage.startsWith("bootstrap")
-      ? "bootstrap-user-data"
-      : stage === "conditional-publication"
-        ? "publication-user-data"
-        : stage === "conditional-sync"
-          ? "sync-user-data"
-          : stage === "conditional-preferences"
-            ? "preferences-user-data"
-            : "user-data",
-  );
+  const userData =
+    require("./setup-startup-diagnostics.cjs").userDataDirectoryForStage(
+      root,
+      stage,
+    );
   app.setPath("userData", userData);
   app.setPath("sessionData", path.join(root, "session-data"));
   app.setPath("home", path.join(root, "home"));
