@@ -169,3 +169,17 @@ blob and CRLF in its worktree representation. CI proves the refusal and CRLF
 observation; its precise cache-timing trigger is not established. No dirty-state
 acknowledgment, F13 guard or product Git policy is changed. New exact-head required
 Windows and Ubuntu push/PR runs must pass.
+
+At `0ec6df65b10bcb9f12cd709ac291ab25614eb766`, both required Ubuntu jobs
+pass. The [PR Windows aggregate](https://github.com/bryant-collab/PRMonitor/actions/runs/37298509661/job/111725382762)
+passes 431 of 432 desktop cases and times out the existing untracked-file
+content-change F13 test at its original 5,000-ms deadline. The push Windows
+aggregate and all twenty-one native acceptance stages
+[pass](https://github.com/bryant-collab/PRMonitor/actions/runs/37298504027/job/111725364853).
+The owned unit fixture now supplies its synthetic identity
+through child-process environment variables instead of two repository config
+commands, and reads both immutable fixture revisions with one Git log command
+instead of two rev-parse commands. This removes three redundant setup launches
+per fixture. Real F13 commands, SQLite durability, assertions, isolation, test
+count and deadlines remain unchanged. This is a bounded fixture-cost reduction,
+not proof of a sole timeout cause; the failed run remains evidence.

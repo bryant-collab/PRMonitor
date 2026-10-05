@@ -38,6 +38,12 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
       ...process.env,
       GIT_TERMINAL_PROMPT: "0",
       GIT_CONFIG_NOSYSTEM: "1",
+      // Fixture identity is process-local; avoid two configuration subprocesses
+      // for every owned repository without changing tested F13 commands.
+      GIT_AUTHOR_NAME: "F13 Test",
+      GIT_AUTHOR_EMAIL: "f13@example.invalid",
+      GIT_COMMITTER_NAME: "F13 Test",
+      GIT_COMMITTER_EMAIL: "f13@example.invalid",
       LC_ALL: "C",
       LANG: "C",
     },
@@ -57,8 +63,6 @@ async function createFixture(osAdapter?: F13OsPathAdapter): Promise<Fixture> {
   await mkdir(developerClone, { recursive: true });
   await mkdir(worktreeRoot, { recursive: true });
   await git(developerClone, "init", "-b", "main");
-  await git(developerClone, "config", "user.email", "f13@example.invalid");
-  await git(developerClone, "config", "user.name", "F13 Test");
   await writeFile(path.join(developerClone, "tracked.txt"), "base\n", "utf8");
   await writeFile(
     path.join(developerClone, ".gitignore"),
@@ -67,7 +71,6 @@ async function createFixture(osAdapter?: F13OsPathAdapter): Promise<Fixture> {
   );
   await git(developerClone, "add", ".");
   await git(developerClone, "commit", "-m", "base");
-  const baseSha = await git(developerClone, "rev-parse", "HEAD");
   await git(developerClone, "checkout", "-b", "feature");
   await writeFile(
     path.join(developerClone, "tracked.txt"),
@@ -75,7 +78,11 @@ async function createFixture(osAdapter?: F13OsPathAdapter): Promise<Fixture> {
     "utf8",
   );
   await git(developerClone, "commit", "-am", "feature");
-  const headSha = await git(developerClone, "rev-parse", "HEAD");
+  // Both revisions are immutable after these two fixture commits.
+  const [headSha, baseSha] = (
+    await git(developerClone, "log", "-2", "--format=%H")
+  ).split(/\r?\n/u);
+  if (!headSha || !baseSha) throw new Error("F13_FIXTURE_REVISIONS_MISSING");
   await writeFile(
     path.join(developerClone, "tracked.txt"),
     "feature\ndirty developer edit\n",
