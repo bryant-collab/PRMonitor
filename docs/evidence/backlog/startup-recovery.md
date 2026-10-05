@@ -146,3 +146,26 @@ fixture also reports the F13 refusal category and worktree classification withou
 private paths or content. A local checkout with command-local `core.autocrlf=true`
 passes the focused ten-stage matrix; this does not confirm the CI root cause.
 Product worktree guards, Git isolation and security settings are unchanged.
+
+At `8ee3addf454faa61962b5937cb97cbeac2b36529`, the
+[PR Ubuntu job](https://github.com/bryant-collab/PRMonitor/actions/runs/37297436822/job/111721889341)
+passes aggregate and sandboxed production accessibility smoke; the
+[push Ubuntu job](https://github.com/bryant-collab/PRMonitor/actions/runs/37297432909/job/111721876773)
+fails the retained native keyboard assertion. The follow-up observes real
+renderer focus after the same single Tab and Enter inputs, sharing the original
+ten-second accessibility deadline instead of assuming one main-process event-loop
+turn processes native renderer input. It neither assigns the expected focus
+targets nor retries input to bypass the assertion.
+
+The [PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37297436822/job/111721889693)
+passes aggregate and eighteen native stages, then reports
+`WORKTREE_CONDITION_UNVERIFIED:UNATTRIBUTED_CHANGES:ATTRIBUTES_CRLF` for the
+publication fixture. The fixture now pins `.gitattributes` itself to LF as well
+as `source.ts`, exercises a command-local autocrlf checkout, and invalidates the
+stat cache without changing bytes before production F13 inspection. Local full
+Git and checksum-verified CI MinGit alone both passed the focused matrix before
+this fix; the basic checkout reproduction confirms LF in the committed attribute
+blob and CRLF in its worktree representation. CI proves the refusal and CRLF
+observation; its precise cache-timing trigger is not established. No dirty-state
+acknowledgment, F13 guard or product Git policy is changed. New exact-head required
+Windows and Ubuntu push/PR runs must pass.

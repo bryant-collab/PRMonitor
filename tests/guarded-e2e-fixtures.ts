@@ -202,7 +202,7 @@ export async function seedGuardedWork(
     // settings cannot make a restored checkpoint clean for only one boundary.
     await writeFile(
       path.join(clone, ".gitattributes"),
-      "source.ts text eol=lf\n",
+      ".gitattributes text eol=lf\nsource.ts text eol=lf\n",
     );
     await writeFile(
       path.join(clone, "source.ts"),
@@ -348,6 +348,10 @@ export async function seedGuardedWork(
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
+    // Invalidate checkout's stat cache without changing bytes, so a clean
+    // fixture cannot depend on Git reusing a different policy's cached result.
+    const attributePath = path.join(worktree, ".gitattributes");
+    await writeFile(attributePath, await readFile(attributePath));
     const attributionService = new F13WorktreeService({
       repositories: new F13PersistenceRepositories(store),
     });

@@ -452,7 +452,7 @@ async function runAccessibilityProbe(
   };
   if (!normal.ok)
     return { ...normal, reason: "ACCESSIBILITY_SEMANTICS_FAILED" };
-  if (!(await runKeyboardProbe(window))) {
+  if (!(await runKeyboardProbe(window, deadline))) {
     return {
       ok: false,
       forcedColors: false,
@@ -472,7 +472,7 @@ async function runAccessibilityProbe(
       accessibilityProbe,
       true,
     )) as { ok: boolean; forcedColors: boolean };
-    const forcedKeyboard = await runKeyboardProbe(window);
+    const forcedKeyboard = await runKeyboardProbe(window, deadline);
     await window.webContents.debugger.sendCommand(
       "Emulation.setEmulatedMedia",
       { features: [] },
@@ -502,7 +502,18 @@ async function runAccessibilityProbe(
   return { ok: true, forcedColors: true };
 }
 
-async function runKeyboardProbe(window: BrowserWindow): Promise<boolean> {
+async function runKeyboardProbe(
+  window: BrowserWindow,
+  deadline: number,
+): Promise<boolean> {
+  const waitForFocus = async (expression: string): Promise<boolean> => {
+    while (Date.now() < deadline) {
+      if (await window.webContents.executeJavaScript(expression, true))
+        return true;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  };
   await window.webContents.executeJavaScript(
     `(() => {
       const body = document.body;
@@ -514,19 +525,18 @@ async function runKeyboardProbe(window: BrowserWindow): Promise<boolean> {
   );
   window.webContents.sendInputEvent({ type: "keyDown", keyCode: "TAB" });
   window.webContents.sendInputEvent({ type: "keyUp", keyCode: "TAB" });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const tabTarget = (await window.webContents.executeJavaScript(
+  // Native input is processed by the renderer asynchronously. Observe its
+  // actual focus result within the existing accessibility deadline.
+  const tabTarget = await waitForFocus(
     `document.activeElement?.classList.contains("skip-link") === true`,
-    true,
-  )) as boolean;
+  );
+  if (!tabTarget) return false;
 
   window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
   window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const enterTarget = (await window.webContents.executeJavaScript(
+  const enterTarget = await waitForFocus(
     `document.activeElement?.id === "${STARTUP_STATUS_ID}"`,
-    true,
-  )) as boolean;
+  );
   return tabTarget && enterTarget;
 }
 
