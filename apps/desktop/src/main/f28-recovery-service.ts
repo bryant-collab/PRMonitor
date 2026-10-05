@@ -68,6 +68,7 @@ export interface F28RecoveryActivityEvent {
     | "SESSION_COMPLETED";
   readonly sessionId: string;
   readonly scopeKey?: string;
+  readonly scope?: F28RecoveryScopeInput;
   readonly owner?: string;
   readonly stage: F28RecoveryStage;
   readonly classification?: F28RecoveryClassification;
@@ -473,6 +474,7 @@ export class F28RecoveryCoordinator {
           sessionId: session.sessionId,
           scopeKey: scope.scopeKey,
           owner: owner?.owner,
+          scope: scope.scope,
           stage,
           classification: outcome.classification,
           reasonCode: outcome.reason.code,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { SettingsCategory } from "./shell-routing";
 import type { IpcResponse } from "../shared/ipc";
 import type {
   F16CommonInstructionProfile,
@@ -12,6 +13,8 @@ import { F16_POLICY_PRESETS, F16_TASK_LABELS } from "../shared/f16-preferences";
 
 interface PreferencesProps {
   readonly enabled: boolean;
+  readonly visible?: boolean;
+  readonly category?: SettingsCategory;
 }
 
 interface TaskDraftForm {
@@ -100,7 +103,12 @@ function validationSummaryLabel(status: ValidationStatus | undefined): string {
   return status === undefined ? "not resolved" : status.replaceAll("_", " ");
 }
 
-export function Preferences({ enabled }: PreferencesProps) {
+export function Preferences({
+  enabled,
+  visible = true,
+  category,
+}: PreferencesProps) {
+  const [selectedTask, setSelectedTask] = useState<F16TaskType>(taskTypes[0]!);
   const [preferences, setPreferences] = useState<F16PreferencesReadModel>();
   const [drafts, setDrafts] = useState<Record<F16TaskType, TaskDraftForm>>();
   const [policy, setPolicy] = useState<F16PolicyPreset>("AUTONOMOUS_WORKTREE");
@@ -175,8 +183,27 @@ export function Preferences({ enabled }: PreferencesProps) {
         return;
       }
       setPreferences(value);
-      setDrafts(draftsFor(value));
-      setInstructionOrder(selectedOrder(value));
+      setDrafts((current) => {
+        const next = draftsFor(value);
+        if (current === undefined) return next;
+        for (const type of taskTypes)
+          if (
+            JSON.stringify(current[type]) !== JSON.stringify(drafts?.[type]) ||
+            JSON.stringify(
+              preferences.taskProfiles.find((p) => p.taskType === type),
+            ) ===
+              JSON.stringify(
+                value.taskProfiles.find((p) => p.taskType === type),
+              )
+          )
+            next[type] = current[type];
+        return next;
+      });
+      if (
+        JSON.stringify(preferences.selectedCommonInstructionIds) !==
+        JSON.stringify(value.selectedCommonInstructionIds)
+      )
+        setInstructionOrder(selectedOrder(value));
       setMessage(`Saved Preferences revision ${value.settingsRevision}.`);
     } catch {
       setError(
@@ -247,7 +274,7 @@ export function Preferences({ enabled }: PreferencesProps) {
     });
   };
 
-  if (!enabled) return null;
+  if (!enabled || !visible) return null;
   if (preferences === undefined) {
     return (
       <section
@@ -274,7 +301,7 @@ export function Preferences({ enabled }: PreferencesProps) {
     >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">AI control plane</p>
+          <p className="eyebrow">Settings</p>
           <h2 id="preferences-heading">Preferences</h2>
         </div>
         <span className="store-state" aria-label="Preferences revision">
@@ -282,8 +309,8 @@ export function Preferences({ enabled }: PreferencesProps) {
         </span>
       </div>
       <p className="section-help">
-        Provider settings are admitted by capability metadata and captured into
-        immutable task snapshots. Publication authority is never granted here.
+        Changes apply to new work. Work that has already started keeps its saved
+        settings.
       </p>
       {error !== "" ? (
         <p className="form-message" role="alert">
@@ -296,668 +323,718 @@ export function Preferences({ enabled }: PreferencesProps) {
         </p>
       ) : null}
 
-      <section
-        className="preference-section"
-        aria-labelledby="task-profiles-heading"
-      >
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">F15 capability admission</p>
-            <h3 id="task-profiles-heading">AI Task Profiles</h3>
-          </div>
-        </div>
-        <p className="section-help">
-          The four task types are separate revisioned profiles. Model and option
-          compatibility is checked before a profile can become available.
-        </p>
-        <div className="preference-grid">
-          {taskTypes.map((taskType) => {
-            const profile = preferences.taskProfiles.find(
-              (candidate) => candidate.taskType === taskType,
-            );
-            const draft = drafts?.[taskType];
-            if (profile === undefined || draft === undefined) return null;
-            return (
-              <article className="preference-card" key={taskType}>
-                <div className="profile-card-heading">
-                  <div>
-                    <h4>{F16_TASK_LABELS[taskType]}</h4>
-                    <p>{taskType}</p>
-                  </div>
-                  <span
-                    className={`status-pill status-${profile.availability.toLowerCase()}`}
-                  >
-                    {profile.availability.toLowerCase()}
-                  </span>
-                </div>
-                <div className="preferences-form">
-                  <label>
-                    Provider
-                    <input
-                      value={draft.providerId}
-                      onChange={(event) =>
-                        setDrafts((current) =>
-                          current === undefined
-                            ? current
-                            : {
-                                ...current,
-                                [taskType]: {
-                                  ...draft,
-                                  providerId: event.target.value,
-                                },
-                              },
-                        )
-                      }
-                      maxLength={128}
-                    />
-                  </label>
-                  <label>
-                    Model
-                    <input
-                      value={draft.modelId}
-                      onChange={(event) =>
-                        setDrafts((current) =>
-                          current === undefined
-                            ? current
-                            : {
-                                ...current,
-                                [taskType]: {
-                                  ...draft,
-                                  modelId: event.target.value,
-                                },
-                              },
-                        )
-                      }
-                      maxLength={256}
-                    />
-                  </label>
-                  <label>
-                    Reasoning effort
-                    <input
-                      value={draft.reasoningEffort}
-                      onChange={(event) =>
-                        setDrafts((current) =>
-                          current === undefined
-                            ? current
-                            : {
-                                ...current,
-                                [taskType]: {
-                                  ...draft,
-                                  reasoningEffort: event.target.value,
-                                },
-                              },
-                        )
-                      }
-                      maxLength={64}
-                      placeholder="medium"
-                    />
-                  </label>
-                  <label>
-                    Provider options (JSON)
-                    <textarea
-                      value={draft.providerOptions}
-                      onChange={(event) =>
-                        setDrafts((current) =>
-                          current === undefined
-                            ? current
-                            : {
-                                ...current,
-                                [taskType]: {
-                                  ...draft,
-                                  providerOptions: event.target.value,
-                                },
-                              },
-                        )
-                      }
-                      rows={3}
-                      aria-describedby={`${taskType}-options-help`}
-                    />
-                  </label>
-                  <p id={`${taskType}-options-help`} className="field-help">
-                    Bounded JSON only; credential-shaped keys are rejected.
-                  </p>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={draft.enabled}
-                      onChange={(event) =>
-                        setDrafts((current) =>
-                          current === undefined
-                            ? current
-                            : {
-                                ...current,
-                                [taskType]: {
-                                  ...draft,
-                                  enabled: event.target.checked,
-                                },
-                              },
-                        )
-                      }
-                    />{" "}
-                    Enable this task profile
-                  </label>
-                  <dl className="profile-details">
-                    <div>
-                      <dt>Profile revision</dt>
-                      <dd>{profile.revision}</dd>
-                    </div>
-                    <div>
-                      <dt>Compatibility</dt>
-                      <dd>
-                        {profile.availabilityReason ??
-                          "Capability metadata accepted."}
-                      </dd>
-                    </div>
-                  </dl>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void saveTaskProfile(taskType)}
-                  >
-                    Save task profile
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="preference-section" aria-labelledby="policy-heading">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Bounded execution matrix</p>
-            <h3 id="policy-heading">Execution Policy</h3>
-          </div>
-          <span className="status-pill">
-            {preferences.policy.preset.replaceAll("_", " ").toLowerCase()}
-          </span>
-        </div>
-        <p className="section-help">
-          Review proposals and read-only conversations always resolve to the
-          read-only floor. Every preset has publication authority set to false.
-        </p>
-        <label>
-          Configured policy
-          <select
-            value={policy}
-            onChange={(event) =>
-              setPolicy(event.target.value as F16PolicyPreset)
-            }
-          >
-            {F16_POLICY_PRESETS.map((preset) => (
-              <option key={preset} value={preset}>
-                {preferences.policyPresets.find(
-                  (summary) => summary.preset === preset,
-                )?.label ?? preset}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="policy-summary-grid">
-          {preferences.policyPresets.map((summary) => (
-            <article
-              className={`policy-summary${summary.preset === policy ? " policy-summary-selected" : ""}`}
-              key={summary.preset}
-            >
-              <h4>{summary.label}</h4>
-              <p>{summary.summary}</p>
-              <small>
-                Sandbox: {summary.sandboxMode}; network: {summary.networkAccess}
-                ; publication: unavailable
-              </small>
-            </article>
-          ))}
-        </div>
-        <button
-          type="button"
-          disabled={busy || policy === preferences.policy.preset}
-          onClick={() =>
-            void commit((settingsRevision) =>
-              window.prmonitor!.savePolicy({
-                expectedSettingsRevision: settingsRevision,
-                preset: policy,
-              }),
-            )
-          }
+      {category === undefined || category === "tasks" ? (
+        <section
+          className="preference-section"
+          aria-labelledby="task-profiles-heading"
         >
-          Save execution policy
-        </button>
-      </section>
-
-      <section
-        className="preference-section"
-        aria-labelledby="operational-heading"
-      >
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">F12 / F13 handoff</p>
-            <h3 id="operational-heading">Operational Preferences</h3>
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">AI settings</p>
+              <h3 id="task-profiles-heading">AI Task Profiles</h3>
+            </div>
           </div>
-        </div>
-        <p className="section-help">
-          Timing values are validated by F12. The isolated-worktree root is
-          validated by F13 and must already exist; Preferences never creates or
-          removes it.
-        </p>
-        <div className="preferences-form">
+          <p className="section-help">
+            The four task types are separate revisioned profiles. Model and
+            option compatibility is checked before a profile can become
+            available.
+          </p>
+          <div className="preference-grid">
+            <label>
+              AI task
+              <select
+                value={selectedTask}
+                onChange={(event) =>
+                  setSelectedTask(event.target.value as F16TaskType)
+                }
+              >
+                {taskTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {F16_TASK_LABELS[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {[selectedTask].map((taskType) => {
+              const profile = preferences.taskProfiles.find(
+                (candidate) => candidate.taskType === taskType,
+              );
+              const draft = drafts?.[taskType];
+              if (profile === undefined || draft === undefined) return null;
+              return (
+                <article className="preference-card" key={taskType}>
+                  <div className="profile-card-heading">
+                    <div>
+                      <h4>{F16_TASK_LABELS[taskType]}</h4>
+                    </div>
+                    <span
+                      className={`status-pill status-${profile.availability.toLowerCase()}`}
+                    >
+                      {profile.availability.toLowerCase()}
+                    </span>
+                  </div>
+                  <div className="preferences-form">
+                    <label>
+                      Provider
+                      <input
+                        value={draft.providerId}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current === undefined
+                              ? current
+                              : {
+                                  ...current,
+                                  [taskType]: {
+                                    ...draft,
+                                    providerId: event.target.value,
+                                  },
+                                },
+                          )
+                        }
+                        maxLength={128}
+                      />
+                    </label>
+                    <label>
+                      Model
+                      <input
+                        value={draft.modelId}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current === undefined
+                              ? current
+                              : {
+                                  ...current,
+                                  [taskType]: {
+                                    ...draft,
+                                    modelId: event.target.value,
+                                  },
+                                },
+                          )
+                        }
+                        maxLength={256}
+                      />
+                    </label>
+                    <label>
+                      Reasoning effort
+                      <input
+                        value={draft.reasoningEffort}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current === undefined
+                              ? current
+                              : {
+                                  ...current,
+                                  [taskType]: {
+                                    ...draft,
+                                    reasoningEffort: event.target.value,
+                                  },
+                                },
+                          )
+                        }
+                        maxLength={64}
+                        placeholder="medium"
+                      />
+                    </label>
+                    <label>
+                      Provider options (JSON)
+                      <textarea
+                        value={draft.providerOptions}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current === undefined
+                              ? current
+                              : {
+                                  ...current,
+                                  [taskType]: {
+                                    ...draft,
+                                    providerOptions: event.target.value,
+                                  },
+                                },
+                          )
+                        }
+                        rows={3}
+                        aria-describedby={`${taskType}-options-help`}
+                      />
+                    </label>
+                    <p id={`${taskType}-options-help`} className="field-help">
+                      Bounded JSON only; credential-shaped keys are rejected.
+                    </p>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={draft.enabled}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current === undefined
+                              ? current
+                              : {
+                                  ...current,
+                                  [taskType]: {
+                                    ...draft,
+                                    enabled: event.target.checked,
+                                  },
+                                },
+                          )
+                        }
+                      />{" "}
+                      Enable this task profile
+                    </label>
+                    <dl className="profile-details">
+                      <div>
+                        <dt>Profile revision</dt>
+                        <dd>{profile.revision}</dd>
+                      </div>
+                      <div>
+                        <dt>Compatibility</dt>
+                        <dd>
+                          {profile.availabilityReason ??
+                            "This task profile is available."}
+                        </dd>
+                      </div>
+                    </dl>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void saveTaskProfile(taskType)}
+                    >
+                      Save task profile
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        setDrafts((current) =>
+                          current === undefined
+                            ? current
+                            : { ...current, [taskType]: taskDraft(profile) },
+                        )
+                      }
+                    >
+                      Discard task draft
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {category === undefined || category === "policy" ? (
+        <section
+          className="preference-section"
+          aria-labelledby="policy-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Bounded execution matrix</p>
+              <h3 id="policy-heading">Execution Policy</h3>
+            </div>
+            <span className="status-pill">
+              {preferences.policy.preset.replaceAll("_", " ").toLowerCase()}
+            </span>
+          </div>
+          <p className="section-help">
+            Review proposals and read-only conversations always resolve to the
+            read-only floor. Every preset has publication authority set to
+            false.
+          </p>
           <label>
-            Maximum AI Work Turns
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={maxAiWorkTurns}
-              onChange={(event) => setMaxAiWorkTurns(event.target.value)}
-            />
+            Configured policy
+            <select
+              value={policy}
+              onChange={(event) =>
+                setPolicy(event.target.value as F16PolicyPreset)
+              }
+            >
+              {F16_POLICY_PRESETS.map((preset) => (
+                <option key={preset} value={preset}>
+                  {preferences.policyPresets.find(
+                    (summary) => summary.preset === preset,
+                  )?.label ?? preset}
+                </option>
+              ))}
+            </select>
           </label>
-          <label>
-            Isolated-worktree root
-            <input
-              value={worktreeRoot}
-              onChange={(event) => setWorktreeRoot(event.target.value)}
-              maxLength={32767}
-              placeholder="Blank clears the saved root"
-            />
-          </label>
-          <label>
-            Polling interval (ms)
-            <input
-              type="number"
-              min={60000}
-              max={86400000}
-              value={pollingIntervalMs}
-              onChange={(event) => setPollingIntervalMs(event.target.value)}
-            />
-          </label>
-          <label>
-            Quiet period (ms)
-            <input
-              type="number"
-              min={60000}
-              max={86400000}
-              value={quietPeriodMs}
-              onChange={(event) => setQuietPeriodMs(event.target.value)}
-            />
-          </label>
+          <div className="policy-summary-grid">
+            {preferences.policyPresets.map((summary) => (
+              <article
+                className={`policy-summary${summary.preset === policy ? " policy-summary-selected" : ""}`}
+                key={summary.preset}
+              >
+                <h4>{summary.label}</h4>
+                <p>{summary.summary}</p>
+                <small>
+                  Sandbox: {summary.sandboxMode}; network:{" "}
+                  {summary.networkAccess}; publication: unavailable
+                </small>
+              </article>
+            ))}
+          </div>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || policy === preferences.policy.preset}
             onClick={() =>
               void commit((settingsRevision) =>
-                window.prmonitor!.saveOperationalPreferences({
+                window.prmonitor!.savePolicy({
                   expectedSettingsRevision: settingsRevision,
-                  maxAiWorkTurns: Number(maxAiWorkTurns),
-                  worktreeRoot:
-                    worktreeRoot.trim().length === 0 ? null : worktreeRoot,
-                  pollingIntervalMs: Number(pollingIntervalMs),
-                  quietPeriodMs: Number(quietPeriodMs),
+                  preset: policy,
                 }),
               )
             }
           >
-            Save operational preferences
+            Save execution policy
           </button>
-        </div>
-        <dl className="profile-details">
-          <div>
-            <dt>Current root revision</dt>
-            <dd>
-              {preferences.operational.worktreeRoot?.rootRevision ??
-                "not configured"}
-            </dd>
-          </div>
-          <div>
-            <dt>Current policy publication authority</dt>
-            <dd>{String(preferences.policy.publicationAuthority)}</dd>
-          </div>
-        </dl>
-      </section>
+        </section>
+      ) : null}
 
-      <section
-        className="preference-section"
-        aria-labelledby="common-instructions-heading"
-      >
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Snapshot input</p>
-            <h3 id="common-instructions-heading">Common Instructions</h3>
+      {category === undefined || category === "operational" ? (
+        <section
+          className="preference-section"
+          aria-labelledby="operational-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">monitoring / worktree handoff</p>
+              <h3 id="operational-heading">Operational Preferences</h3>
+            </div>
           </div>
-          <span className="store-state">
-            {preferences.commonInstructionProfiles.length} profiles
-          </span>
-        </div>
-        <p className="section-help">
-          Instructions are revisioned, bounded text. They are copied into
-          effective snapshots in the selected order and never interpreted as
-          executable policy.
-        </p>
-        <div className="preferences-form">
-          <label>
-            Profile name
-            <input
-              value={instructionName}
-              onChange={(event) => setInstructionName(event.target.value)}
-              maxLength={128}
-            />
-          </label>
-          <label>
-            Instruction text
-            <textarea
-              value={instructionText}
-              onChange={(event) => setInstructionText(event.target.value)}
-              maxLength={32768}
-              rows={5}
-            />
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={instructionEnabled}
-              onChange={(event) => setInstructionEnabled(event.target.checked)}
-            />{" "}
-            Enabled
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={instructionSelected}
-              onChange={(event) => setInstructionSelected(event.target.checked)}
-            />{" "}
-            Selected for future snapshots
-          </label>
-          <div className="profile-actions">
+          <p className="section-help">
+            Timing values are validated by monitoring. The isolated-worktree
+            root is validated by worktree and must already exist; Preferences
+            never creates or removes it.
+          </p>
+          <div className="preferences-form">
+            <label>
+              Maximum AI Work Turns
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={maxAiWorkTurns}
+                onChange={(event) => setMaxAiWorkTurns(event.target.value)}
+              />
+            </label>
+            <label>
+              Isolated-worktree root
+              <input
+                value={worktreeRoot}
+                onChange={(event) => setWorktreeRoot(event.target.value)}
+                maxLength={32767}
+                placeholder="Blank clears the saved root"
+              />
+            </label>
+            <label>
+              Polling interval (ms)
+              <input
+                type="number"
+                min={60000}
+                max={86400000}
+                value={pollingIntervalMs}
+                onChange={(event) => setPollingIntervalMs(event.target.value)}
+              />
+            </label>
+            <label>
+              Quiet period (ms)
+              <input
+                type="number"
+                min={60000}
+                max={86400000}
+                value={quietPeriodMs}
+                onChange={(event) => setQuietPeriodMs(event.target.value)}
+              />
+            </label>
             <button
               type="button"
-              disabled={
-                busy ||
-                instructionName.trim().length === 0 ||
-                instructionText.trim().length === 0
-              }
+              disabled={busy}
               onClick={() =>
                 void commit((settingsRevision) =>
-                  window.prmonitor!.saveCommonInstruction({
+                  window.prmonitor!.saveOperationalPreferences({
                     expectedSettingsRevision: settingsRevision,
-                    ...(instructionId === undefined
-                      ? {}
-                      : { profileId: instructionId }),
-                    name: instructionName,
-                    instructionText,
-                    enabled: instructionEnabled,
-                    selected: instructionSelected,
+                    maxAiWorkTurns: Number(maxAiWorkTurns),
+                    worktreeRoot:
+                      worktreeRoot.trim().length === 0 ? null : worktreeRoot,
+                    pollingIntervalMs: Number(pollingIntervalMs),
+                    quietPeriodMs: Number(quietPeriodMs),
                   }),
                 )
               }
             >
-              {instructionId === undefined
-                ? "Create instruction"
-                : "Save instruction revision"}
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                setInstructionId(undefined);
-                setInstructionName("");
-                setInstructionText("");
-                setInstructionEnabled(true);
-                setInstructionSelected(false);
-              }}
-            >
-              New
+              Save operational preferences
             </button>
           </div>
-        </div>
-        {preferences.commonInstructionProfiles.length === 0 ? (
-          <p className="empty-state">
-            No Common Instruction profiles are configured.
-          </p>
-        ) : (
-          <div
-            className="instruction-list"
-            aria-label="Common Instruction profiles"
-          >
-            {preferences.commonInstructionProfiles.map((profile, index) => (
-              <article className="preference-card" key={profile.profileId}>
-                <div className="profile-card-heading">
-                  <div>
-                    <h4>{profile.name}</h4>
-                    <p>
-                      revision {profile.revision} ·{" "}
-                      {profile.enabled ? "enabled" : "disabled"}
-                    </p>
-                  </div>
-                  <span className="status-pill">
-                    {preferences.selectedCommonInstructionIds.includes(
-                      profile.profileId,
-                    )
-                      ? `selected ${preferences.selectedCommonInstructionIds.indexOf(profile.profileId) + 1}`
-                      : "not selected"}
-                  </span>
-                </div>
-                <p className="instruction-preview">{profile.instructionText}</p>
-                <div className="profile-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => editInstruction(profile)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() =>
-                      void commit((settingsRevision) =>
-                        window.prmonitor!.deleteCommonInstruction({
-                          expectedSettingsRevision: settingsRevision,
-                          profileId: profile.profileId,
-                        }),
-                      )
-                    }
-                  >
-                    Delete
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={index === 0}
-                    onClick={() => moveInstruction(profile.profileId, -1)}
-                  >
-                    Move up
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={
-                      index === preferences.commonInstructionProfiles.length - 1
-                    }
-                    onClick={() => moveInstruction(profile.profileId, 1)}
-                  >
-                    Move down
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() =>
-            void commit((settingsRevision) =>
-              window.prmonitor!.saveCommonInstructionSelection({
-                expectedSettingsRevision: settingsRevision,
-                selectedProfileIds: instructionOrder.filter((profileId) =>
-                  preferences.commonInstructionProfiles.some(
-                    (profile) =>
-                      profile.profileId === profileId &&
-                      profile.enabled &&
-                      preferences.selectedCommonInstructionIds.includes(
-                        profileId,
-                      ),
-                  ),
-                ),
-              }),
-            )
-          }
-        >
-          Save selected order
-        </button>
-      </section>
+          <dl className="profile-details">
+            <div>
+              <dt>Current root revision</dt>
+              <dd>
+                {preferences.operational.worktreeRoot?.rootRevision ??
+                  "not configured"}
+              </dd>
+            </div>
+            <div>
+              <dt>Current policy publication authority</dt>
+              <dd>{String(preferences.policy.publicationAuthority)}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
 
-      <section
-        className="preference-section"
-        aria-labelledby="repository-guidance-heading"
-      >
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">F00 / F07 context</p>
-            <h3 id="repository-guidance-heading">
-              Repository Build &amp; Validation
-            </h3>
+      {category === undefined || category === "instructions" ? (
+        <section
+          className="preference-section"
+          aria-labelledby="common-instructions-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Shared task instructions</p>
+              <h3 id="common-instructions-heading">Common Instructions</h3>
+            </div>
+            <span className="store-state">
+              {preferences.commonInstructionProfiles.length} profiles
+            </span>
           </div>
-        </div>
-        <p className="section-help">
-          This is human guidance and a read-only validation summary. It does not
-          execute commands, grant approval, or publish results.
-        </p>
-        <div className="preferences-form">
-          <label>
-            GitHub server ID
-            <input
-              value={repository.serverId}
-              onChange={(event) =>
-                setRepository((current) => ({
-                  ...current,
-                  serverId: event.target.value,
-                }))
-              }
-              maxLength={256}
-            />
-          </label>
-          <label>
-            Repository owner
-            <input
-              value={repository.owner}
-              onChange={(event) =>
-                setRepository((current) => ({
-                  ...current,
-                  owner: event.target.value,
-                }))
-              }
-              maxLength={256}
-            />
-          </label>
-          <label>
-            Repository name
-            <input
-              value={repository.name}
-              onChange={(event) =>
-                setRepository((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))
-              }
-              maxLength={256}
-            />
-          </label>
-          <label>
-            Repository key
-            <input
-              value={repository.key}
-              onChange={(event) =>
-                setRepository((current) => ({
-                  ...current,
-                  key: event.target.value,
-                }))
-              }
-              maxLength={512}
-              placeholder="server/owner/name"
-            />
-          </label>
-          <label>
-            Build guidance
-            <textarea
-              value={repository.buildInstructions}
-              onChange={(event) =>
-                setRepository((current) => ({
-                  ...current,
-                  buildInstructions: event.target.value,
-                }))
-              }
-              maxLength={16384}
-              rows={4}
-              aria-describedby="build-guidance-help"
-            />
-          </label>
-          <p id="build-guidance-help" className="field-help">
-            Describe the repository’s build expectations in prose. F00 owns
-            structured validation profiles and execution.
+          <p className="section-help">
+            Instructions are revisioned, bounded text. They are copied into
+            effective snapshots in the selected order and never interpreted as
+            executable policy.
           </p>
+          <div className="preferences-form">
+            <label>
+              Profile name
+              <input
+                value={instructionName}
+                onChange={(event) => setInstructionName(event.target.value)}
+                maxLength={128}
+              />
+            </label>
+            <label>
+              Instruction text
+              <textarea
+                value={instructionText}
+                onChange={(event) => setInstructionText(event.target.value)}
+                maxLength={32768}
+                rows={5}
+              />
+            </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={instructionEnabled}
+                onChange={(event) =>
+                  setInstructionEnabled(event.target.checked)
+                }
+              />{" "}
+              Enabled
+            </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={instructionSelected}
+                onChange={(event) =>
+                  setInstructionSelected(event.target.checked)
+                }
+              />{" "}
+              Use for new tasks
+            </label>
+            <div className="profile-actions">
+              <button
+                type="button"
+                disabled={
+                  busy ||
+                  instructionName.trim().length === 0 ||
+                  instructionText.trim().length === 0
+                }
+                onClick={() =>
+                  void commit((settingsRevision) =>
+                    window.prmonitor!.saveCommonInstruction({
+                      expectedSettingsRevision: settingsRevision,
+                      ...(instructionId === undefined
+                        ? {}
+                        : { profileId: instructionId }),
+                      name: instructionName,
+                      instructionText,
+                      enabled: instructionEnabled,
+                      selected: instructionSelected,
+                    }),
+                  )
+                }
+              >
+                {instructionId === undefined
+                  ? "Create instruction"
+                  : "Save instruction revision"}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setInstructionId(undefined);
+                  setInstructionName("");
+                  setInstructionText("");
+                  setInstructionEnabled(true);
+                  setInstructionSelected(false);
+                }}
+              >
+                New
+              </button>
+            </div>
+          </div>
+          {preferences.commonInstructionProfiles.length === 0 ? (
+            <p className="empty-state">
+              No Common Instruction profiles are configured.
+            </p>
+          ) : (
+            <div
+              className="instruction-list"
+              aria-label="Common Instruction profiles"
+            >
+              {preferences.commonInstructionProfiles.map((profile, index) => (
+                <article className="preference-card" key={profile.profileId}>
+                  <div className="profile-card-heading">
+                    <div>
+                      <h4>{profile.name}</h4>
+                      <p>
+                        revision {profile.revision} ·{" "}
+                        {profile.enabled ? "enabled" : "disabled"}
+                      </p>
+                    </div>
+                    <span className="status-pill">
+                      {preferences.selectedCommonInstructionIds.includes(
+                        profile.profileId,
+                      )
+                        ? `selected ${preferences.selectedCommonInstructionIds.indexOf(profile.profileId) + 1}`
+                        : "not selected"}
+                    </span>
+                  </div>
+                  <p className="instruction-preview">
+                    {profile.instructionText}
+                  </p>
+                  <div className="profile-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => editInstruction(profile)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void commit((settingsRevision) =>
+                          window.prmonitor!.deleteCommonInstruction({
+                            expectedSettingsRevision: settingsRevision,
+                            profileId: profile.profileId,
+                          }),
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={index === 0}
+                      onClick={() => moveInstruction(profile.profileId, -1)}
+                    >
+                      Move up
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={
+                        index ===
+                        preferences.commonInstructionProfiles.length - 1
+                      }
+                      onClick={() => moveInstruction(profile.profileId, 1)}
+                    >
+                      Move down
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             disabled={busy}
             onClick={() =>
               void commit((settingsRevision) =>
-                window.prmonitor!.saveRepositoryPreferences({
+                window.prmonitor!.saveCommonInstructionSelection({
                   expectedSettingsRevision: settingsRevision,
-                  repository: {
-                    serverId: repository.serverId,
-                    owner: repository.owner,
-                    name: repository.name,
-                    key: repository.key,
-                  },
-                  buildInstructions: repository.buildInstructions,
+                  selectedProfileIds: instructionOrder.filter((profileId) =>
+                    preferences.commonInstructionProfiles.some(
+                      (profile) =>
+                        profile.profileId === profileId &&
+                        profile.enabled &&
+                        preferences.selectedCommonInstructionIds.includes(
+                          profileId,
+                        ),
+                    ),
+                  ),
                 }),
               )
             }
           >
-            Save repository guidance
+            Save selected order
           </button>
-        </div>
-        {preferences.repositories.map((settings) => (
-          <article className="preference-card" key={settings.repository.key}>
-            <h4>
-              {settings.repository.owner}/{settings.repository.name}
-            </h4>
-            <dl className="profile-details">
-              <div>
-                <dt>Validation status</dt>
-                <dd>
-                  {validationSummaryLabel(settings.validationSummary?.status)}
-                </dd>
-              </div>
-              <div>
-                <dt>Validation source</dt>
-                <dd>{settings.validationSummary?.source ?? "none"}</dd>
-              </div>
-              <div>
-                <dt>Commands / manual checks</dt>
-                <dd>
-                  {settings.validationSummary === undefined
-                    ? "not resolved"
-                    : `${settings.validationSummary.commandCount ?? 0} / ${settings.validationSummary.manualCheckCount ?? 0}`}
-                </dd>
-              </div>
-              <div>
-                <dt>Bounds revision</dt>
-                <dd>
-                  {settings.validationSummary?.boundsRevision ??
-                    "f00-validation-v1"}
-                </dd>
-              </div>
-            </dl>
-            {settings.validationSummary?.warningCode !== undefined ? (
-              <p className="profile-reason" role="status">
-                {settings.validationSummary.warningCode}: configure or authorize
-                the structured validation profile in the validation workflow.
+        </section>
+      ) : null}
+
+      {category === undefined || category === "repository" ? (
+        <section
+          className="preference-section"
+          aria-labelledby="repository-guidance-heading"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">
+                validation settings / pull request configuration context
               </p>
-            ) : null}
-          </article>
-        ))}
-      </section>
+              <h3 id="repository-guidance-heading">
+                Repository Build &amp; Validation
+              </h3>
+            </div>
+          </div>
+          <p className="section-help">
+            This is human guidance and a read-only validation summary. It does
+            not execute commands, grant approval, or publish results.
+          </p>
+          <div className="preferences-form">
+            <label>
+              GitHub server ID
+              <input
+                value={repository.serverId}
+                onChange={(event) =>
+                  setRepository((current) => ({
+                    ...current,
+                    serverId: event.target.value,
+                  }))
+                }
+                maxLength={256}
+              />
+            </label>
+            <label>
+              Repository owner
+              <input
+                value={repository.owner}
+                onChange={(event) =>
+                  setRepository((current) => ({
+                    ...current,
+                    owner: event.target.value,
+                  }))
+                }
+                maxLength={256}
+              />
+            </label>
+            <label>
+              Repository name
+              <input
+                value={repository.name}
+                onChange={(event) =>
+                  setRepository((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                maxLength={256}
+              />
+            </label>
+            <label>
+              Repository key
+              <input
+                value={repository.key}
+                onChange={(event) =>
+                  setRepository((current) => ({
+                    ...current,
+                    key: event.target.value,
+                  }))
+                }
+                maxLength={512}
+                placeholder="server/owner/name"
+              />
+            </label>
+            <label>
+              Build guidance
+              <textarea
+                value={repository.buildInstructions}
+                onChange={(event) =>
+                  setRepository((current) => ({
+                    ...current,
+                    buildInstructions: event.target.value,
+                  }))
+                }
+                maxLength={16384}
+                rows={4}
+                aria-describedby="build-guidance-help"
+              />
+            </label>
+            <p id="build-guidance-help" className="field-help">
+              Describe the repository’s build expectations in prose. validation
+              settings owns structured validation profiles and execution.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void commit((settingsRevision) =>
+                  window.prmonitor!.saveRepositoryPreferences({
+                    expectedSettingsRevision: settingsRevision,
+                    repository: {
+                      serverId: repository.serverId,
+                      owner: repository.owner,
+                      name: repository.name,
+                      key: repository.key,
+                    },
+                    buildInstructions: repository.buildInstructions,
+                  }),
+                )
+              }
+            >
+              Save repository guidance
+            </button>
+          </div>
+          {preferences.repositories.map((settings) => (
+            <article className="preference-card" key={settings.repository.key}>
+              <h4>
+                {settings.repository.owner}/{settings.repository.name}
+              </h4>
+              <dl className="profile-details">
+                <div>
+                  <dt>Validation status</dt>
+                  <dd>
+                    {validationSummaryLabel(settings.validationSummary?.status)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Validation source</dt>
+                  <dd>{settings.validationSummary?.source ?? "none"}</dd>
+                </div>
+                <div>
+                  <dt>Commands / manual checks</dt>
+                  <dd>
+                    {settings.validationSummary === undefined
+                      ? "not resolved"
+                      : `${settings.validationSummary.commandCount ?? 0} / ${settings.validationSummary.manualCheckCount ?? 0}`}
+                  </dd>
+                </div>
+              </dl>
+              {settings.validationSummary?.warningCode !== undefined ? (
+                <p className="profile-reason" role="status">
+                  Check the validation profile for this repository before
+                  running validation.
+                </p>
+              ) : null}
+              <details>
+                <summary>Raw support data</summary>
+                <pre tabIndex={0}>
+                  {JSON.stringify(settings.validationSummary ?? {}, null, 2)}
+                </pre>
+              </details>
+            </article>
+          ))}
+        </section>
+      ) : null}
     </section>
   );
 }

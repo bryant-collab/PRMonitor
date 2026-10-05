@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { forbiddenRuntimePayload } from "./runtime-payload.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const desktopRoot = path.join(root, "apps", "desktop");
@@ -134,12 +135,7 @@ async function scanPayload() {
 
   for (const file of files) {
     const relative = path.relative(unpacked, file).replaceAll("\\", "/");
-    if (
-      /(^|\/)\.env(?:\.|$)|(?:^|\/)node_modules\/\.cache(?:\/|$)/iu.test(
-        relative,
-      )
-    )
-      forbiddenNames.push(relative);
+    if (forbiddenRuntimePayload(relative)) forbiddenNames.push(relative);
     const info = await stat(file);
     if (
       relative !== "resources/app.asar" &&
@@ -157,6 +153,8 @@ async function scanPayload() {
     for (const entry of listPackage(archive)) {
       const archiveEntry = entry.replace(/^\\+/u, "");
       const relativeEntry = archiveEntry.replaceAll("\\", "/");
+      if (forbiddenRuntimePayload(relativeEntry))
+        forbiddenNames.push(`resources/app.asar/${relativeEntry}`);
       if (
         !textFile.test(relativeEntry) ||
         /(^|\/)node_modules\//iu.test(relativeEntry)

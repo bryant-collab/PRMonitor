@@ -38,3 +38,6 @@ jobs:
       - run: npm ci
       - run: sudo apt-get update && sudo apt-get install --yes xvfb
       - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" npm run check
+      - name: Read-only Linux sandbox diagnostics
+        if: always()
+        run: node scripts/linux-sandbox-diagnostics.mjs

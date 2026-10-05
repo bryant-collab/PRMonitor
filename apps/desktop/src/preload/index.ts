@@ -305,6 +305,11 @@ const api: PrMonitorPreloadApi = {
   navigateManagedPr: (managedPrId, destination) =>
     invoke("inbox.navigate", { managedPrId, destination }),
   readReviewBundle: (bundleId) => invoke("review-bundle.read", { bundleId }),
+  readManagedPrWork: (managedPrId, offset) =>
+    invoke("managed-pr.work.read", {
+      managedPrId,
+      ...(offset === undefined ? {} : { offset }),
+    }),
   readReviewBundlePublication: (bundleId) =>
     invoke("review-bundle.publication.read", { bundleId }),
   approveReviewBundlePublication: (input) =>

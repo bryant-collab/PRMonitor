@@ -50,7 +50,7 @@ export function F22ChoiceControls({
       </h4>
       <p id="f22-choice-help" className="review-evidence-note">
         Choose one bounded worktree outcome. Keyboard focus moves here when the
-        F22 preview opens.
+        action preview opens.
       </p>
       <label htmlFor="f22-worktree-choice">Worktree choice</label>
       <select
@@ -84,7 +84,7 @@ export function F22ChoiceControls({
           />
           {choice === "CLEAR_ALL"
             ? "I understand Clear All Changes is destructive."
-            : "I explicitly confirm this F22 choice and its recorded worktree outcome."}
+            : "I explicitly confirm this action choice and its recorded worktree outcome."}
         </label>
       ) : null}
       <div className="review-f22-actions">
@@ -94,7 +94,7 @@ export function F22ChoiceControls({
           disabled={f22ChoiceConfirmDisabled({ choice, confirmed, busy })}
           onClick={onConfirm}
         >
-          Confirm F22 choice
+          Confirm action choice
         </button>
         <button
           id="f22-close-preview"

@@ -1,4 +1,5 @@
 import { isSafeText } from "./domain/result";
+import { managedPrWorkSchema, type ManagedPrWork } from "./managed-pr-work";
 import { isSetupReadiness, type SetupReadiness } from "./setup-readiness";
 import { parseOpenTargetRecord, type OpenTarget } from "./routing";
 import {
@@ -233,6 +234,7 @@ export type IpcRequestType =
   | "activity.subscribe"
   | "activity.navigate"
   | "review-bundle.read"
+  | "managed-pr.work.read"
   | "review-bundle.f22.reconcile"
   | "review-bundle.diff.read"
   | "review-bundle.decision.record"
@@ -511,6 +513,13 @@ export type IpcRequest =
   | (IpcRequestBase & {
       readonly type: "activity.navigate";
       readonly payload: { readonly eventId: string };
+    })
+  | (IpcRequestBase & {
+      readonly type: "managed-pr.work.read";
+      readonly payload: {
+        readonly managedPrId: string;
+        readonly offset?: number;
+      };
     })
   | (IpcRequestBase & {
       readonly type: "review-bundle.read";
@@ -812,6 +821,7 @@ export type IpcResponseValue =
     }
   | { readonly kind: "activity-navigation"; readonly target: OpenTarget }
   | { readonly kind: "navigation-target"; readonly target: OpenTarget }
+  | { readonly kind: "managed-pr-work"; readonly work: ManagedPrWork }
   | {
       readonly kind: "review-bundle-workspace";
       readonly workspace: F20WorkspaceReadModel;
@@ -1267,6 +1277,11 @@ function parseResponseValue(value: unknown): boolean {
     return (
       hasExactKeys(value, ["kind", "target"]) &&
       parseOpenTargetRecord(value.target).ok
+    );
+  if (value.kind === "managed-pr-work")
+    return (
+      hasExactKeys(value, ["kind", "work"]) &&
+      managedPrWorkSchema.safeParse(value.work).success
     );
   if (value.kind === "review-bundle-workspace")
     return (
@@ -2241,6 +2256,31 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "managed-pr.work.read") {
+    if (
+      !hasExactKeys(value.payload, ["managedPrId"], ["offset"]) ||
+      !safeGithubIdentifier(value.payload.managedPrId) ||
+      (value.payload.offset !== undefined &&
+        (typeof value.payload.offset !== "number" ||
+          !Number.isSafeInteger(value.payload.offset) ||
+          value.payload.offset < 0 ||
+          value.payload.offset > 50000))
+    )
+      return invalidRequest("The pull request identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          managedPrId: value.payload.managedPrId,
+          ...(value.payload.offset === undefined
+            ? {}
+            : { offset: value.payload.offset as number }),
+        },
+      },
+    };
+  }
   if (value.type === "review-bundle.read") {
     if (
       !hasExactKeys(value.payload, ["bundleId"]) ||
@@ -3047,6 +3087,10 @@ export interface PrMonitorPreloadApi {
     destination: "details" | "settings",
   ) => Promise<IpcResponse>;
   readonly readReviewBundle: (bundleId: string) => Promise<IpcResponse>;
+  readonly readManagedPrWork: (
+    managedPrId: string,
+    offset?: number,
+  ) => Promise<IpcResponse>;
   readonly readReviewBundlePublication: (
     bundleId: string,
   ) => Promise<IpcResponse>;

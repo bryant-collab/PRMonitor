@@ -18,9 +18,12 @@ body {
 
 .app-shell {
   display: grid;
-  min-height: 100vh;
-  place-items: center;
-  padding: 2rem;
+  height: 100dvh;
+  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
 }
 
 .startup-card {
@@ -2139,4 +2142,456 @@ h1 {
 .setup-screen [role="alert"]:focus {
   outline: 2px solid currentColor;
   outline-offset: 4px;
+}
+.activity-entry {
+  padding: 10px 12px;
+}
+.activity-entry-heading {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.activity-entry-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+  flex: 1 1 220px;
+}
+.activity-entry-heading time,
+.activity-attribution {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.activity-event-details {
+  margin-top: 6px;
+}
+.activity-event-details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.activity-advanced {
+  flex-basis: 100%;
+}
+.activity-advanced label {
+  display: inline-flex;
+  flex-direction: column;
+  margin: 8px 12px 8px 0;
+}
+.activity-retention {
+  margin-top: 16px;
+  font-size: 0.875rem;
+}
+
+.shell-header {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #c7d1df;
+  background: #fff;
+}
+
+.workspace-panes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}
+.workspace-panes button[aria-pressed="true"] {
+  background: #e5efff;
+  color: #144c84;
+}
+.shell-header h1 {
+  font-size: 1.35rem;
+}
+.shell-header .startup-status {
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  font-size: 0.9rem;
+}
+.shell-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 12px;
+  border-right: 1px solid #c7d1df;
+  overflow: auto;
+}
+.shell-navigation button {
+  text-align: left;
+  white-space: normal;
+  background: transparent;
+  color: #253b52;
+  border: 1px solid transparent;
+  padding: 8px;
+}
+.shell-navigation button[aria-current="page"] {
+  background: #e5efff;
+  border-color: #a8c2e4;
+  color: #144c84;
+}
+.shell-navigation p {
+  margin: 24px 8px 4px;
+  font-size: 0.8rem;
+  color: #405a78;
+}
+.shell-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+  background: #fff;
+}
+.shell-content:has(.managed-pr-inbox) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.shell-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 16px;
+  border-top: 1px solid #c7d1df;
+  font-size: 0.85rem;
+}
+.shell-content h2 {
+  font-size: 1.2rem;
+}
+.shell-content h3 {
+  font-size: 1rem;
+}
+.shell-content .server-settings,
+.shell-content .managed-pr-settings {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.managed-pr-inbox {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.inbox-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.inbox-columns {
+  display: grid;
+  grid-template-columns: 280px minmax(400px, 1fr);
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+}
+.inbox-list,
+.pr-detail {
+  min-width: 0;
+  min-height: 0;
+}
+.inbox-list {
+  overflow: auto;
+  padding-right: 8px;
+}
+.pr-detail {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d6dfeb;
+  border-radius: 6px;
+}
+.pr-detail-heading {
+  padding: 12px;
+  border-bottom: 1px solid #d6dfeb;
+}
+.pr-detail-heading h2 {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.pr-detail-heading p {
+  margin: 4px 0;
+}
+.pr-detail-heading nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.pr-detail-heading button {
+  padding: 6px 8px;
+}
+.pr-detail-heading button[aria-pressed="true"],
+.settings-categories button[aria-pressed="true"] {
+  background: #e5efff;
+  color: #144c84;
+}
+.pr-detail-content {
+  overflow: auto;
+  padding: 12px;
+  flex: 1;
+  min-height: 0;
+}
+.empty-detail {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: #405a78;
+}
+.inbox-list .inbox-card {
+  display: block;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+}
+.inbox-card.inspected-pr {
+  border-color: #2066b1;
+  background: #f0f6ff;
+}
+.inbox-card .inbox-card-selection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+.inbox-inspect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.inbox-inspect strong {
+  font-size: 0.95rem;
+}
+.inbox-inspect span {
+  font-size: 0.85rem;
+  white-space: normal;
+}
+.inbox-list .inbox-card .link-button {
+  padding: 6px 0 0;
+  font-size: 0.85rem;
+}
+.inbox-selection-toolbar {
+  flex-wrap: wrap;
+  margin: 6px 0 10px;
+  gap: 8px;
+}
+.inbox-selection-actions {
+  flex-wrap: wrap;
+}
+.sync-confirmation {
+  max-height: 60vh;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.settings-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.focused-page,
+.settings-page,
+.connection-status,
+.preferences-panel {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.optional-pr-settings {
+  grid-column: 1 / -1;
+  padding: 10px;
+  border: 1px solid #d6dfeb;
+}
+.optional-pr-settings > label {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+.narrow-back {
+  display: none;
+}
+.shell-content pre {
+  max-width: 100%;
+  overflow: auto;
+}
+.shell-content input:not([type="checkbox"]):not([type="radio"]),
+.shell-content select,
+.shell-content textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+.shell-content .profile-details dd,
+.shell-content .profile-details dt,
+.shell-content p {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 999px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+  .shell-navigation {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid #c7d1df;
+    padding: 6px 12px;
+    gap: 4px;
+  }
+  .shell-navigation p {
+    display: none;
+  }
+  .shell-navigation button {
+    padding: 6px;
+  }
+  .inbox-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inbox-columns:not(.has-inspection) .pr-detail {
+    display: none;
+  }
+  .inbox-columns.has-inspection .inbox-list {
+    display: none;
+  }
+  .narrow-back {
+    display: inline-block;
+  }
+}
+@media (max-width: 600px) {
+  .shell-content {
+    padding: 10px 12px;
+  }
+  .profile-details,
+  .managed-pr-form,
+  .server-form,
+  .preferences-form,
+  .preference-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .section-heading,
+  .profile-card-heading,
+  .operation-row,
+  .profile-actions {
+    flex-wrap: wrap;
+  }
+  .profile-actions button {
+    white-space: normal;
+  }
+}
+
+@media (forced-colors: active) {
+  .shell-content,
+  .workspace-panes,
+  .pr-detail,
+  .inbox-card,
+  .shell-navigation {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+  }
+  .shell-navigation button[aria-current="page"],
+  .pr-detail-heading button[aria-pressed="true"],
+  .settings-categories button[aria-pressed="true"],
+  .workspace-panes button[aria-pressed="true"] {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+  .app-shell :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 3px;
+  }
+}
+
+.shell-content button,
+.shell-footer button {
+  font: inherit;
+  border: 1px solid #a8b8cd;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: #f8fbff;
+  color: #183b62;
+  cursor: pointer;
+}
+.shell-content button:disabled {
+  cursor: default;
+  color: #657389;
+  background: #f2f5f8;
+}
+.shell-content .primary-button {
+  background: #1254a0;
+  color: #fff;
+  border-color: #1254a0;
+}
+.shell-content .danger-button {
+  background: #fff1f0;
+  color: #9b1d1d;
+  border-color: #cc8b8b;
+}
+@media (forced-colors: active) {
+  .shell-content button,
+  .shell-footer button {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .shell-content button:disabled {
+    color: GrayText;
+  }
+}
+
+@media (max-width: 999px) {
+  .shell-content:has(.managed-pr-inbox) {
+    display: block;
+    overflow: auto;
+  }
+  .managed-pr-inbox,
+  .inbox-columns {
+    display: block;
+  }
+  .inbox-list {
+    max-height: 60vh;
+  }
+  .pr-detail {
+    min-height: 360px;
+  }
+  .pr-detail-content {
+    flex: none;
+    overflow: visible;
+  }
+}
+@media (forced-colors: active) {
+  .shell-navigation button[aria-current="page"],
+  .shell-content button[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+  .shell-navigation button[aria-current="page"] > *,
+  .shell-content button[aria-pressed="true"] > * {
+    background: transparent;
+    color: inherit;
+  }
 }

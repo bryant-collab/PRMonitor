@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { customerExplanation } from "./customer-copy";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveSynchronizationTarget } from "./synchronization-target";
 import type { F26RetryAction } from "../shared/f26-conflict-resolution";
 import type { F25ChangeEvidence } from "../shared/f25-synchronization";
 import type {
@@ -9,6 +11,7 @@ import type {
 interface SynchronizationReviewProps {
   readonly batchId?: string;
   readonly resultId?: string;
+  readonly visible?: boolean;
 }
 
 function label(value: string): string {
@@ -72,6 +75,7 @@ function ChangeEvidenceDetails({
 export function SynchronizationReview({
   batchId,
   resultId,
+  visible = true,
 }: SynchronizationReviewProps) {
   const [batches, setBatches] = useState<readonly F27BatchReview[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState(batchId);
@@ -86,10 +90,16 @@ export function SynchronizationReview({
   const [noCodeChange, setNoCodeChange] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [conflictInput, setConflictInput] = useState("");
+  const requestedTarget = useRef({ batchId, resultId });
+  const readGeneration = useRef(0);
 
   const readResult = useCallback(async (operationId: string) => {
+    const generation = ++readGeneration.current;
+    requestedTarget.current = { resultId: operationId, batchId: undefined };
+    setResult(undefined);
     const response =
       await window.prmonitor?.readSynchronizationReviewResult(operationId);
+    if (generation !== readGeneration.current) return;
     if (
       response?.ok &&
       response.value.kind === "synchronization-review-result"
@@ -100,40 +110,39 @@ export function SynchronizationReview({
   }, []);
 
   const load = useCallback(async () => {
+    const generation = ++readGeneration.current;
     const response = await window.prmonitor?.listSynchronizationReviews();
+    if (generation !== readGeneration.current) return;
     if (
       response?.ok &&
       response.value.kind === "synchronization-review-batches"
     ) {
       setBatches(response.value.batches);
-      const requestedBatch = batchId ?? selectedBatchId;
-      const requestedResult = resultId ?? result?.operationId;
-      const resultBatch =
-        requestedResult === undefined
-          ? undefined
-          : response.value.batches.find((item) =>
-              item.rows.some((row) => row.operationId === requestedResult),
-            );
-      const currentBatch =
-        resultBatch ??
-        response.value.batches.find(
-          (item) => item.batchId === requestedBatch,
-        ) ??
-        response.value.batches[0];
+      const { batch: currentBatch, row } = resolveSynchronizationTarget(
+        response.value.batches,
+        requestedTarget.current,
+      );
       if (currentBatch !== undefined) setSelectedBatchId(currentBatch.batchId);
-      const row =
-        currentBatch?.rows.find(
-          (item) => item.operationId === requestedResult,
-        ) ?? currentBatch?.rows[0];
       if (row !== undefined) await readResult(row.operationId);
+      else {
+        setResult(undefined);
+        setSelectedBatchId(currentBatch?.batchId);
+        setError("The requested branch synchronization work is unavailable.");
+      }
       return;
     }
     if (response?.ok === false) setError(response.error.message);
-  }, [batchId, readResult, result?.operationId, resultId, selectedBatchId]);
+  }, [readResult]);
 
   useEffect(() => {
+    requestedTarget.current = { batchId, resultId };
+    setResult(undefined);
+    setSelectedBatchId(batchId);
     void load();
-  }, [load]);
+    return () => {
+      ++readGeneration.current;
+    };
+  }, [batchId, resultId, load]);
 
   const selectedBatch = useMemo(
     () => batches.find((item) => item.batchId === selectedBatchId),
@@ -324,6 +333,7 @@ export function SynchronizationReview({
 
   if (batches.length === 0 && result === undefined && error === "") return null;
 
+  if (!visible) return null;
   return (
     <section
       className="synchronization-review"
@@ -331,7 +341,7 @@ export function SynchronizationReview({
     >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">F27 result review</p>
+          <p className="eyebrow">synchronization review result review</p>
           <h2 id="synchronization-review-heading">Synchronization results</h2>
         </div>
         <button type="button" onClick={() => void load()} disabled={busy}>
@@ -426,7 +436,11 @@ export function SynchronizationReview({
                   </span>
                 </div>
                 <p className="profile-reason" role="status">
-                  {result.reason.what} Next action: {label(result.nextAction)}.
+                  {customerExplanation(
+                    result.reason.what,
+                    "Inspect this saved result before taking the next action.",
+                  )}{" "}
+                  Next action: {label(result.nextAction)}.
                 </p>
                 <dl className="profile-details synchronization-evidence">
                   <div>
@@ -629,7 +643,7 @@ export function SynchronizationReview({
                     ) : null}
                     {result.conflictResolution.turnHistory.length > 0 ? (
                       <details>
-                        <summary>Complete deterministic turn reports</summary>
+                        <summary>Complete recorded turn reports</summary>
                         <ul>
                           {result.conflictResolution.turnHistory.map((turn) => (
                             <li key={turn.turnId}>
@@ -869,6 +883,10 @@ export function SynchronizationReview({
           </div>
         </div>
       ) : null}
+      <details>
+        <summary>Raw support data</summary>
+        <pre tabIndex={0}>{JSON.stringify({ batches, result }, null, 2)}</pre>
+      </details>
     </section>
   );
 }

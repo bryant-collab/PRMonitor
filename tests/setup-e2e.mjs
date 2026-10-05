@@ -23,11 +23,36 @@ const require = createRequire(
 );
 const electron = require("electron");
 const root = await mkdtemp(path.join(os.tmpdir(), "prmonitor-setup-e2e-"));
+await require("esbuild").build({
+  entryPoints: [path.join(repository, "tests/setup-e2e-fixtures.ts")],
+  outfile: path.join(root, "fixtures.mjs"),
+  bundle: true,
+  platform: "node",
+  format: "esm",
+});
 const evidence = path.join(repository, "docs/evidence/setup-readiness");
+await writeFile(
+  path.join(root, "approved-preview.html"),
+  execFileSync(
+    "git",
+    [
+      "show",
+      "f76e39453121e40eb3c8ead9dcd52c3c102c6b23:docs/design/issue-3-inbox-and-detail/inbox-and-detail.html",
+    ],
+    { cwd: repository },
+  ),
+);
 await mkdir(evidence, { recursive: true });
 await writeFile(
   path.join(root, ".setup-e2e-owner.json"),
   JSON.stringify({ owner: "prmonitor-setup-e2e", root: path.resolve(root) }),
+);
+await writeFile(
+  path.join(root, ".prmonitor-runtime-owner.json"),
+  JSON.stringify({
+    owner: "prmonitor-runtime-fixture",
+    root: path.resolve(root),
+  }),
 );
 for (const child of [
   "user-data",
@@ -36,6 +61,8 @@ for (const child of [
   "app-data",
   "local-app-data",
   "bootstrap-user-data",
+  "cache",
+  "worktrees",
 ])
   await mkdir(path.join(root, child));
 await writeFile(
@@ -79,6 +106,7 @@ try {
     "lost-auth",
     "bootstrap-failure",
     "bootstrap-fixed",
+    "shell",
   ]) {
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));
@@ -154,7 +182,7 @@ try {
         scenarios: results,
         limitations: [
           "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
-          "Explicit target uses a deliberately missing review fixture; saved-review content is covered by existing review tests.",
+          "Explicit target opens a persisted historical review; Home/return checks unsaved-answer retention. Full review/publication journeys are separate acceptance work.",
           "Chromium 125% zoom exercises reflow; physical Windows display scaling requires an interactive session.",
         ],
       },

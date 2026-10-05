@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "isolatedDataIdentity": "ba137aa6fe9f727c",
+  "isolatedDataIdentity": "0ef63b3240d55a1c",
   "scenarios": [
     {
       "stage": "fresh",
@@ -36,6 +36,7 @@
       "ok": true,
       "assertions": [
         "ready data cold-starts into empty inbox; Settings > Setup inspects readiness",
+        "empty ready profile has no PR activity; genuine startup diagnostics are separately accessible without inventing PR work",
         "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
       ],
       "fixtureRequests": 0,
@@ -49,7 +50,7 @@
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
         "recreated renderer recomputes incomplete readiness and resumes setup",
-        "lost local auth resumes setup; explicit missing-review target takes precedence with banner; HOME restores setup",
+        "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
         "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
       ],
       "fixtureRequests": 0,
@@ -80,11 +81,21 @@
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
+    },
+    {
+      "stage": "shell",
+      "ok": true,
+      "assertions": [
+        "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
+        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
     }
   ],
   "limitations": [
     "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
-    "Explicit target uses a deliberately missing review fixture; saved-review content is covered by existing review tests.",
+    "Explicit target opens a persisted historical review; Home/return checks unsaved-answer retention. Full review/publication journeys are separate acceptance work.",
     "Chromium 125% zoom exercises reflow; physical Windows display scaling requires an interactive session."
   ]
 }

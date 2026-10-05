@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifySmokeFailure } from "../../apps/desktop/scripts/smoke-failure.mjs";
+import {
+  classifySmokeFailure,
+  classifySandboxSubreason,
+} from "../../apps/desktop/scripts/smoke-failure.mjs";
 
 test("smoke failures expose fixed categories without child-output contents", () => {
   for (const [stderr, category] of [
@@ -19,4 +22,27 @@ test("smoke failures expose fixed categories without child-output contents", () 
   ]) {
     assert.equal(classifySmokeFailure(stderr), category);
   }
+});
+
+test("sandbox subreasons distinguish helper configuration from namespace rejection without exposing child text", () => {
+  assert.equal(
+    classifySandboxSubreason(
+      "private-path SUID sandbox helper binary must be owned by root and mode 4755",
+    ),
+    "HELPER_OWNERSHIP_OR_MODE",
+  );
+  assert.equal(
+    classifySandboxSubreason(
+      "private-path Failed to move to new namespace: Operation not permitted",
+    ),
+    "NAMESPACE_PERMISSION",
+  );
+  assert.equal(
+    classifySandboxSubreason("No usable sandbox! private-path"),
+    "NO_USABLE_SANDBOX",
+  );
+  assert.equal(
+    classifySandboxSubreason("private unrecognized contents"),
+    "UNCLASSIFIED",
+  );
 });

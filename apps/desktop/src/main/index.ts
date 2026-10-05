@@ -1,3 +1,5 @@
+import { recoveryActivityAttribution } from "../shared/recovery-attribution";
+import { projectManagedPrWork } from "./managed-pr-work";
 import {
   app,
   BrowserWindow,
@@ -6,10 +8,12 @@ import {
   powerMonitor,
   safeStorage,
 } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import os from "node:os";
+import { resolveRuntimePaths, type RuntimePaths } from "./runtime-paths";
 import { fileURLToPath } from "node:url";
 import {
   APPLICATION_ID,
@@ -315,20 +319,24 @@ function detachF28LifecycleListeners(): void {
   f28LifecycleListenersAttached = false;
 }
 
-function configureSmokePaths(): void {
-  if (!smokeMode) return;
-  const userDataDirectory = process.env.PRMONITOR_USER_DATA_DIR;
-  const cacheDirectory = process.env.PRMONITOR_CACHE_DIR;
-  if (
-    !userDataDirectory ||
-    !cacheDirectory ||
-    !path.isAbsolute(userDataDirectory) ||
-    !path.isAbsolute(cacheDirectory)
-  ) {
-    throw new Error("SMOKE_RUNTIME_PATHS_MISSING");
-  }
-  app.setPath("userData", userDataDirectory);
-  app.setPath("cache", cacheDirectory);
+let runtimePaths: RuntimePaths;
+function configureRuntimePaths(): void {
+  runtimePaths = resolveRuntimePaths({
+    environment: process.env,
+    packaged: app.isPackaged,
+    customerRoot: path.join(app.getPath("appData"), APPLICATION_TITLE),
+    appData: app.getPath("appData"),
+    temporaryRoot: os.tmpdir(),
+  });
+  for (const directory of [
+    runtimePaths.userData,
+    runtimePaths.cache,
+    runtimePaths.sessionData,
+  ])
+    mkdirSync(directory, { recursive: true });
+  app.setPath("userData", runtimePaths.userData);
+  app.setPath("cache", runtimePaths.cache);
+  app.setPath("sessionData", runtimePaths.sessionData);
 }
 
 const accessibilityProbe = `(() => {
@@ -360,7 +368,7 @@ const accessibilityProbe = `(() => {
       status.getAttribute("aria-live") === "polite" &&
       status.getAttribute("data-prmonitor-ready") === "true" &&
       managedPrForm.getAttribute("aria-label") === "Add a pull request" &&
-      managedPrHeading.textContent?.trim() === "Add and manage a PR" &&
+      managedPrHeading.textContent?.trim() === "Add PR" &&
       managedPrControls.length >= 7 &&
       managedPrControls.every((element) => element.tagName === "BUTTON" || element.labels?.length > 0 || element.getAttribute("aria-label") !== null) &&
       skipIndex >= 0 && statusIndex > skipIndex && skipFocused && enterMovesFocus,
@@ -394,6 +402,27 @@ function smokeFailure(reason: string, error?: unknown): void {
 async function runAccessibilityProbe(
   window: BrowserWindow,
 ): Promise<{ ok: boolean; forcedColors: boolean }> {
+  // Exercise the real focused Add PR route; settings and forms are absent from unrelated views.
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const opened = await window.webContents.executeJavaScript(
+      `(() => {
+      const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === 'Add PR' && !item.disabled);
+      if (!button) return false; button.click(); return true;
+    })()`,
+      true,
+    );
+    if (opened) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  await window.webContents.executeJavaScript(
+    `(() => {
+    const optional = document.querySelector('.optional-pr-settings');
+    if (optional) optional.open = true;
+  })()`,
+    true,
+  );
   const normal = (await window.webContents.executeJavaScript(
     accessibilityProbe,
     true,
@@ -529,7 +558,7 @@ function resolveF16ValidationSummary(
 }
 
 try {
-  configureSmokePaths();
+  configureRuntimePaths();
 } catch (error) {
   smokeFailure("SMOKE_RUNTIME_PATHS_INVALID", error);
 }
@@ -567,7 +596,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const f03Repositories = createPersistenceRepositories(persistenceStore);
   persistenceRepositories = f03Repositories;
   f19PersistenceRepositories = new F19PersistenceRepositories(persistenceStore);
-  const f13Root = path.join(userDataDirectory, "worktrees");
+  const f13Root = runtimePaths.worktrees;
   await mkdir(f13Root, { recursive: true });
   const f13Repositories = new F13PersistenceRepositories(persistenceStore);
   f13WorktreeService = new F13WorktreeService({
@@ -2122,6 +2151,7 @@ async function startMainProcess(): Promise<void> {
                 ...(event.scopeKey === undefined
                   ? {}
                   : { operationId: event.scopeKey }),
+                ...recoveryActivityAttribution(event.scope),
                 occurrenceAt: event.occurrenceAt,
                 severity:
                   event.event === "UNCERTAIN" || event.event === "BLOCKED"
@@ -2719,6 +2749,21 @@ async function startMainProcess(): Promise<void> {
       if (f20WorkspaceService === undefined)
         throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
       return f20WorkspaceService.read(bundleId);
+    },
+    readManagedPrWork: (managedPrId, offset) => {
+      if (
+        persistenceRepositories === undefined ||
+        f27SynchronizationService === undefined
+      )
+        throw Error("SAVED_WORK_NOT_READY");
+      return projectManagedPrWork(
+        managedPrId,
+        new F18PersistenceRepositories(
+          persistenceRepositories,
+        ).listForManagedPr(managedPrId),
+        f27SynchronizationService.listBatches(),
+        offset,
+      );
     },
     readReviewBundlePublication: (bundleId) => {
       if (f23PublicationService === undefined)

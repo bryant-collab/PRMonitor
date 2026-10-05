@@ -67,6 +67,21 @@ async function start() {
   app.setPath("userData", userData);
   app.setPath("sessionData", path.join(root, "session-data"));
   app.setPath("home", path.join(root, "home"));
+  Object.assign(process.env, {
+    PRMONITOR_TEST_MODE: "1",
+    PRMONITOR_ISOLATED_ROOT: root,
+    PRMONITOR_USER_DATA_DIR: userData,
+    PRMONITOR_CACHE_DIR: path.join(root, "cache"),
+    PRMONITOR_WORKTREE_DIR: path.join(root, "worktrees"),
+  });
+  if (stage === "lost-auth")
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedSavedReview(userData);
+  if (stage === "shell")
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedShell(userData);
   if (stage === "bootstrap-failure") {
     app.relaunch = () => {
       retryRelaunches++;
@@ -252,6 +267,191 @@ async function start() {
     evaluate(
       "window.prmonitor.readPreferences().then(r=> {if(!r.ok)throw Error(r.error.message);return r.value.preferences})",
     );
+  if (stage === "shell") {
+    assert.equal(read.ready, true);
+    await waitFor(
+      () => evaluate("document.querySelectorAll('.inbox-card').length === 20"),
+      "twenty real PR rows",
+    );
+    assert.equal(
+      await evaluate(
+        "Boolean(document.querySelector('.preferences-panel, .activity-viewer, .connection-status, .server-form'))",
+      ),
+      false,
+    );
+    await evaluate("document.querySelector('.inbox-inspect').click()");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('#selected-pr-heading'))"),
+      "selected exact PR details",
+    );
+    const selected = await evaluate(
+      "document.querySelector('#selected-pr-heading').textContent",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelectorAll('.inbox-card input:checked').length",
+      ),
+      0,
+    );
+    if (await visible("Reset branch sync selection")) {
+      await click("Reset branch sync selection");
+      await waitFor(
+        async () => !(await visible("Reset branch sync selection")),
+        "current branch sync selection",
+      );
+    }
+    await evaluate("document.querySelector('.inbox-card input').click()");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelectorAll('.inbox-card input:checked').length === 1",
+        ),
+      "independent sync selection",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('#selected-pr-heading').textContent",
+      ),
+      selected,
+    );
+    await click("Select all");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelectorAll('.inbox-card input:checked').length === 20",
+        ),
+      "select all PRs",
+    );
+    await click("Clear");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelectorAll('.inbox-card input:checked').length === 0",
+        ),
+      "clear sync selection",
+    );
+    await click("PR settings");
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('form[aria-label=\"Edit pull request configuration\"] textarea'))",
+        ),
+      "exact PR configuration",
+    );
+    await evaluate(
+      `(()=>{const input=document.querySelector('form[aria-label="Edit pull request configuration"] textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Unsaved PR context survives navigation.');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+    );
+    await click("Activity");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('.activity-viewer'))"),
+      "PR activity",
+    );
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.activity-entry-heading h3')].some(element=>element.textContent === 'PRMonitor started.')",
+      ),
+      false,
+    );
+    await evaluate(
+      "(()=>{const select=document.querySelector('.activity-viewer select');select.value='APPLICATION';select.dispatchEvent(new Event('change',{bubbles:true}));})()",
+    );
+    await waitFor(
+      () => evaluate("document.querySelectorAll('.activity-entry').length > 0"),
+      "real application diagnostics",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.activity-viewer').textContent.includes('PRMonitor started.')",
+      ),
+      true,
+    );
+    await capture("activity-application-diagnostics");
+    await click("PR inbox");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelector('form[aria-label=\"Edit pull request configuration\"] textarea')?.value === 'Unsaved PR context survives navigation.'",
+        ),
+      "unsaved PR context retained",
+    );
+    await click("Overview");
+    for (const [width, height, zoom, name] of [
+      [1280, 800, 1, "shell-desktop-1280"],
+      [1024, 768, 1, "shell-desktop-1024"],
+      [900, 650, 1, "shell-narrow-900"],
+      [320, 800, 1, "shell-narrow-320"],
+      [900, 650, 2, "shell-200-percent"],
+    ]) {
+      window.webContents.setZoomFactor(zoom);
+      window.setContentSize(width, height);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.equal(
+        await evaluate(
+          "document.documentElement.scrollWidth <= innerWidth + 1",
+        ),
+        true,
+        `${name} horizontal clipping`,
+      );
+      assert.equal(
+        await evaluate(
+          "[...document.querySelectorAll('.pr-detail-heading button')].every(button=>{const r=button.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1;})",
+        ),
+        true,
+        `${name} detail tabs clipped`,
+      );
+      if (width < 1000 || zoom > 1) {
+        for (const label of [
+          "Overview",
+          "Review",
+          "Branch sync",
+          "Activity",
+          "PR settings",
+        ]) {
+          assert.equal(
+            await evaluate(
+              `(()=>{const button=[...document.querySelectorAll('.pr-detail-heading button')].find(button=>button.textContent.trim()===${JSON.stringify(label)});button.scrollIntoView({block:'center'});const r=button.getBoundingClientRect(),main=document.querySelector('main').getBoundingClientRect();return r.top>=main.top && r.bottom<=main.bottom;})()`,
+            ),
+            true,
+            `${name}: ${label} is vertically reachable`,
+          );
+        }
+      }
+      await capture(name);
+    }
+    window.webContents.setZoomFactor(1);
+    window.setContentSize(1280, 800);
+    await evaluate("document.querySelector('.inbox-inspect').focus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" });
+    assert.equal(await evaluate("document.activeElement.tagName"), "BUTTON");
+    await window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand(
+      "Emulation.setEmulatedMedia",
+      { features: [{ name: "forced-colors", value: "active" }] },
+    );
+    await capture("shell-forced-colors");
+    window.webContents.debugger.detach();
+    const reference = new BrowserWindow({
+      show: true,
+      width: 1280,
+      height: 800,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    });
+    await reference.loadFile(path.join(root, "approved-preview.html"));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await fs.writeFile(
+      path.join(evidence, "approved-reference-1280.png"),
+      (await reference.webContents.capturePage()).toPNG(),
+    );
+    reference.destroy();
+    assertions.push(
+      "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
+    );
+  }
   if (stage === "bootstrap-failure") {
     assert.equal(
       read.checks.find((c) => c.id === "local-prerequisites").status,
@@ -323,7 +523,7 @@ async function start() {
     assert.ok(await visible("Edit independent task profiles"));
     assert.ok(
       await evaluate(
-        "document.querySelector('.setup-screen').textContent.includes('Optional: adding a PR')",
+        "document.querySelector('.setup-screen').textContent.includes('Optional: add a PR')",
       ),
     );
     await capture("fresh-install");
@@ -432,13 +632,30 @@ async function start() {
     assert.equal(await visible("Set up PRMonitor"), false);
     await capture("ready-restart");
     await click("Settings");
-    await click("Settings > Setup");
+    await evaluate(
+      "[...document.querySelectorAll('.settings-categories button')].find(button => button.textContent.trim() === 'Setup').click()",
+    );
     await waitFor(
       () => visible("Set up PRMonitor"),
       "settings setup inspection",
     );
     assertions.push(
       "ready data cold-starts into empty inbox; Settings > Setup inspects readiness",
+    );
+    await click("Activity");
+    await waitFor(
+      () => visible("No PR activity yet"),
+      "genuine empty default PR Activity",
+    );
+    await capture("activity-pr-work-empty");
+    await click("View application diagnostics");
+    await waitFor(
+      () => evaluate("document.querySelectorAll('.activity-entry').length > 0"),
+      "genuine startup diagnostics",
+    );
+    await capture("activity-application-diagnostics-empty-profile");
+    assertions.push(
+      "empty ready profile has no PR activity; genuine startup diagnostics are separately accessible without inventing PR work",
     );
   }
   if (stage === "lost-auth") {
@@ -460,7 +677,7 @@ async function start() {
       target: {
         schemaVersion: 1,
         kind: "REVIEW_BUNDLE",
-        id: "setup-fixture-missing-review",
+        id: "setup-saved-review",
         requestId: "route-setup-e2e-review-target",
       },
     });
@@ -469,6 +686,16 @@ async function start() {
       "review precedence banner",
     );
     assert.equal(await visible("Set up PRMonitor"), false);
+    await waitFor(
+      () => visible("Please explain the expected behavior."),
+      "saved review content",
+    );
+    await evaluate(`(() => {
+      const input = [...document.querySelectorAll('.review-bundle-workspace textarea')].find(e => e.closest('label')?.textContent.toLowerCase().includes('answer'));
+      if (!input) throw Error('E2E_ANSWER_UNAVAILABLE');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'Unsaved answer stays here.');
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+    })()`);
     await capture("incomplete-explicit-review-target");
     window.webContents.send("prmonitor:ipc:v1:event", {
       schemaVersion: 1,
@@ -480,8 +707,19 @@ async function start() {
       },
     });
     await waitFor(() => visible("Set up PRMonitor"), "home returns to setup");
+    await click("Return to saved target");
+    await waitFor(
+      () => visible("Please explain the expected behavior."),
+      "return to saved content",
+    );
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.review-bundle-workspace textarea')].find(e => e.closest('label')?.textContent.toLowerCase().includes('answer'))?.value",
+      ),
+      "Unsaved answer stays here.",
+    );
     assertions.push(
-      "lost local auth resumes setup; explicit missing-review target takes precedence with banner; HOME restores setup",
+      "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
     );
   }
   assert.equal(

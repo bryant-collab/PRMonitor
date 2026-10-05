@@ -1,3 +1,4 @@
+import type { ManagedPrWork } from "../shared/managed-pr-work";
 import {
   boundedIpcResponse,
   IPC_CHANNELS,
@@ -317,6 +318,10 @@ export interface IpcServices {
     destination: ManagedPrNavigationDestination,
   ) => OpenTarget;
   readonly readReviewBundle?: (bundleId: string) => F20WorkspaceReadModel;
+  readonly readManagedPrWork?: (
+    managedPrId: string,
+    offset?: number,
+  ) => ManagedPrWork;
   readonly readReviewBundlePublication?: (
     bundleId: string,
   ) => Promise<F23PublicationReadModel>;
@@ -1392,6 +1397,19 @@ export class IpcRouter {
             kind: "managed-pr-operation",
             operation: await this.services.saveManagedPrConfiguration(
               request.payload,
+            ),
+          }),
+        );
+      }
+      if (request.type === "managed-pr.work.read") {
+        if (this.services.readManagedPrWork === undefined)
+          throw Error("SAVED_WORK_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-work",
+            work: this.services.readManagedPrWork(
+              request.payload.managedPrId,
+              request.payload.offset,
             ),
           }),
         );

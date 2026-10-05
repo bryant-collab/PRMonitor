@@ -15,7 +15,12 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { classifySmokeFailure } from "./smoke-failure.mjs";
+import {
+  classifySmokeFailure,
+  classifySandboxSubreason,
+} from "./smoke-failure.mjs";
+import { listPackage } from "@electron/asar";
+import { forbiddenRuntimePayload } from "../../../scripts/runtime-payload.mjs";
 
 const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -85,6 +90,11 @@ function safeChildEnvironment({ nonce, userDataDir, cacheDir }) {
   environment.PRMONITOR_SMOKE_NONCE = nonce;
   environment.PRMONITOR_USER_DATA_DIR = userDataDir;
   environment.PRMONITOR_CACHE_DIR = cacheDir;
+  environment.PRMONITOR_ISOLATED_ROOT = path.dirname(userDataDir);
+  environment.PRMONITOR_WORKTREE_DIR = path.join(
+    path.dirname(userDataDir),
+    "worktrees",
+  );
   return environment;
 }
 
@@ -188,10 +198,12 @@ async function assertArtifactShape(executable) {
   const names = await readdir(artifactDirectory, { recursive: true }).catch(
     () => [],
   );
-  const forbidden = names.filter((name) =>
-    /(^|[\\/])\.env(?:\.|$)|\.msi$|\.dmg$|\.deb$|\.appimage$|latest\.yml$/iu.test(
-      name,
-    ),
+  const forbidden = names.filter(
+    (name) =>
+      forbiddenRuntimePayload(name) ||
+      /(^|[\\/])\.env(?:\.|$)|\.msi$|\.dmg$|\.deb$|\.appimage$|latest\.yml$/iu.test(
+        name,
+      ),
   );
   if (forbidden.length > 0)
     throw new Error(
@@ -199,6 +211,12 @@ async function assertArtifactShape(executable) {
     );
 
   const payloadPath = required[0];
+  for (const entry of listPackage(payloadPath))
+    if (forbiddenRuntimePayload(entry)) forbidden.push(`app.asar/${entry}`);
+  if (forbidden.length > 0)
+    throw new Error(
+      `SMOKE_ARTIFACT_INVALID: runtime state in package ${forbidden.join(", ")}`,
+    );
   const payloadText = (await readFile(payloadPath)).toString("utf8");
   if (
     /(?:TYPESAFE_API_KEY|GITHUB_TOKEN|OPENAI_API_KEY|PRMONITOR_[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY))\s*[:=]/iu.test(
@@ -290,7 +308,7 @@ async function launchSmoke(executable, environment) {
   if (outcome.code !== 0) {
     const signal = outcome.signal ? ` signal=${outcome.signal}` : "";
     throw new Error(
-      `SMOKE_CHILD_EXIT_FAILED: code=${String(outcome.code)}${signal} category=${classifySmokeFailure(stderr.bytes.toString("utf8"))}`,
+      `SMOKE_CHILD_EXIT_FAILED: code=${String(outcome.code)}${signal} category=${classifySmokeFailure(stderr.bytes.toString("utf8"))} sandbox=${classifySandboxSubreason(stderr.bytes.toString("utf8"))}`,
     );
   }
   if (readyLines.length !== 1 || readyLines[0] !== `${readyPrefix}${nonce}`) {
@@ -319,6 +337,14 @@ async function main() {
   const cacheDir = path.join(tempRoot, "cache");
   await mkdir(userDataDir);
   await mkdir(cacheDir);
+  await mkdir(path.join(tempRoot, "worktrees"));
+  await writeFile(
+    path.join(tempRoot, ".prmonitor-runtime-owner.json"),
+    JSON.stringify({
+      owner: "prmonitor-runtime-fixture",
+      root: path.resolve(tempRoot),
+    }),
+  );
   await writeFile(
     path.join(tempRoot, ownerFile),
     `${JSON.stringify(marker)}\n`,

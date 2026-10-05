@@ -28,6 +28,11 @@ import type {
   SqlValue,
 } from "./types";
 import type { PersistenceStore } from "./database";
+import {
+  ACTIVITY_SCOPE_SQL,
+  ACTIVITY_MANAGED_PR_SQL,
+} from "./activity-scope-sql";
+import { recoveryActivityAttribution } from "../../shared/recovery-attribution";
 
 export type ActivityAppendOutcome =
   "inserted" | "replayed" | "conflict" | "rejected" | "unavailable";
@@ -197,6 +202,9 @@ function legacyEvent(row: SqlRow): ActivityEventRecord {
     ...(ownerType === undefined || ownerId === undefined
       ? {}
       : { owner: { type: ownerType, id: ownerId } }),
+    ...(rowOptionalString(row, "managed_pr_id") === undefined
+      ? {}
+      : { managedPrId: rowOptionalString(row, "managed_pr_id") }),
     occurrenceAt,
     severity: validSeverity(rowString(row, "severity")),
     reason: {
@@ -225,6 +233,46 @@ function readEvent(row: SqlRow): ActivityEventRecord {
   const payload = safeJson(rowOptionalString(row, "payload_json"), undefined);
   if (isActivityEvent(payload)) return payload;
   return legacyEvent(row);
+}
+
+function readScopedEvent(
+  row: SqlRow,
+  transaction: PersistenceTransaction,
+): ActivityEventRecord {
+  const event = readEvent(row);
+  if (
+    event.operationId === undefined ||
+    typeof event.details.f28Event !== "string"
+  )
+    return event;
+  const scope = transaction.get(
+    "SELECT scope_kind, scope_id, owner FROM f28_recovery_scopes WHERE scope_key = ?",
+    event.operationId,
+  );
+  if (scope === undefined) return event;
+  const attribution = recoveryActivityAttribution({
+    kind: rowString(scope, "scope_kind"),
+    id: rowString(scope, "scope_id"),
+    owner: rowString(scope, "owner"),
+  });
+  const {
+    owner: recordedOwner,
+    managedPrId: recordedManagedPrId,
+    ...recorded
+  } = event;
+  return {
+    ...recorded,
+    ...attribution,
+    details: {
+      ...event.details,
+      ...(recordedOwner === undefined
+        ? {}
+        : {
+            recordedOwner: { type: recordedOwner.type, id: recordedOwner.id },
+          }),
+      ...(recordedManagedPrId === undefined ? {} : { recordedManagedPrId }),
+    },
+  };
 }
 
 function workItemKey(event: ActivityEventRecord): string | null {
@@ -371,7 +419,9 @@ export class ActivityRepository {
           "SELECT * FROM activity_events WHERE activity_event_id = ?",
           eventId,
         );
-        return row === undefined ? undefined : readEvent(row);
+        return row === undefined
+          ? undefined
+          : readScopedEvent(row, transaction);
       },
       { maxAttempts: 1 },
     );
@@ -387,8 +437,10 @@ export class ActivityRepository {
           conditions.push(condition);
           parameters.push(...values);
         };
+        if (query.view !== undefined && query.view !== "ALL")
+          add(`(${ACTIVITY_SCOPE_SQL}) = ?`, query.view);
         if (query.managedPrId !== undefined)
-          add("managed_pr_id = ?", query.managedPrId);
+          add(`(${ACTIVITY_MANAGED_PR_SQL}) = ?`, query.managedPrId);
         if (query.ownerType !== undefined)
           add("owner_type = ?", query.ownerType);
         if (query.ownerId !== undefined) add("owner_id = ?", query.ownerId);
@@ -432,7 +484,7 @@ export class ActivityRepository {
         const hasMore = rows.length > limit;
         const page = rows
           .slice(0, limit)
-          .map((row) => activityEventView(readEvent(row)));
+          .map((row) => activityEventView(readScopedEvent(row, transaction)));
         const last = page[page.length - 1];
         const nextCursor =
           hasMore && last !== undefined

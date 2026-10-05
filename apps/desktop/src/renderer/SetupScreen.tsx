@@ -138,6 +138,7 @@ export function SetupScreen({
   onRemediate,
   onOpenInbox,
   onOpenDiagnostics,
+  onAddPr,
 }: {
   readonly readiness?: SetupReadinessProjection;
   readonly loading: boolean;
@@ -146,6 +147,7 @@ export function SetupScreen({
   readonly onRemediate: (destination: SetupDestination) => void;
   readonly onOpenInbox: () => void;
   readonly onOpenDiagnostics?: () => void;
+  readonly onAddPr?: () => void;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -269,9 +271,15 @@ export function SetupScreen({
         </button>
       </div>
       <p className="section-help">
-        Optional: adding a PR, selecting a clone, repository guidance, common
-        instructions, and tuning settings can be done later in Settings.
+        Optional: add a PR from the PR inbox, then configure its local clone in
+        PR settings. Repository guidance, common instructions and work limits
+        can be configured later in Settings.
       </p>
+      {onAddPr === undefined ? null : (
+        <button type="button" onClick={onAddPr}>
+          Add PR
+        </button>
+      )}
     </section>
   );
 }

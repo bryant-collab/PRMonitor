@@ -12,3 +12,18 @@ export function classifySmokeFailure(stderr) {
   if (/GPU process isn't usable/iu.test(stderr)) return "GPU_PROCESS_FAILED";
   return "UNCLASSIFIED";
 }
+
+export function classifySandboxSubreason(stderr) {
+  if (
+    /SUID sandbox helper binary|must be owned by root|mode 4755/iu.test(stderr)
+  )
+    return "HELPER_OWNERSHIP_OR_MODE";
+  if (
+    /Failed to move to new namespace|Operation not permitted.*namespace|namespace.*Operation not permitted/iu.test(
+      stderr,
+    )
+  )
+    return "NAMESPACE_PERMISSION";
+  if (/No usable sandbox/iu.test(stderr)) return "NO_USABLE_SANDBOX";
+  return "UNCLASSIFIED";
+}
