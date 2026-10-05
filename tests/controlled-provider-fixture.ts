@@ -9,8 +9,50 @@ export function createCodexProvider(): AIProvider {
   ).__controlledProviderContracts = observations;
   const provider = new FakeAIProvider({
     id: "codex",
-    handler(request) {
+    async handler(request, options) {
       observations.push(request.outputContract.contractId);
+      if (
+        request.outputContract.contractId === "REVIEW_IMPLEMENTATION" &&
+        (globalThis as { __controlledProviderWaitForCancel?: boolean })
+          .__controlledProviderWaitForCancel === true
+      ) {
+        if (options.signal === undefined)
+          throw Error("CONTROLLED_PROVIDER_MISSING_ABORT_SIGNAL");
+        await new Promise<void>((resolve) => {
+          if (options.signal!.aborted) resolve();
+          else
+            options.signal!.addEventListener("abort", () => resolve(), {
+              once: true,
+            });
+        });
+        return { status: "cancelled" };
+      }
+      if (
+        request.outputContract.contractId === "REVIEW_IMPLEMENTATION" &&
+        (globalThis as { __controlledProviderNeedsMore?: boolean })
+          .__controlledProviderNeedsMore === true
+      )
+        return {
+          structuredResult: {
+            schemaVersion: 1,
+            summary:
+              "The owned fixture needs another explicitly authorized turn.",
+            problems: [],
+            remainingIssues: [
+              "A further fixture turn requires an explicit budget.",
+            ],
+            outcomes: (request.input.humanDecisions ?? []).map((decision) => ({
+              remoteEventVersionId: decision.remoteEventVersionId,
+              decision: decision.disposition,
+              outcome: "blocked",
+              remainingIssues: [
+                "The controlled provider performed no code mutation.",
+              ],
+              relatedFiles: [],
+            })),
+          },
+          usage: { inputTokens: 5, outputTokens: 7, totalTokens: 12 },
+        };
       if (request.outputContract.contractId !== "READ_ONLY_CONVERSATION")
         throw Error("CONTROLLED_PROVIDER_UNEXPECTED_TASK");
       return {

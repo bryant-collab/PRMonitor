@@ -48,40 +48,41 @@ export class F22Coordinator extends Actual {
   constructor(options: F22CoordinatorOptions) {
     super({
       ...options,
-      remote:
-        process.env.PRMONITOR_E2E_STAGE === "conditional-f22"
-          ? {
-              readCurrentHead: async (managedPrId) => {
-                if (managedPrId !== "guarded-final-pr")
-                  throw Error("CONTROLLED_F22_UNEXPECTED_SCOPE");
-                const bundle = options.bundles.getReadModel?.(
-                  "guarded-final-review",
-                );
-                const state = options.persistence.getBundleState(
-                  "guarded-final-review",
-                );
-                if (!bundle || !state)
-                  throw Error("CONTROLLED_F22_STATE_MISSING");
-                const moved =
-                  (globalThis as { __controlledF22Moved?: boolean })
-                    .__controlledF22Moved === true;
-                return {
-                  outcome: "CURRENT",
-                  identity: state.identity,
-                  baseSha: bundle.input.pullRequest.baseSha,
-                  headSha: moved
-                    ? "c".repeat(40)
-                    : bundle.input.pullRequest.headSha,
-                  baseRepository: bundle.input.pullRequest.baseRepository,
-                  headRepository: bundle.input.pullRequest.headRepository,
-                  baseBranch: bundle.input.pullRequest.baseBranch,
-                  headBranch: bundle.input.pullRequest.headBranch,
-                  observationRevision: moved ? 2 : 1,
-                  observedAt: new Date().toISOString(),
-                };
-              },
-            }
-          : options.remote,
+      remote: ["conditional-f22", "conditional-provider"].includes(
+        process.env.PRMONITOR_E2E_STAGE ?? "",
+      )
+        ? {
+            readCurrentHead: async (managedPrId) => {
+              if (managedPrId !== "guarded-final-pr")
+                throw Error("CONTROLLED_F22_UNEXPECTED_SCOPE");
+              const bundle = options.bundles.getReadModel?.(
+                "guarded-final-review",
+              );
+              const state = options.persistence.getBundleState(
+                "guarded-final-review",
+              );
+              if (!bundle || !state)
+                throw Error("CONTROLLED_F22_STATE_MISSING");
+              const moved =
+                (globalThis as { __controlledF22Moved?: boolean })
+                  .__controlledF22Moved === true;
+              return {
+                outcome: "CURRENT",
+                identity: state.identity,
+                baseSha: bundle.input.pullRequest.baseSha,
+                headSha: moved
+                  ? "c".repeat(40)
+                  : bundle.input.pullRequest.headSha,
+                baseRepository: bundle.input.pullRequest.baseRepository,
+                headRepository: bundle.input.pullRequest.headRepository,
+                baseBranch: bundle.input.pullRequest.baseBranch,
+                headBranch: bundle.input.pullRequest.headBranch,
+                observationRevision: moved ? 2 : 1,
+                observedAt: new Date().toISOString(),
+              };
+            },
+          }
+        : options.remote,
     });
     if (process.env.PRMONITOR_E2E_STAGE === "conditional-f22")
       (

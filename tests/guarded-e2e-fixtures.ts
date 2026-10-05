@@ -37,6 +37,20 @@ export async function seedHeldFinalReview(userData: string) {
     );
     if (!bundle) throw Error("CONTROLLED_F22_BUNDLE_MISSING");
     const f11 = new F11PersistenceRepositories(store);
+    const existingHold = f11.getActiveHold(bundle.managedPrId);
+    if (existingHold !== undefined) {
+      const existingClaim = f11.getActiveClaim(bundle.managedPrId);
+      if (
+        existingHold.bundleId !== bundle.bundleId ||
+        existingHold.operationId !== bundle.operationId ||
+        existingHold.claimId !== bundle.claimId ||
+        existingClaim?.claimId !== bundle.claimId ||
+        existingClaim.operationId !== bundle.operationId ||
+        existingClaim.bundleId !== bundle.bundleId
+      )
+        throw Error("CONTROLLED_F22_EXISTING_OWNER_MISMATCH");
+      return;
+    }
     const feedback = bundle.input.feedback[0]!;
     const result = evaluateF11Eligibility({
       input: {

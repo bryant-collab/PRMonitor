@@ -12,9 +12,11 @@ The implementation builds on the reviewed setup head `2372e2a3aa1016e32734871c37
 - The setup acceptance harness seeds an isolated genuine saved-review record, edits an answer and checks Home/return retention. Its shell stage seeds twenty real managed records, pauses watching before startup and denies unexpected network, AI subprocesses and publication. Additional stages inspect a real owned Git diff, isolated sync drafts, task settings, native tray/lifecycle, retained restart and historical uncertain publication. See the exact stage assertions in [results](../setup-readiness/results.json).
 - Acceptance found that every Inbox read advanced its revision, making branch-sync selection permanently stale. Revisions now track changed projection facts; unchanged reads preserve selection, while changed PR facts still fail the existing stale guard. An explicit existing reset command is exposed without clearing selection on navigation.
 
+- Expanded controlled acceptance found and fixed a strict provider handoff mismatch for dirty worktrees and duplicate F21 cancellation finalization. Native real budget/new-operation/background Cancel/Continue now pass; real Activity SQLite failure/retry and F13 live delivery also pass. See [provider evidence](conditional-provider.md) and [Activity evidence](activity-copy.md). No provider schema or domain guard changed.
+
 ## Completed command-line validation
 
-- Aggregate: 431 desktop tests in 46 files, 43 validation-contract tests, 17 spec-linter tests, 18 release tests passed.
+- Aggregate: 432 desktop tests in 46 files, 43 validation-contract tests, 17 spec-linter tests, 18 release tests passed.
 - `npm run check` passed: runtime pins; all TypeScript boundaries; lint; formatting; artifact build; sandboxed production Windows smoke; regression suites. Later CSS corrections also passed the native layout journey.
 - Windows unpacked artifact build passed with Electron 44.4.3 and `electron-builder --publish never`.
 - Release tests reject runtime database/cache/fixture payloads both within archives and beside them. No test or sandbox gate was removed or weakened.

@@ -136,7 +136,7 @@ async function start() {
     await (
       await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
     ).seedGuardedWork(userData, root);
-  if (stage === "conditional-f22")
+  if (["conditional-f22", "conditional-provider"].includes(stage))
     await (
       await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
     ).seedHeldFinalReview(userData);
@@ -330,12 +330,9 @@ async function start() {
     await waitFor(
       () =>
         evaluate(
-          `[...document.querySelectorAll('.review-bundle-workspace .workspace-panes button')].some(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}&&!b.disabled)`,
+          `(()=>{const b=[...document.querySelectorAll('.review-bundle-workspace .workspace-panes button')].find(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}&&!b.disabled);if(!b)return false;b.click();return true;})()`,
         ),
       `enabled workspace pane ${label}`,
-    );
-    await evaluate(
-      `[...document.querySelectorAll('.review-bundle-workspace:not([hidden]) .workspace-panes button')].find(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}).click()`,
     );
     await waitFor(
       () =>
@@ -1801,6 +1798,284 @@ async function start() {
     assertions.push(
       "test-owned production main sources with only deterministic F15 provider-port substitution: real renderer/preload/IPC/F16/F17/F21/persistence record the read-only answer, usage and explicit answer transfer; no actual Codex process, model contact, code mutation or publication",
     );
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedConditionalGate(userData, "guarded-final-review");
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await reviewPane("Files and changes");
+    await click("Refresh evidence");
+    await waitFor(
+      () => ipcAudit.at(-1)?.type === "review-bundle.worktree.refresh",
+      "owned revision worktree refreshed",
+    );
+    const work = await evaluate(
+      "window.prmonitor.readReviewBundle('guarded-final-review').then(r=>r.value.workspace)",
+    );
+    const dirtySourceBytes = await fs.readFile(
+      path.join(work.worktree.canonicalPath, "source.ts"),
+    );
+    let sourceBytes = dirtySourceBytes;
+    await reviewPane("Conversation and revisions");
+    await evaluate(
+      "[...document.querySelectorAll('.review-conversation-modes input')].find(e=>!e.closest('[hidden]')&&e.value==='REVIEW_REVISION').click()",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('.review-acknowledgement input'))",
+        ),
+      "unattributed revision acknowledgement",
+    );
+    await evaluate(
+      "document.querySelector('.review-acknowledgement input').click()",
+    );
+    await setField(
+      ".review-conversation-panel textarea",
+      "Exercise the owned controlled turn budget without changing code.",
+    );
+    globalThis.__controlledProviderNeedsMore = true;
+    const conversation = () =>
+      evaluate(
+        "window.prmonitor.readReviewBundleConversation('guarded-final-review').then(r=>r.value.conversation)",
+      );
+    const waitConversation = (predicate, context) =>
+      waitFor(async () => {
+        if (globalThis.__controlledConversationFailure)
+          throw Error(
+            `CONTROLLED_CONVERSATION_FAILURE:${JSON.stringify(globalThis.__controlledConversationFailure)}`,
+          );
+        if (ipcAudit.at(-1)?.ok === false)
+          throw Error(
+            `CONTROLLED_IPC_REFUSAL:${JSON.stringify(ipcAudit.at(-1))}`,
+          );
+        return predicate(await conversation());
+      }, context);
+    const revisionAuditStart = ipcAudit.length;
+    await click("Request explicit revision");
+    await waitFor(
+      () =>
+        ipcAudit
+          .slice(revisionAuditStart)
+          .some((item) => item.type === "review-bundle.revision.request"),
+      "controlled revision command settled",
+    );
+    const initialRevision = await conversation();
+    if (
+      !initialRevision.capabilities.canStartNewOperation ||
+      initialRevision.activeOperation?.remainingBudget !== 0
+    )
+      throw Error(
+        `CONTROLLED_REVISION_REFUSAL:${JSON.stringify({ result: globalThis.__controlledConversationResult, status: initialRevision.activeOperation?.status, budget: initialRevision.activeOperation?.remainingBudget, nextAction: initialRevision.activeOperation?.permittedNextAction, providerInvocations: globalThis.__controlledProviderContracts.length })}`,
+      );
+    await waitConversation(
+      (c) =>
+        c.capabilities.canStartNewOperation &&
+        c.activeOperation.remainingBudget === 0,
+      "one-turn revision stops at the real budget boundary",
+    );
+    const exhausted = await conversation();
+    assert.equal(exhausted.activeOperation.status, "EXHAUSTED");
+    assert.equal(globalThis.__controlledProviderContracts.length, 2);
+    await setField(".review-budget-field input", "2");
+    const newAuditStart = ipcAudit.length;
+    await click("Start new AI Work budget");
+    await waitFor(
+      () =>
+        ipcAudit
+          .slice(newAuditStart)
+          .some(
+            (item) =>
+              item.type === "review-bundle.conversation.start-new-operation",
+          ),
+      "new budget command settled",
+    );
+    const resumed = await conversation();
+    assert.equal(resumed.activeOperation.status, "NEEDS_ATTENTION");
+    assert.equal(resumed.activeOperation.remainingBudget, 1);
+    assert.equal(resumed.activeOperation.permittedNextAction, "REVIEW");
+    assert.equal(
+      globalThis.__controlledContinuationResult.reason,
+      "AI_INVALID_EVIDENCE",
+    );
+    assert.equal(resumed.capabilities.canContinue, false);
+    assert.notEqual(
+      resumed.activeOperation.operationId,
+      exhausted.activeOperation.operationId,
+    );
+    assert.equal(globalThis.__controlledProviderContracts.length, 3);
+    assert.ok(
+      globalThis.__controlledContinuationResult.deterministicProblems?.length,
+    );
+    assert.deepEqual(
+      await fs.readFile(path.join(work.worktree.canonicalPath, "source.ts")),
+      sourceBytes,
+    );
+    // The preceding dirty fixture establishes the strict provider boundary.
+    // Start the cancellation/continuation case from a clean owned checkpoint;
+    // unrelated edits correctly block Continue and are not bypassed.
+    childProcess.execFileSync(
+      "git",
+      ["restore", "--worktree", "--", "source.ts"],
+      {
+        cwd: work.worktree.canonicalPath,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    sourceBytes = await fs.readFile(
+      path.join(work.worktree.canonicalPath, "source.ts"),
+    );
+    assert.equal(
+      childProcess
+        .execFileSync("git", ["status", "--porcelain"], {
+          cwd: work.worktree.canonicalPath,
+          encoding: "utf8",
+          windowsHide: true,
+        })
+        .trim(),
+      "",
+      "owned clean checkpoint Git status",
+    );
+    const cleanRefresh = await evaluate(
+      `window.prmonitor.refreshReviewBundleWorktree('guarded-final-review', ${resumed.bundleVersion})`,
+    );
+    assert.equal(cleanRefresh.ok, true);
+    assert.equal(
+      cleanRefresh.value.workspace.worktree.condition.classification,
+      "CLEAN",
+      "actual F13 clean checkpoint condition",
+    );
+    await reviewPane("Discard and re-evaluate");
+    await click("Discard Review Bundle");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('#f22-worktree-choice'))"),
+      "fresh clean worktree preview",
+    );
+    await click("Close preview");
+    await waitFor(
+      () => evaluate("!document.querySelector('#f22-worktree-choice')"),
+      "clean preview cancelled without discard",
+    );
+    await reviewPane("Conversation and revisions");
+    const cancelReady = await conversation();
+    // Create another exhausted operation through the public IPC boundary, then
+    // start a real explicitly budgeted background intent with one spare turn.
+    const firstBackground =
+      await evaluate(`window.prmonitor.requestReviewBundleRevision({
+      schemaVersion:1,intentId:'owned-exhaust-intent',bundleId:'guarded-final-review',mode:'REVIEW_REVISION',
+      message:'Exercise the owned budget boundary without changing files.',expectedBundleVersion:${cancelReady.bundleVersion},
+      expectedEvidenceRevision:${JSON.stringify(cancelReady.evidenceRevision)},acknowledgeUnattributedChanges:true,
+      idempotencyKey:'owned-exhaust-intent',createdAt:new Date().toISOString()
+    })`);
+    assert.equal(firstBackground.ok, true);
+    const backgroundExhausted = await conversation();
+    assert.equal(backgroundExhausted.activeOperation.status, "EXHAUSTED");
+    assert.equal(globalThis.__controlledProviderContracts.length, 4);
+    globalThis.__controlledProviderWaitForCancel = true;
+    await evaluate(`(()=>{window.__controlledActiveRevision = window.prmonitor.startNewReviewBundleOperation({
+      schemaVersion:1,intentId:'owned-cancel-intent',bundleId:'guarded-final-review',mode:'REVIEW_REVISION',
+      message:'Wait for explicit Cancel without changing files.',expectedBundleVersion:${backgroundExhausted.bundleVersion},
+      expectedEvidenceRevision:${JSON.stringify(backgroundExhausted.evidenceRevision)},acknowledgeUnattributedChanges:true,
+      priorOperationId:${JSON.stringify(backgroundExhausted.activeOperation.operationId)},selectedBudget:2,
+      idempotencyKey:'owned-cancel-intent',createdAt:new Date().toISOString()
+    });return true;})()`);
+    await waitConversation(
+      (c) =>
+        c.capabilities.canCancel &&
+        c.activeOperation.status === "WORKING" &&
+        globalThis.__controlledProviderContracts.length === 5,
+      "actual active provider exposes Cancel",
+    );
+    await click("Back to PR inbox");
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.review-bundle-workspace')].some(e=>!e.closest('[hidden]'))",
+        ),
+      "active provider target closed",
+    );
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await reviewPane("Conversation and revisions");
+    const cancelAuditStart = ipcAudit.length;
+    await click("Cancel AI Work");
+    await waitFor(
+      () =>
+        ipcAudit
+          .slice(cancelAuditStart)
+          .some((item) => item.type === "review-bundle.conversation.cancel"),
+      "Cancel command settled",
+    );
+    const cancelledResponse = await evaluate(
+      "window.__controlledActiveRevision",
+    );
+    assert.equal(
+      cancelledResponse.ok,
+      true,
+      `background intent settlement: ${cancelledResponse.error?.code}`,
+    );
+    const cancelState = await conversation();
+    assert.equal(cancelState.activeOperation.status, "NEEDS_ATTENTION");
+    assert.equal(cancelState.activeOperation.remainingBudget, 1);
+    assert.equal(cancelState.capabilities.canCancel, false);
+    assert.equal(
+      cancelState.capabilities.canContinue,
+      true,
+      JSON.stringify({
+        gate: cancelState.f22?.status,
+        state: cancelState.state,
+        condition: cancelState.worktreeCondition?.classification,
+        conditionActions: cancelState.worktreeCondition?.permittedNextActions,
+        gateCondition: cancelState.f22?.worktreeCondition?.classification,
+        hold: cancelState.f22?.hold.active,
+        gateReason: cancelState.f22?.reason?.code,
+        continueOld: cancelState.f22?.actions.continueOldWork,
+        nextAction: cancelState.activeOperation.permittedNextAction,
+        result: globalThis.__controlledCancelResult,
+      }),
+    );
+    assert.deepEqual(globalThis.__controlledCancelResult, {
+      status: "NEEDS_ATTENTION",
+      reason: "AI_TURN_CANCELLED",
+      turnStatus: "CANCELLED",
+      providerStatus: "cancelled",
+    });
+    assert.equal(globalThis.__controlledProviderContracts.length, 5);
+    globalThis.__controlledProviderWaitForCancel = false;
+    const continueAuditStart = ipcAudit.length;
+    await click("Continue AI Work");
+    await waitFor(
+      () =>
+        ipcAudit
+          .slice(continueAuditStart)
+          .some((item) => item.type === "review-bundle.conversation.continue"),
+      "Continue command settled",
+    );
+    const continued = await conversation();
+    assert.equal(
+      continued.activeOperation.operationId,
+      cancelState.activeOperation.operationId,
+    );
+    assert.equal(continued.activeOperation.status, "EXHAUSTED");
+    assert.equal(continued.activeOperation.remainingBudget, 0);
+    assert.equal(continued.capabilities.canStartNewOperation, true);
+    assert.deepEqual(globalThis.__controlledProviderContracts, [
+      "READ_ONLY_CONVERSATION",
+      ...Array(5).fill("REVIEW_IMPLEMENTATION"),
+    ]);
+    assert.deepEqual(
+      await fs.readFile(path.join(work.worktree.canonicalPath, "source.ts")),
+      sourceBytes,
+    );
+    await capture("controlled-provider-budget-cancel");
+    // Restore the next journey's original owned dirty fixture after proving
+    // that both stopped and continued providers preserved the clean checkpoint.
+    await fs.writeFile(
+      path.join(work.worktree.canonicalPath, "source.ts"),
+      dirtySourceBytes,
+    );
+    assertions.push(
+      "controlled provider and remote-read ports with actual F11 hold/F13 worktree/F16/F17/F21: one-turn budget exhaustion, distinct explicitly budgeted operation stops at actual deterministic-evidence guard with remaining budget; an explicitly budgeted background public IPC operation exposes active Cancel in the reopened renderer, persists cancelled turn evidence, and real Continue consumes exactly its one remaining turn without worktree mutation",
+    );
   }
   if (stage === "conditional-activity") {
     await (
@@ -1906,8 +2181,73 @@ async function start() {
       () => visible("No activity matches these filters"),
       "filtered empty historical activity",
     );
+    await setField(".activity-advanced input", "native-activity-history");
+    await click("Apply filters");
+    await waitFor(
+      async () => (await rows()) === 1,
+      "saved history before real read failure",
+    );
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).withConditionalActivityReadFailure(userData, async () => {
+      await click("Refresh activity");
+      await waitFor(
+        () => visible("Showing last-known activity. The latest read failed."),
+        "real SQLite failure preserves last-known history",
+      );
+      assert.equal(await rows(), 1);
+      assert.ok(
+        await visible(
+          "PRMonitor could not read activity. Select Refresh activity to try again.",
+        ),
+      );
+      await capture("conditional-activity-read-failure");
+    });
+    await click("Refresh activity");
+    await waitFor(
+      () =>
+        evaluate(
+          "!document.querySelector('.activity-viewer [role=alert]')&&!document.querySelector('.activity-status').textContent.includes('last-known')",
+        ),
+      "restored real SQLite read clears error on explicit retry",
+    );
+    assert.equal(await rows(), 1);
+    await selectActivity(".activity-filters > label:nth-of-type(2) select", "");
+    await selectActivity(
+      ".activity-filters > label:nth-of-type(3) select",
+      "WORKTREE",
+    );
+    await setField(".activity-advanced input", "");
+    await click("Apply filters");
+    await waitFor(
+      () =>
+        evaluate(
+          "!document.querySelector('.activity-status').textContent.includes('Loading')&&document.querySelectorAll('.activity-entry').length>0",
+        ),
+      "live worktree Activity query ready",
+    );
+    const eventIds = () =>
+      evaluate(
+        "[...document.querySelectorAll('.activity-entry h3')].map(e=>e.id)",
+      );
+    const beforeLive = await eventIds();
+    const liveWork = await evaluate(
+      "window.prmonitor.readReviewBundle('guarded-final-review').then(r=>r.value.workspace)",
+    );
+    const inspected = await evaluate(
+      `window.prmonitor.refreshReviewBundleWorktree('guarded-final-review', ${liveWork.version})`,
+    );
+    assert.equal(inspected.ok, true);
+    await waitFor(
+      async () => (await eventIds()).some((id) => !beforeLive.includes(id)),
+      "actual F13 producer arrives through live Activity subscription without Refresh",
+    );
+    const afterLive = await eventIds();
+    assert.equal(new Set(afterLive).size, afterLive.length);
+    assert.equal(afterLive.length, beforeLive.length + 1);
+    await capture("conditional-activity-live");
     assertions.push(
-      "historical observations seeded through real Activity writer: PR/application/unknown isolation, failure/uncertain/recovery copy, real 50/65-row pagination without duplicates, combined severity/stage/correlation filters, UTC/raw disclosures and filtered empty state through production renderer/preload/IPC/SQLite",
+      "historical observations seeded through real Activity writer: PR/application/unknown isolation, failure/uncertain/recovery copy, real 50/65-row pagination without duplicates, combined severity/stage/correlation filters, UTC/raw disclosures and filtered empty state; real SQLite table-unavailable failure retains last-known rows and explicit Refresh recovers after restoring all unchanged rows; actual F13 worktree inspection adds exactly one unique live event through production renderer/preload/IPC subscription without Refresh",
     );
   }
   if (stage === "conditional-f22") {

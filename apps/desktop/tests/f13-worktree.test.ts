@@ -14,6 +14,7 @@ import {
   type F13OsPathAdapter,
 } from "../src/main/f13-service";
 import type { F13WorktreeCondition } from "../src/shared/f13-contracts";
+import { aiProviderWorktreeSchema } from "../src/shared/ai/provider-contracts";
 
 const execFileAsync = promisify(execFile);
 const FIXED_TIME = "2026-09-23T12:00:00.000Z";
@@ -531,6 +532,16 @@ describe("F13 operation-owned worktrees and change attribution", () => {
     expect(
       after.worktree?.actualState.files.map((file) => file.path),
     ).toContain("actual.txt");
+    expect(aiProviderWorktreeSchema.safeParse(after.worktree).success).toBe(
+      true,
+    );
+    expect(
+      after.snapshot?.manifest.files.find((file) => file.path === "actual.txt"),
+    ).toMatchObject({
+      statusCode: "??",
+      contentComplete: true,
+      contentBase64: Buffer.from("actual\n").toString("base64"),
+    });
 
     const providerClaim = {
       changedPaths: ["provider-only.txt"],

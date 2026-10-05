@@ -84,6 +84,57 @@ export async function seedConditionalActivity(userData: string) {
   }
 }
 
+/** Real SQLite read failure in the already marked acceptance profile. No rows
+ * are deleted or rewritten; the table name is restored even if the UI fails. */
+export async function withConditionalActivityReadFailure(
+  userData: string,
+  exercise: () => Promise<void>,
+) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  let renamed = false;
+  try {
+    const originalRows = store.transaction((t) =>
+      JSON.stringify(
+        t.all("SELECT * FROM activity_events ORDER BY activity_event_id"),
+      ),
+    );
+    store.transaction((t) =>
+      t.connection.exec(
+        "ALTER TABLE activity_events RENAME TO owned_activity_read_failure",
+      ),
+    );
+    renamed = true;
+    try {
+      await exercise();
+    } finally {
+      store.transaction((t) =>
+        t.connection.exec(
+          "ALTER TABLE owned_activity_read_failure RENAME TO activity_events",
+        ),
+      );
+      renamed = false;
+    }
+    const restoredRows = store.transaction((t) =>
+      JSON.stringify(
+        t.all("SELECT * FROM activity_events ORDER BY activity_event_id"),
+      ),
+    );
+    if (originalRows !== restoredRows)
+      throw Error("CONDITIONAL_ACTIVITY_ROWS_CHANGED");
+  } finally {
+    if (renamed)
+      store.transaction((t) =>
+        t.connection.exec(
+          "ALTER TABLE owned_activity_read_failure RENAME TO activity_events",
+        ),
+      );
+    store.close();
+  }
+}
+
 /** Twenty real managed records; watching is paused before production startup. */
 export async function seedShell(userData: string) {
   const store = await initializePersistence({

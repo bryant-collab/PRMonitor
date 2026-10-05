@@ -76,3 +76,16 @@ and SQLite run/get/all/exec timing, including transaction calls, using fixed
 method labels only. Observation preserves return values and errors; it records
 no paths, statements, identifiers or stored values. No deadline, startup gate,
 security setting or product behavior changes.
+
+At `c60230e8198a8939b0161faaec9df0dc22211fe4`, both
+[PR Windows](https://github.com/bryant-collab/PRMonitor/actions/runs/37275706059/job/111652142213)
+and [push Windows](https://github.com/bryant-collab/PRMonitor/actions/runs/37275700227/job/111652123188)
+pass aggregate and all eighteen native stages, including guarded discard and
+re-evaluation previews/cancellation. Retained windows are created at 3,978/4,441
+ms, Add at 4,140/4,321 ms, and settings at 4,284/5,020 ms (PR/push). All recovery
+scopes complete; post-close audits observe zero descendants. The bounded I/O
+observations show settings SQLite exec totals of 3,203/3,939 ms, longest
+285/318 ms; filesystem operations and Git closes are much shorter in these
+passing jobs. SQLite transaction calls are an observed contributor to startup
+time, but these passes do not prove the cause of the earlier stalled runs.
+No durability setting, transaction order, deadline or assertion changes.

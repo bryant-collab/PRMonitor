@@ -90,3 +90,13 @@ is a reproducible reflow check, not physical Windows DPI verification. Service
 and renderer tests provide the independent prerequisite/failure matrix.
 
 Three additional stages cover controlled provider answer/usage/explicit transfer, historical Activity scope/filter/pagination/disclosure, and guarded discard/re-evaluation previews and cancellation. Provider and F22 stages use a test-owned build of the same production main sources with only the F15 provider and F22 remote-read effect ports replaced, plus a delegating observational F21 wrapper. The other sixteen use ordinary production main. Actual F11 holds, F13 worktrees, typed IPC, persistence and domain guards remain active. See docs/evidence/backlog/conditional-provider.md and conditional-f22.md. Read-only lifecycle diagnostics publish only known phases/reasons and never persisted session identifiers. Bounded I/O observations retain original promise/value/error objects, aggregate only fixed filesystem/SQLite method names and timings, and never record paths, SQL or data.
+
+The provider stage also exercises actual budget exhaustion/new-operation, an
+active background public-IPC turn waiting on F17’s AbortSignal, native Cancel and
+Continue consuming the one remaining turn. Cancellation now waits for the
+initiating F21 completion instead of racing a second durable writer. The owned
+Git checkpoint and exact F11 claim/hold are verified; the original dirty fixture
+is restored for the subsequent F22 case. No foreground-cancellation claim is made.
+Activity additionally verifies a real temporary SQLite table-unavailable error,
+last-known history, unchanged-row restoration and explicit retry; a real F13
+inspection is delivered through the live subscription without Refresh.

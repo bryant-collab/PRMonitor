@@ -62,3 +62,18 @@ The previous viewer promoted producer summary and generic what/why/next-action p
 Native action refinement: `NOTIFICATION_SENT/FAILED` also historically recorded window, saved-target and worktree actions. Closed producer `nativeAction` values and known legacy summaries now distinguish those actions. Only `DELIVER_NOTIFICATION` claims notification delivery; an unknown native event uses factual generic action copy. The coordinator/persistence/presentation test exercises actual producers.
 
 PR / pull request: the GitHub review being watched. Branch sync: preparing changes between the explicitly selected source branch and PR head. Saved review: the persisted proposal/final-review workspace. Application diagnostics: lifecycle, tray, health and empty recovery checks. Check interrupted work: the existing recovery command, which can retry already eligible work; it does not grant approval or silently continue stopped AI work. Raw support data: original safe identifiers, codes and structured evidence.
+
+## Additional native failure and live delivery
+
+The conditional Activity journey now makes only its owned SQLite activity table
+temporarily unavailable. Actual production reads fail; the renderer preserves
+the same last-known history, shows the factual error and offers Refresh activity.
+The fixture restores the table in finally, compares all original rows unchanged,
+and explicit Refresh clears the error. This is a real database read failure, not
+a fabricated renderer response or altered product migration.
+
+With All activity / WORKTREE selected, a real F13 inspection adds exactly one
+unique event through the main/preload subscription without a Refresh action.
+The painted evidence shows 50 saved rows becoming 51 with the new PR-work event.
+This covers one genuine producer and filter combination; it does not certify
+every live event family.
