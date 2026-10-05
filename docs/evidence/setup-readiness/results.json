@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "isolatedDataIdentity": "51d6e38913504158",
+  "isolatedDataIdentity": "ae901548d962214c",
   "scenarios": [
     {
       "stage": "fresh",
@@ -86,6 +86,7 @@
       "stage": "shell",
       "ok": true,
       "assertions": [
+        "exact approved reference painted in a separate nonpersistent session; 3 known optional public prototype scripts blocked before network; product CSP unchanged",
         "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
         "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
       ],

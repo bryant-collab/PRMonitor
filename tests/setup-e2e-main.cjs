@@ -431,6 +431,23 @@ async function start() {
     );
     await capture("shell-forced-colors");
     window.webContents.debugger.detach();
+    // The public prototype uses inline iframe scripts. Keep it out of the
+    // production session, whose file-response CSP correctly rejects them.
+    // This nonpersistent session still belongs to the owned session-data root.
+    const referenceSession = session.fromPartition("approved-reference");
+    const optionalReferenceScripts = new Set([
+      "https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js",
+      "https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js",
+      "https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js",
+    ]);
+    let blockedReferenceScripts = 0;
+    referenceSession.webRequest.onBeforeRequest((details, callback) => {
+      if (/^https?:/i.test(details.url)) {
+        if (optionalReferenceScripts.has(details.url)) blockedReferenceScripts++;
+        else forbidden.push("reference-network");
+        callback({ cancel: true });
+      } else callback({});
+    });
     const reference = new BrowserWindow({
       show: true,
       width: 1280,
@@ -439,15 +456,35 @@ async function start() {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
+        session: referenceSession,
       },
     });
     await reference.loadFile(path.join(root, "approved-preview.html"));
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const referenceFrame = await waitFor(async () => {
+      for (const frame of reference.webContents.mainFrame.frames) {
+        if (
+          await frame
+            .executeJavaScript(
+              "document.readyState === 'complete' && document.body.innerText.includes('PR inbox')",
+            )
+            .catch(() => false)
+        )
+          return frame;
+      }
+      return null;
+    }, "approved-reference-content");
+    await referenceFrame.executeJavaScript(
+      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
     await fs.writeFile(
       path.join(evidence, "approved-reference-1280.png"),
       (await reference.webContents.capturePage()).toPNG(),
     );
     reference.destroy();
+    assertions.push(
+      `exact approved reference painted in a separate nonpersistent session; ${blockedReferenceScripts} known optional public prototype scripts blocked before network; product CSP unchanged`,
+    );
     assertions.push(
       "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
     );
