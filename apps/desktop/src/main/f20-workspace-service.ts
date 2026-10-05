@@ -346,8 +346,7 @@ export class F20WorkspaceService {
   }
 
   public recordDecision(input: F20DecisionCommandInput): F20WorkspaceReadModel {
-    const recordDecision = this.options.bundles.recordDecision;
-    const result = recordDecision({
+    const result = this.options.bundles.recordDecision({
       bundleId: input.bundleId,
       itemId: input.itemId,
       decision: input.decision,

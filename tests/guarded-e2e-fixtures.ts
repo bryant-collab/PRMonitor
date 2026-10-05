@@ -9,6 +9,7 @@ import {
   F07PersistenceRepositories,
   F25PersistenceRepositories,
   F19PersistenceRepositories,
+  F22PersistenceRepositories,
 } from "../apps/desktop/src/main/persistence";
 import { f18ReviewBundleRecordSchema } from "../apps/desktop/src/shared/f18-automatic-review";
 import { f26ConflictResolutionReadModelSchema } from "../apps/desktop/src/shared/f26-conflict-resolution";
@@ -21,6 +22,41 @@ import type {
   F25SynchronizationResultReadModel,
   F25SynchronizationBatchReadModel,
 } from "../apps/desktop/src/shared/f25-synchronization";
+
+/** Fixed historical observation for a conditional UI fixture, not a live remote check. */
+export async function seedConditionalGate(userData: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const states = new F22PersistenceRepositories(store);
+    const current = states.getBundleState("setup-saved-review");
+    if (!current) throw Error("CONDITIONAL_REGISTERED_GATE_MISSING");
+    const { reason, ...saved } = current;
+    void reason;
+    states.putBundleState({
+      expectedRevision: current.revision,
+      state: {
+        ...saved,
+        status: "CURRENT",
+        revision: current.revision + 1,
+        observedIdentity: current.identity,
+        observedBaseSha: current.expectedBaseSha,
+        observedHeadSha: current.expectedHeadSha,
+        observedBaseRepository: current.expectedBaseRepository,
+        observedHeadRepository: current.expectedHeadRepository,
+        observedBaseBranch: current.expectedBaseBranch,
+        observedHeadBranch: current.expectedHeadBranch,
+        observationRevision: 1,
+        observedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  } finally {
+    store.close();
+  }
+}
 
 /** Creates only local owned fixture repositories, before the application effect guard. */
 export async function seedGuardedWork(userData: string, root: string) {

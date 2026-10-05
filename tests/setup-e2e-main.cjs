@@ -1,5 +1,12 @@
 /* Electron-only acceptance entrypoint. Never launched against real user data. */
-const { app, BrowserWindow, session, Tray, screen } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  session,
+  Tray,
+  screen,
+  ipcMain,
+} = require("electron");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -12,6 +19,22 @@ const stage = process.env.PRMONITOR_E2E_STAGE;
 const evidence = process.env.PRMONITOR_E2E_EVIDENCE;
 const network = [];
 const forbidden = [];
+const ipcAudit = [];
+const registerHandler = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (channel, handler) =>
+  registerHandler(channel, async (event, request) => {
+    const response = await handler(event, request);
+    if (
+      stage === "conditional-review" &&
+      request?.type?.startsWith("review-bundle.")
+    )
+      ipcAudit.push({
+        type: request.type,
+        ok: response.ok,
+        code: response.error?.code,
+      });
+    return response;
+  });
 const realExit = app.exit.bind(app);
 let retryRelaunches = 0;
 let retryExits = 0;
@@ -126,16 +149,39 @@ async function start() {
   syncBuiltinESMExports();
   globalThis.fetch = async (url, options) => {
     assert.equal(options?.method, "GET");
+    const addFixture =
+      stage === "add-success" &&
+      /^https:\/\/api\.github\.com\/repos\/fixture\/added\/pulls\/(73|74)$/.test(
+        String(url),
+      );
     assert.ok(
-      [
-        "https://api.github.com/user",
-        "https://github.example.test/api/v3/user",
-      ].includes(String(url)),
+      addFixture ||
+        [
+          "https://api.github.com/user",
+          "https://github.example.test/api/v3/user",
+        ].includes(String(url)),
       "unexpected main network request",
     );
-    network.push("identity-read");
+    network.push(addFixture ? "isolated-pr-metadata-read" : "identity-read");
+    const repo = {
+      id: 173,
+      owner: { login: "fixture" },
+      name: "added",
+      default_branch: "main",
+    };
     const response = new Response(
-      JSON.stringify({ login: "setup-fixture", name: "Setup fixture" }),
+      JSON.stringify(
+        addFixture
+          ? {
+              number: Number(String(url).split("/").at(-1)),
+              state: "open",
+              merged: false,
+              title: "Submitted isolated Add fixture",
+              base: { ref: "main", sha: "a".repeat(40), repo },
+              head: { ref: "fixture-change", sha: "b".repeat(40), repo },
+            }
+          : { login: "setup-fixture", name: "Setup fixture" },
+      ),
       { status: 200, headers: { "content-type": "application/json" } },
     );
     Object.defineProperty(response, "url", { value: String(url) });
@@ -202,10 +248,18 @@ async function start() {
     evaluate(
       ` [...document.querySelectorAll('*')].some(e => e.childElementCount === 0 && e.textContent.trim() === ${JSON.stringify(text)} && e.getClientRects().length > 0 && !e.closest('[hidden]')) `,
     );
-  const click = (text) =>
-    evaluate(
+  const click = async (text) => {
+    await waitFor(
+      () =>
+        evaluate(
+          `[...document.querySelectorAll('button')].some(e=>e.textContent.trim()===${JSON.stringify(text)}&&!e.closest('[hidden]')&&!e.disabled)`,
+        ),
+      `enabled control ${text}`,
+    );
+    return evaluate(
       `(() => { const b=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)} && !e.closest('[hidden]')); if(!b || b.disabled) throw Error('E2E_BUTTON_UNAVAILABLE'); b.click(); })()`,
     );
+  };
   const capture = async (name) => {
     await evaluate(
       "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
@@ -232,6 +286,18 @@ async function start() {
       },
     });
   const assertions = [];
+  const reviewPane = async (label) => {
+    await evaluate(
+      `[...document.querySelectorAll('.review-bundle-workspace:not([hidden]) .workspace-panes button')].find(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}).click()`,
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          `[...document.querySelectorAll('.workspace-panes button')].some(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}&&b.getAttribute('aria-pressed')==='true')`,
+        ),
+      `conditional pane ${label}`,
+    );
+  };
   assertions.push(
     `native display scale factor ${screen.getDisplayMatching(window.getBounds()).scaleFactor}; browser zoom ${window.webContents.getZoomFactor()}; physical Windows DPI/text scaling and screen-reader interaction are not simulated`,
   );
@@ -1206,6 +1272,468 @@ async function start() {
       "historical approval plus uncertain outcome rehydrates through real persistence; native review exposes reconciliation and withholds approve/publish; opening the target causes no repeated external effect",
     );
   }
+  if (stage === "add-success") {
+    const github = await evaluate(
+      "window.prmonitor.readGithubSettings().then(r=>r.value.settings.profiles.find(p=>p.serverUrl==='https://github.com'||p.host==='github.com'))",
+    );
+    assert.ok(github?.id);
+    openTarget("MANAGED_PR_SETTINGS", "shell-pr-1");
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('form[aria-label=\"Edit pull request configuration\"] textarea'))",
+        ),
+      "existing PR edit before successful Add",
+    );
+    await setField(
+      'form[aria-label="Edit pull request configuration"] textarea',
+      "Uncommitted A context survives successful Add.",
+    );
+    const prBefore = await evaluate(
+      "window.prmonitor.readManagedPr('shell-pr-1').then(r=>r.value.managedPr)",
+    );
+    for (const [number, back] of [
+      [73, "Back to PR inbox"],
+      [74, "PR inbox"],
+    ]) {
+      await click("Add PR");
+      await waitFor(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('form[aria-label=\"Add a pull request\"]'))",
+          ),
+        "successful Add form",
+      );
+      await evaluate(
+        `(()=>{const select=document.querySelector('form[aria-label="Add a pull request"] select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,${JSON.stringify(github.id)});select.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.optional-pr-settings').open=true;})()`,
+      );
+      await setField(
+        'form[aria-label="Add a pull request"] input[inputmode="url"]',
+        `https://github.com/fixture/added/pull/${number}`,
+      );
+      await setField(
+        'form[aria-label="Add a pull request"] textarea',
+        `New PR ${number} configuration`,
+      );
+      await click("Add Pull Request");
+      const added = await waitFor(
+        () =>
+          evaluate(
+            `window.prmonitor.readManagedPrs().then(r=>r.value.value.managedPrs.find(p=>p.owner==='fixture'&&p.repositoryName==='added'&&p.number===${number}))`,
+          ),
+        "submitted Add persists new PR",
+      );
+      await waitFor(
+        () =>
+          evaluate(
+            "[...document.querySelectorAll('form[aria-label=\"Add a pull request\"] button')].some(b=>b.textContent.trim()==='Add Pull Request'&&!b.disabled)",
+          ),
+        "successful Add settled",
+      );
+      await click(back);
+      await waitFor(
+        () =>
+          evaluate(
+            `document.querySelector('.pr-detail-heading p')?.textContent===${JSON.stringify(`fixture/added #${number}`)}`,
+          ),
+        "new selected PR rendered after Add return",
+      );
+      await evaluate(
+        "document.getElementById('pr-detail-tab-settings').click()",
+      );
+      await waitFor(
+        () =>
+          evaluate(
+            `document.querySelector('form[aria-label="Edit pull request configuration"] textarea')?.value===${JSON.stringify(`New PR ${number} configuration`)}`,
+          ),
+        "new PR owns displayed settings",
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('.pr-detail-heading p')?.textContent",
+        ),
+        `fixture/added #${number}`,
+      );
+      await click("Review");
+      await waitFor(
+        () => visible("No saved review exists for this pull request yet."),
+        "new PR does not inherit old saved work",
+      );
+      await evaluate(
+        "document.getElementById('pr-detail-tab-settings').click()",
+      );
+      await setField(
+        'form[aria-label="Edit pull request configuration"] textarea',
+        `Saved new PR ${number} configuration`,
+      );
+      await click("Save new configuration revision");
+      await waitFor(
+        () =>
+          evaluate(
+            `window.prmonitor.readManagedPr(${JSON.stringify(added.id)}).then(r=>r.value.managedPr.configuration.context===${JSON.stringify(`Saved new PR ${number} configuration`)})`,
+          ),
+        "new PR settings actually saved",
+      );
+      if (number === 74) await capture("submitted-add-settings");
+    }
+    assert.deepEqual(
+      (
+        await evaluate(
+          "window.prmonitor.readManagedPr('shell-pr-1').then(r=>r.value.managedPr)",
+        )
+      ).configuration,
+      prBefore.configuration,
+    );
+    openTarget("MANAGED_PR_SETTINGS", "shell-pr-1");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelector('form[aria-label=\"Edit pull request configuration\"] textarea')?.value==='Uncommitted A context survives successful Add.'",
+        ),
+      "original PR draft restored after submitting Add",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelector('.pr-detail-heading p')?.textContent==='owner/base #1'",
+        ),
+      "original PR identity returns before draft capture",
+    );
+    await evaluate("document.getElementById('pr-detail-tab-settings').click()");
+    await capture("submitted-add-original-draft");
+    assertions.push(
+      "actual Add metadata GET and persistence, Back/sidebar return, selected identity, empty saved work and Settings save belong to each new PR; original PR persisted configuration and unsaved draft remain independent",
+    );
+  }
+  if (stage === "conditional-review") {
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedConditionalGate(userData);
+    openTarget("REVIEW_BUNDLE", "setup-saved-review");
+    await waitFor(
+      () => visible("Saved review acceptance fixture"),
+      "conditional proposal review",
+    );
+    await reviewPane("Review");
+    const workspace = () =>
+      evaluate(
+        "window.prmonitor.readReviewBundle('setup-saved-review').then(r=>r.value.workspace)",
+      );
+    const original = await workspace();
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.review-bundle-workspace button')].find(b=>!b.closest('[hidden]')&&b.textContent.trim()==='Continue to implementation').disabled",
+      ),
+      true,
+    );
+    await click("Accept recommendation");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.review-action-message')].some(e=>!e.closest('[hidden]')&&e.textContent.includes('question needs'))",
+        ),
+      "empty answer guard",
+    );
+    assert.equal((await workspace()).version, original.version);
+    const field = async (label, value) => {
+      await waitFor(
+        () =>
+          evaluate(
+            `[...document.querySelectorAll('.review-bundle-workspace textarea')].some(e=>!e.closest('[hidden]')&&e.closest('label')?.textContent.includes(${JSON.stringify(label)}))`,
+          ),
+        `conditional field ${label}`,
+      );
+      await evaluate(
+        `(()=>{const e=[...document.querySelectorAll('.review-bundle-workspace textarea')].find(e=>!e.closest('[hidden]')&&e.closest('label')?.textContent.includes(${JSON.stringify(label)}));Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+      );
+    };
+    await field(
+      "Override instructions",
+      "Saved instruction belongs to this proposal item.",
+    );
+    await click("Save entry instruction");
+    await waitFor(
+      () =>
+        evaluate(
+          "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation.proposalInputs.some(i=>i.kind==='SAVE_ENTRY_INSTRUCTION'&&i.text==='Saved instruction belongs to this proposal item.'))",
+        ),
+      "proposal instruction durably saved",
+    );
+    await field(
+      "Question answer",
+      "Answer the fixture question without contacting a provider.",
+    );
+    const instructionMessage = await evaluate(
+      "[...document.querySelectorAll('.review-action-message')].find(e=>!e.closest('[hidden]'))?.textContent",
+    );
+    await click("Save question answer");
+    await waitFor(
+      () =>
+        evaluate(
+          `[...document.querySelectorAll('.review-action-message')].some(e=>!e.closest('[hidden]')&&e.textContent.trim()!==''&&e.textContent!==${JSON.stringify(instructionMessage)})&&[...document.querySelectorAll('.review-bundle-workspace button')].some(b=>!b.closest('[hidden]')&&b.textContent.trim()==='Save question answer'&&!b.disabled)`,
+        ),
+      "pending question save settles with visible refusal",
+    );
+    assert.equal(
+      (await workspace()).version,
+      original.version + 1,
+      "pending no-change decision must not accept a standalone question answer",
+    );
+    await click("Accept recommendation");
+    await waitFor(
+      () => ipcAudit.some((r) => r.type === "review-bundle.decision.record"),
+      "decision IPC received",
+    );
+    const decisionResult = ipcAudit
+      .filter((r) => r.type === "review-bundle.decision.record")
+      .at(-1);
+    assert.equal(decisionResult.ok, true, JSON.stringify(decisionResult));
+    await waitFor(
+      async () => (await workspace()).items[0].decision.decision === "accepted",
+      "accepted proposal with explicit answer",
+    );
+    await field(
+      "Question answer",
+      "Revised answer remains a separately saved proposal input.",
+    );
+    await click("Save question answer");
+    await waitFor(
+      () =>
+        evaluate(
+          "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation.proposalInputs.some(i=>i.kind==='APPLY_QUESTION_ANSWER'))",
+        ),
+      "proposal answer durably saved",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.review-decision-controls select')].some(e=>!e.closest('[hidden]'))",
+        ),
+      "decision controls return after owning read",
+    );
+    await evaluate(
+      "(()=>{const select=[...document.querySelectorAll('.review-decision-controls select')].find(e=>!e.closest('[hidden]'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'no_change');select.dispatchEvent(new Event('change',{bubbles:true}));})()",
+    );
+    await click("Override recommendation");
+    await waitFor(
+      async () =>
+        (await workspace()).items[0].decision.decision === "overridden",
+      "overridden proposal decision",
+    );
+    const after = await workspace();
+    assert.equal(after.items[0].decision.finalDisposition, "no_change");
+    assert.deepEqual(
+      after.items[0].recommendation,
+      original.items[0].recommendation,
+    );
+    await reviewPane("Conversation and revisions");
+    await click("Ask read-only question");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.review-action-message')].some(e=>!e.closest('[hidden]')&&e.textContent.includes('Enter a question'))",
+        ),
+      "empty conversation refused without AI",
+    );
+    assert.equal(
+      (
+        await evaluate(
+          "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation)",
+        )
+      ).turns.length,
+      0,
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.review-conversation-modes input')].find(e=>!e.closest('[hidden]')&&e.value==='REVIEW_REVISION').click()",
+    );
+    await waitFor(
+      () => visible("Request explicit revision"),
+      "explicit revision mode reachable",
+    );
+    await reviewPane("Review");
+    await click("Activity");
+    openTarget("REVIEW_BUNDLE", "setup-saved-review");
+    await waitFor(
+      () => visible("Saved review acceptance fixture"),
+      "conditional proposal return",
+    );
+    assert.equal((await workspace()).items[0].decision.decision, "overridden");
+    await capture("conditional-proposal-decisions");
+    assertions.push(
+      "proposal empty-answer guard, saved entry instruction/answer through F21 persistence, Accept/Override through owning F18 versioned commands, immutable original recommendation, empty conversation guard and explicit revision mode exercised in production renderer/preload/main without provider contact",
+    );
+  }
+  if (stage === "conditional-settings") {
+    await click("Settings");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.settings-categories button')].some(b=>b.textContent.trim()==='Common instructions')",
+        ),
+      "instruction category ready",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.settings-categories button')].find(b=>b.textContent.trim()==='Common instructions').click()",
+    );
+    await waitFor(
+      () => visible("Common Instructions"),
+      "conditional instruction settings",
+    );
+    const inputs =
+      '.preference-section[aria-labelledby="common-instructions-heading"]';
+    const recordsBefore = (await preferences()).commonInstructionProfiles;
+    for (const name of ["Owned instruction A", "Owned instruction B"]) {
+      await setField(
+        `${inputs} .preferences-form input:not([type="checkbox"])`,
+        name,
+      );
+      await setField(
+        `${inputs} .preferences-form textarea`,
+        `Instruction text for ${name}`,
+      );
+      await evaluate(
+        `(()=>{const e=[...document.querySelectorAll(${JSON.stringify(inputs + ' .preferences-form input[type="checkbox"]')})].find(e=>e.closest('label').textContent.includes('Use for new tasks'));if(!e.checked)e.click();})()`,
+      );
+      await click("Create instruction");
+      await waitFor(
+        async () =>
+          (await preferences()).commonInstructionProfiles.some(
+            (p) => p.name === name,
+          ),
+        "owned instruction persisted",
+      );
+      await click("New");
+    }
+    const created = (await preferences()).commonInstructionProfiles.filter(
+      (p) => p.name.startsWith("Owned instruction"),
+    );
+    assert.equal(created.length, 2);
+    const instructionButton = async (name, text) => {
+      await waitFor(
+        () =>
+          evaluate(
+            `(()=>{const a=[...document.querySelectorAll('.instruction-list article')].find(e=>e.querySelector('h4')?.textContent===${JSON.stringify(name)});return [...(a?.querySelectorAll('button')??[])].some(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled);})()`,
+          ),
+        `instruction control ready: ${name} ${text}`,
+      );
+      return evaluate(
+        `(()=>{const a=[...document.querySelectorAll('.instruction-list article')].find(e=>e.querySelector('h4')?.textContent===${JSON.stringify(name)});const b=[...a.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(b.disabled)throw Error('CONDITIONAL_CONTROL_DISABLED');b.click();})()`,
+      );
+    };
+    await instructionButton("Owned instruction B", "Move up");
+    await click("Save selected order");
+    await waitFor(
+      async () =>
+        (await preferences()).selectedCommonInstructionIds[0] ===
+        created.find((p) => p.name === "Owned instruction B").profileId,
+      "instruction order committed",
+    );
+    await instructionButton("Owned instruction A", "Move up");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelector('.instruction-list article h4')?.textContent==='Owned instruction A'",
+        ),
+      "reordered card and move guards follow draft order",
+    );
+    await instructionButton("Owned instruction B", "Move up");
+    await waitFor(
+      () =>
+        evaluate(
+          "document.querySelector('.instruction-list article h4')?.textContent==='Owned instruction B'",
+        ),
+      "instruction order restored before revision",
+    );
+    await instructionButton("Owned instruction A", "Edit");
+    await setField(
+      `${inputs} .preferences-form textarea`,
+      "Revised owned instruction A",
+    );
+    await click("Save instruction revision");
+    await waitFor(
+      async () =>
+        (await preferences()).commonInstructionProfiles.some(
+          (p) =>
+            p.name === "Owned instruction A" &&
+            p.instructionText === "Revised owned instruction A" &&
+            p.revision === 2,
+        ),
+      "instruction revision persisted",
+    );
+    const retainedA = (await preferences()).commonInstructionProfiles.find(
+      (p) => p.name === "Owned instruction A",
+    );
+    await instructionButton("Owned instruction B", "Delete");
+    await waitFor(
+      async () =>
+        !(await preferences()).commonInstructionProfiles.some(
+          (p) => p.name === "Owned instruction B",
+        ),
+      "only owned instruction deleted",
+    );
+    assert.deepEqual(
+      (await preferences()).commonInstructionProfiles.find(
+        (p) => p.name === "Owned instruction A",
+      ),
+      retainedA,
+    );
+    await capture("conditional-instruction-settings");
+    assert.deepEqual(
+      (await preferences()).commonInstructionProfiles.filter((p) =>
+        recordsBefore.some((before) => before.profileId === p.profileId),
+      ),
+      recordsBefore,
+    );
+    assertions.push(
+      "real isolated instruction create/select/order/edit/delete commands preserve versioned ownership; no instruction authorizes external effects",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('.settings-categories button')].find(b=>b.textContent.trim()==='Repository build and validation').click()",
+    );
+    await waitFor(
+      () => visible("Repository Build & Validation"),
+      "repository guidance category",
+    );
+    const repositoriesBefore = (await preferences()).repositories;
+    const guidance =
+      '.preference-section[aria-labelledby="repository-guidance-heading"]';
+    for (const [index, value] of [
+      "github-com",
+      "owned-fixture",
+      "guidance",
+      "github-com/owned-fixture/guidance",
+    ].entries())
+      await setField(
+        `${guidance} .preferences-form label:nth-of-type(${index + 1}) input`,
+        value,
+      );
+    await setField(
+      `${guidance} textarea`,
+      "Review the fixture build expectations. This prose authorizes no command or publication.",
+    );
+    await click("Save repository guidance");
+    await waitFor(
+      async () =>
+        (await preferences()).repositories.some(
+          (r) =>
+            r.repository.key === "github-com/owned-fixture/guidance" &&
+            r.buildInstructions.startsWith("Review the fixture"),
+        ),
+      "repository guidance durably saved",
+    );
+    assert.deepEqual(
+      (await preferences()).repositories.filter((r) =>
+        repositoriesBefore.some(
+          (before) => before.repository.key === r.repository.key,
+        ),
+      ),
+      repositoriesBefore,
+    );
+    await capture("conditional-repository-guidance");
+    assertions.push(
+      "repository guidance save uses real typed IPC and persistence, preserves other repository records and grants no execution or publication authority",
+    );
+  }
   if (stage === "restart") {
     assert.equal(read.ready, true);
     await waitFor(() => visible("No pull requests yet"), "ready restart inbox");
@@ -1308,7 +1836,7 @@ async function start() {
     "setup attempted a model, publication, or network side effect",
   );
   assertions.push(
-    "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic",
+    "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic",
   );
   await finish(undefined, assertions);
 }

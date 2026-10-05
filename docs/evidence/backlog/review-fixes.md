@@ -1,5 +1,26 @@
 # Review fixes and additional Windows acceptance
 
+The final follow-up fixes successful Add ownership: refresh the Inbox projection
+and load the added record through the same stale-safe details/work/settings reader.
+The native test actually submits two isolated Add requests and checks Back and
+sidebar return, empty saved work, settings save and the original PR's unsaved draft.
+Proposal acceptance uncovered an unbound F18 coordinator call; the owning method
+now keeps its receiver. Instruction cards and Move controls follow the draft order
+after the first reorder. Native conditional journeys verify the resulting commands
+through real IPC and SQLite, not renderer-only callbacks.
+
+Installer child diagnostics are bounded and private. Public failures use fixed
+labels/digests, and canonical Temp paths propagate to builder, installer,
+uninstaller and smoke children. Three focused release tests verify privacy,
+stream/nonce/timeout handling and path aliases. The real Windows 8.3 alias run
+passes both installed versions and owner-validated cleanup. A separate deeper
+Temp-root experiment failed at INSTALL_0_1_1; its private diagnostics do not
+establish a cause. Deep arbitrary install-path acceptance is not claimed.
+
+The explicit [remaining acceptance matrix](remaining-acceptance.md) identifies
+the physical requirements, evidence gaps, execution blockers and safe next steps,
+plus the separate Ubuntu compatibility experiment. These requirements are retained.
+
 The follow-up keeps the reviewed implementation and addresses four independent review findings, plus two issues found by native acceptance.
 
 | Problem | Result and regression evidence |
@@ -11,7 +32,7 @@ The follow-up keeps the reviewed implementation and addresses four independent r
 | Saving one task profile reset drafts for other tasks | Draft retention compares saved profile revision, preserving unsaved fields across refreshed availability metadata. Native four-task editing/navigation/discard/save checks other drafts and saved revisions remain unchanged. |
 | Conflict usage could not pass the persistence codec | F25 uses its existing usageUnits storage convention for nested conflict aggregate/turn counts; read restores the strict F26 schema and optional measurement fields. Credential-key rejection remains unchanged. Native saved conflict rehydration verifies numeric input/output counts through real SQLite and process restarts. |
 
-The full aggregate check passed with 427 desktop, 43 contract, 17 spec-linter and 11 release tests. All TypeScript boundaries include root fixture TypeScript, lint/format pass, and the production artifact passes its existing sandboxed startup/accessibility smoke. No linter, credential, security or publication gate was removed.
+The full aggregate check passed with 427 desktop, 43 contract, 17 spec-linter and 14 release tests. All TypeScript boundaries include root fixture TypeScript, lint/format pass, and the production artifact passes its existing sandboxed startup/accessibility smoke. No linter, credential, security or publication gate was removed.
 
 Exact-head CI at `745bc64` exposed a Windows runner fixture issue after the PR job passed its aggregate: Temp used a `RUNNER~1` short-path alias while F13 correctly required the recorded canonical worktree path. The acceptance runner now canonicalizes its Temp and owned roots, passes canonical Temp inputs to its children, and verifies cleanup against that same root. Production path guards are unchanged. Local acceptance repeats all twelve stages using an actual Windows 8.3 Temp alias. The push job separately timed out in the unchanged five-second F23 publication and F25 SQLite tests; the parallel PR job passed those tests. Both original failures remain visible in runs [37260608088](https://github.com/bryant-collab/PRMonitor/actions/runs/37260608088) and [37260611946](https://github.com/bryant-collab/PRMonitor/actions/runs/37260611946); the corrected published head requires its own CI verification.
 
@@ -25,4 +46,4 @@ Remaining physical acceptance is Windows DPI 125/150/200%, independent text scal
 
 The 82 bridge operations and 174 original controls are mapped in [control-inventory](control-inventory.md). Native journeys exercise the main destinations and ownership/guard regressions; existing F13–F27 integration suites verify controlled provider, validation, discard, publication and retry effects. Source mapping alone does not certify every conditional control at every historical state. No live provider/publication acceptance is claimed under the no-contact/no-publication scope.
 
-Ubuntu-latest still fails before application JavaScript with SIGTRAP/SANDBOX_SETUP_FAILED, also seen in baseline run 37238773164. Read-only diagnostics show restricted user namespaces and an unconfigured setuid helper; they do not establish a sole cause. No AppArmor/sysctl/setuid/no-sandbox or skipped-test workaround is included. A runner pin to Ubuntu 22.04 was evaluated but not adopted: [GitHub's announcement](https://github.com/actions/runner-images/issues/14254) says deprecation began September 17, 2026 and retirement is April 17, 2027. That would be a temporary unverified runner substitution, not a demonstrated fix. Windows exact-head CI remains the production platform gate; the Ubuntu failure stays visible.
+Ubuntu-latest still fails before application JavaScript with SIGTRAP/SANDBOX_SETUP_FAILED, also seen in baseline run 37238773164. Read-only diagnostics show restricted user namespaces and an unconfigured setuid helper; they do not establish a sole cause. The authorized separate Ubuntu 22.04 experiment at `27753dc` passes sandboxed production startup/accessibility smoke; both jobs subsequently fail the unchanged contract requiring ubuntu-latest. The pin is not adopted, and no gate is weakened. [The detailed matrix](remaining-acceptance.md) preserves every experiment failure, namespace comparison and temporary retirement constraint. Windows exact-head CI remains the production platform gate; the Ubuntu failure stays visible.

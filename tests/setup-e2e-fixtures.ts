@@ -1,5 +1,6 @@
 import path from "node:path";
 export {
+  seedConditionalGate,
   seedGuardedWork,
   advanceGuardedResult,
   readRetainedWork,

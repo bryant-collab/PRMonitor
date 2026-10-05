@@ -14,12 +14,16 @@ The implementation builds on the reviewed setup head `2372e2a3aa1016e32734871c37
 
 ## Completed command-line validation
 
-- Aggregate: 427 desktop tests in 46 files, 43 validation-contract tests, 17 spec-linter tests, 11 release tests passed.
+- Aggregate: 427 desktop tests in 46 files, 43 validation-contract tests, 17 spec-linter tests, 14 release tests passed.
 - `npm run check` passed: runtime pins; all TypeScript boundaries; lint; formatting; artifact build; sandboxed production Windows smoke; regression suites. Later CSS corrections also passed the native layout journey.
 - Windows unpacked artifact build passed with Electron 44.4.3 and `electron-builder --publish never`.
 - Release tests reject runtime database/cache/fixture payloads both within archives and beside them. No test or sandbox gate was removed or weakened.
 
 ## Pending acceptance and limits
+
+The [remaining acceptance matrix and conditional-control ledger](remaining-acceptance.md)
+identify each requirement, current evidence, execution blocker and safe next step.
+Physical acceptance and full historical conditional equivalence remain open.
 
 The parent obtained an uninterrupted test window while the user was away. [Results](../setup-readiness/results.json) and screenshots now describe this implementation. The native shell stage checks twenty persisted mixed-state PRs, independent inspection/sync selection, select-all/clear, unsaved PR context across Activity navigation, genuine empty PR Activity and real application diagnostics, 1280x800/1024x768/900x650/320px layouts, Chromium 200% zoom, vertical reachability of every detail tab, native Tab input and emulated forced colors. Painted review caught and corrected narrow vertical clipping and forced-color label contrast after the initial geometry-only pass.
 

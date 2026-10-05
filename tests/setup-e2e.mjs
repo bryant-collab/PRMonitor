@@ -118,6 +118,9 @@ try {
     "lifecycle",
     "retained-restart",
     "publication-uncertain",
+    "add-success",
+    "conditional-review",
+    "conditional-settings",
   ]) {
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));

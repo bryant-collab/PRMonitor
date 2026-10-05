@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
   "ok": true,
+  "canonicalTemporaryRoot": true,
+  "shortTempAlias": true,
   "assertions": [
     "0.1.0: NSIS silent per-user install/upgrade in owned prefix; actual saved review history and SQLite setting/version/timestamps unchanged; installed sandboxed production app completes startup and accessibility smoke",
     "0.1.1: NSIS silent per-user install/upgrade in owned prefix; actual saved review history and SQLite setting/version/timestamps unchanged; installed sandboxed production app completes startup and accessibility smoke"
   ],
-  "installerSha256": "3b8e6b3d9b7cf45f785d4fc90652986b0468c574e4da98e2f659d365eb2d52d4",
+  "installerSha256": "a89742503a6fa3d08e2174f11c08a3a1d0f47bb11f97673d66e7f033534c9b8d",
   "limitations": [
     "Test-only app identity and no shortcuts protect existing PRMonitor shortcuts. Shipping app identity, existing customer installation upgrade, signing and release are not claimed."
   ]

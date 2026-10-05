@@ -786,72 +786,75 @@ export function Preferences({
               className="instruction-list"
               aria-label="Common Instruction profiles"
             >
-              {preferences.commonInstructionProfiles.map((profile, index) => (
-                <article className="preference-card" key={profile.profileId}>
-                  <div className="profile-card-heading">
-                    <div>
-                      <h4>{profile.name}</h4>
-                      <p>
-                        revision {profile.revision} ·{" "}
-                        {profile.enabled ? "enabled" : "disabled"}
-                      </p>
-                    </div>
-                    <span className="status-pill">
-                      {preferences.selectedCommonInstructionIds.includes(
-                        profile.profileId,
-                      )
-                        ? `selected ${preferences.selectedCommonInstructionIds.indexOf(profile.profileId) + 1}`
-                        : "not selected"}
-                    </span>
-                  </div>
-                  <p className="instruction-preview">
-                    {profile.instructionText}
-                  </p>
-                  <div className="profile-actions">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => editInstruction(profile)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={busy}
-                      onClick={() =>
-                        void commit((settingsRevision) =>
-                          window.prmonitor!.deleteCommonInstruction({
-                            expectedSettingsRevision: settingsRevision,
-                            profileId: profile.profileId,
-                          }),
+              {instructionOrder.flatMap((profileId, index) => {
+                const profile = preferences.commonInstructionProfiles.find(
+                  (p) => p.profileId === profileId,
+                );
+                if (profile === undefined) return [];
+                return (
+                  <article className="preference-card" key={profile.profileId}>
+                    <div className="profile-card-heading">
+                      <div>
+                        <h4>{profile.name}</h4>
+                        <p>
+                          revision {profile.revision} ·{" "}
+                          {profile.enabled ? "enabled" : "disabled"}
+                        </p>
+                      </div>
+                      <span className="status-pill">
+                        {preferences.selectedCommonInstructionIds.includes(
+                          profile.profileId,
                         )
-                      }
-                    >
-                      Delete
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={index === 0}
-                      onClick={() => moveInstruction(profile.profileId, -1)}
-                    >
-                      Move up
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={
-                        index ===
-                        preferences.commonInstructionProfiles.length - 1
-                      }
-                      onClick={() => moveInstruction(profile.profileId, 1)}
-                    >
-                      Move down
-                    </button>
-                  </div>
-                </article>
-              ))}
+                          ? `selected ${preferences.selectedCommonInstructionIds.indexOf(profile.profileId) + 1}`
+                          : "not selected"}
+                      </span>
+                    </div>
+                    <p className="instruction-preview">
+                      {profile.instructionText}
+                    </p>
+                    <div className="profile-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => editInstruction(profile)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() =>
+                          void commit((settingsRevision) =>
+                            window.prmonitor!.deleteCommonInstruction({
+                              expectedSettingsRevision: settingsRevision,
+                              profileId: profile.profileId,
+                            }),
+                          )
+                        }
+                      >
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={index === 0}
+                        onClick={() => moveInstruction(profile.profileId, -1)}
+                      >
+                        Move up
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={index === instructionOrder.length - 1}
+                        onClick={() => moveInstruction(profile.profileId, 1)}
+                      >
+                        Move down
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
           <button

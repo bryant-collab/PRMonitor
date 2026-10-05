@@ -23,7 +23,11 @@ draft retention, Activity views, desktop/narrow/zoom layout and forced colors.
 Five more processes cover exact sync-result navigation and draft ownership,
 complete owned Git diff and guarded final review, independent task-setting
 drafts, native tray/Shutdown, retained cold restart and historical uncertain
-publication. The exact twelve-stage assertions are in the evidence JSON.
+publication. Three more processes submit actual Add requests, exercise proposal
+decision/input/conversation guards, and create/reorder/revise/delete owned
+instructions plus save repository guidance. The exact fifteen-stage assertions
+are in the evidence JSON. The conditional proposal uses a fixed historical F22
+observation, not a live remote check; owning decision/input guards remain active.
 
 The guarded Git fixture creates a baseline commit and registered operation-owned
 source/worktree before the application effect guard is installed. Once production
@@ -47,8 +51,9 @@ Every run creates a marked temporary directory and isolates Electron user data,
 session data and home before importing main. Windows bootstrap keeps its required
 account path environment entries; the app never opens that account's PRMonitor
 data. The parent strips secret-shaped environment variables.
-GitHub.com and GHES return controlled GET identity fixtures; all other fetches
-fail. The local auth preflight uses a fixed nonsecret fixture value. Codex
+GitHub.com and GHES return controlled GET identity fixtures; the Add stage also
+allowlists exactly two fixed PR metadata GETs. All other fetches fail. The local
+auth preflight uses a fixed nonsecret fixture value. Codex
 subprocesses and Git commit/push are denied. The shell fixture pauses watching before startup; the
 scheduler cannot poll or dispatch the fixture PRs. Screenshots and safe assertions are written to
 `docs/evidence/setup-readiness`; private child diagnostics stay inside the
@@ -62,6 +67,12 @@ The runner resolves Windows short-path Temp aliases before marking or persisting
 owned paths. Its children receive canonical Temp inputs, and cleanup checks the
 same canonical temporary root. This retains production path-movement guards;
 an actual 8.3 Temp alias is included in local Windows acceptance.
+
+The installer also canonicalizes Temp and propagates that path to every owned
+child. Its bounded smoke reader requires the nonce-bearing ready marker after
+both output streams close. Public failures use fixed labels/digests; private
+diagnostics remain only in marked local Temp. Focused release tests verify
+privacy, timeout/output bounds, marker matching and alias propagation.
 
 The initialization fixture obstructs the owned database directory with a file.
 Readiness reads do not trigger relaunch. Two explicit retries coalesce into one

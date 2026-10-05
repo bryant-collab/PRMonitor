@@ -763,14 +763,13 @@ export function StartupApp() {
         setManagedDetails(undefined);
         setManagedWork(undefined);
         setManagedCandidates([]);
+        setRoute((current) =>
+          current.selectedManagedPrId === selected
+            ? routeAfterPrRemoval(current, ids)
+            : current,
+        );
       }
       priorInboxIds.current = ids;
-      setRoute((current) =>
-        routeAfterPrRemoval(
-          current,
-          inboxSnapshot.cards.map((card) => card.id),
-        ),
-      );
     }
   }, [inboxSnapshot]);
   useEffect(() => {
@@ -876,16 +875,17 @@ export function StartupApp() {
           );
         } else {
           setManagedMessage(operationMessage(response.value.operation));
+          await refreshManagedPrs();
+          await retryInbox();
           if (
             response.value.operation.managedPr !== undefined &&
             (currentRoute.current.selectedManagedPrId ===
               response.value.operation.managedPr.id ||
               currentRoute.current.destination === "managed")
           ) {
-            setManagedDetails(response.value.operation.managedPr);
             setSelectedManagedPrId(response.value.operation.managedPr.id);
+            await openManagedPr(response.value.operation.managedPr.id);
           }
-          await refreshManagedPrs();
         }
       } catch {
         setManagedMessage(
@@ -898,11 +898,13 @@ export function StartupApp() {
     [
       busy,
       operationMessage,
+      openManagedPr,
       addClonePath,
       addContext,
       addOverride,
       prUrl,
       refreshManagedPrs,
+      retryInbox,
       selectedProfileId,
     ],
   );

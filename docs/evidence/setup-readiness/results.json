@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "isolatedDataIdentity": "e21ffaffb8b45d4e",
+  "isolatedDataIdentity": "4be8f6ce4650c171",
   "scenarios": [
     {
       "stage": "fresh",
@@ -13,7 +13,7 @@
         "fresh setup exposes remediation, optional PR guidance, and unclipped actions at narrow 125% zoom",
         "one task profile committed before shutdown",
         "closing and activating the production window resumes setup with only committed progress",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -28,7 +28,7 @@
         "Tab reaches a labeled actionable control from the setup heading",
         "cold restart retains committed profile and resumes setup",
         "GitHub.com and GHES identity fixtures, four independent persisted profiles, and local auth complete all checks; zero PRs allows inbox",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 2,
       "forbiddenEffects": 0
@@ -40,7 +40,7 @@
         "native display scale factor 1; browser zoom 1.25; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "ready data cold-starts into empty inbox; Settings > Setup inspects readiness",
         "empty ready profile has no PR activity; genuine startup diagnostics are separately accessible without inventing PR work",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -55,7 +55,7 @@
         "Tab reaches a labeled actionable control from the setup heading",
         "recreated renderer recomputes incomplete readiness and resumes setup",
         "lost local auth resumes setup; a durable saved review opens with the attention banner; HOME and return preserve content and an unsaved answer without mutation",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -69,7 +69,7 @@
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
         "initialization failure exposes setup; ordinary reads never relaunch; explicit duplicate Retry coalesces; obstruction bytes remain intact; no domain network started",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -83,7 +83,7 @@
         "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
         "Tab reaches a labeled actionable control from the setup heading",
         "after external repair of the owned obstruction, fresh process starts normally and recomputes incomplete configuration",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -97,7 +97,7 @@
         "native Home/End/arrow keys move selected detail tabs and keyboard focus together; tablist/tabpanel expose selection and relationships",
         "exact approved reference painted in a separate nonpersistent session; 3 known optional public prototype scripts blocked before network; product CSP unchanged",
         "twenty persisted PRs use independent inspection/sync selection; select-all/clear retain inspected PR; PR draft survives Activity navigation; genuine PR/application Activity views; desktop 1280/1024, narrow 900/320, Chromium 200% zoom have no whole-page horizontal overflow and unclipped detail tabs; native Tab and emulated forced colors captured",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -110,7 +110,7 @@
         "exact A/B result navigation isolates answer drafts; returning rereads a changed saved result; empty answers and unapproved publication remain guarded",
         "real owned Git worktree renders all 600 changed lines including the final line; six saved review panes remain reachable; publication without approval is rejected by the production service",
         "missing review, sync result/batch and PR/settings targets produce explicit unavailable states without selecting unrelated saved work",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -121,7 +121,7 @@
       "assertions": [
         "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "all four task drafts survive category and destination navigation; discard/save affects only the selected task; other saved revisions remain unchanged; leaving GitHub settings clears the unsaved credential field",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -143,7 +143,7 @@
       "assertions": [
         "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "cold restart after actual native Shutdown preserves saved review and synchronization records",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
@@ -154,7 +154,41 @@
       "assertions": [
         "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
         "historical approval plus uncertain outcome rehydrates through real persistence; native review exposes reconciliation and withholds approve/publish; opening the target causes no repeated external effect",
-        "no Codex subprocess, Git commit/push, or renderer network request; only fake GitHub GET identity traffic"
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "add-success",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "actual Add metadata GET and persistence, Back/sidebar return, selected identity, empty saved work and Settings save belong to each new PR; original PR persisted configuration and unsaved draft remain independent",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 2,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "conditional-review",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "proposal empty-answer guard, saved entry instruction/answer through F21 persistence, Accept/Override through owning F18 versioned commands, immutable original recommendation, empty conversation guard and explicit revision mode exercised in production renderer/preload/main without provider contact",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
+      ],
+      "fixtureRequests": 0,
+      "forbiddenEffects": 0
+    },
+    {
+      "stage": "conditional-settings",
+      "ok": true,
+      "assertions": [
+        "native display scale factor 1; browser zoom 1; physical Windows DPI/text scaling and screen-reader interaction are not simulated",
+        "real isolated instruction create/select/order/edit/delete commands preserve versioned ownership; no instruction authorizes external effects",
+        "repository guidance save uses real typed IPC and persistence, preserves other repository records and grants no execution or publication authority",
+        "no Codex subprocess, Git commit/push, or renderer network request; only allowlisted fake GitHub GET fixture traffic"
       ],
       "fixtureRequests": 0,
       "forbiddenEffects": 0
