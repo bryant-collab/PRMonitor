@@ -101,10 +101,31 @@ in that push job. These are genuine failed tests, not dependency blockers.
 The added dirty-handoff regression and cancellation completion test pass.
 
 Vitest 5.0.1 derives file workers from available CPU count by default. The
-desktop script now explicitly bounds file workers to two to reduce competing
+desktop script first explicitly bounded file workers to two to reduce competing
 Git processes and synchronous durable SQLite fixture I/O. Every test, assertion,
 explicit concurrency scenario and existing deadline stays unchanged; no
 transaction durability setting changes. Parallel fixture load is a plausible
 contributor, not a proven sole cause of the earlier startup or aggregate stalls.
 The failed job remains visible, and new exact-head aggregate/native CI must pass
 before claiming the bounded run is successful.
+
+At `c412f0bbd3758895291da088aac805d3c6dbf782`, the two-worker
+[push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37282814451/job/111674609317)
+fails three existing five-second aggregate cases: Activity filtering/pagination,
+F13 Clear All/ignored-file preservation, and F13 durable recreation/released
+mutation. The
+[PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37282820841/job/111674629590)
+passes aggregate but fails the provider fixture's clean checkpoint: fixture Git
+status is empty while production F13 reports UNATTRIBUTED_CHANGES. Its first
+window appears at 6,424 ms, all 133 recovery scopes complete, and no owned
+descendants survive; SQLite exec totals 14,800 ms with one 8,117-ms call.
+This native failure is an assertion mismatch, not a widened startup deadline.
+
+The owned Git fixture now commits `source.ts text eol=lf` in `.gitattributes`.
+Fixture restore inherits system Git configuration; F13 excludes it. An isolated
+reproduction with differing autocrlf policies and invalidated stat cache produces
+CRLF bytes that one policy considers clean and the other dirty; repository
+attributes restore LF bytes that both consider clean. No product Git policy or
+worktree guard changes. Desktop file workers are now bounded to one as an
+isolation experiment; explicit concurrent scenarios and all deadlines remain.
+Both preceding failures remain evidence, and new exact-head CI is required.

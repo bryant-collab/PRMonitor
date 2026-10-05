@@ -19,7 +19,7 @@ No schema, policy or admission guard changed.
 Passing native assertions exercise a real question disposition, a controlled
 read-only answer, input/output/total usage 5/7/12, and explicit Use as answer into
 the owning proposal input history. The fake provider rejects unexpected output contracts and implements only the
-owned read-only and revision fixtures; cancellation listens to F17’s actual AbortSignal. The harness denies actual Codex, commit/push and unexpected network.
+owned read-only and revision fixtures; cancellation listens to F17's actual AbortSignal. The harness denies actual Codex, commit/push and unexpected network.
 No model service or remote publication is contacted.
 
 The ordinary production guarded/settings stages additionally pass required
@@ -45,7 +45,10 @@ The native journey now verifies one-turn exhaustion, a different explicitly
 budgeted operation, and deterministic-evidence refusal with an unused turn. It
 then establishes a clean fixture checkpoint with Git restore of only the known
 owned source.ts, verifies Git/F13 cleanliness, and opens/cancels an actual F22
-preview to refresh its durable condition. An explicitly budgeted background
+preview to refresh its durable condition. The fixture commits an explicit LF
+attribute for source.ts so system Git autocrlf settings and production F13's
+isolated Git environment inspect identical restored bytes. The prior c412f0b
+PR CI mismatch remains recorded in startup-recovery.md. An explicitly budgeted background
 public IPC operation waits at the controlled provider. Reopening its real target
 exposes Cancel; F17 persists a CANCELLED turn and cancelled provider report,
 while the operation remains NEEDS_ATTENTION with its evidence and one unused

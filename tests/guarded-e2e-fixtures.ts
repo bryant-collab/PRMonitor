@@ -179,6 +179,10 @@ export async function seedGuardedWork(userData: string, root: string) {
         stdio: ["ignore", "pipe", "pipe"],
       }).trim();
     git("init", "--initial-branch=main");
+    // The fixture and production F13 use different Git environment boundaries.
+    // Pin the owned file's bytes in repository attributes so system autocrlf
+    // settings cannot make a restored checkpoint clean for only one boundary.
+    await writeFile(path.join(clone, ".gitattributes"), "source.ts text eol=lf\n");
     await writeFile(
       path.join(clone, "source.ts"),
       Array.from(
@@ -186,7 +190,7 @@ export async function seedGuardedWork(userData: string, root: string) {
         (_, i) => `export const original${i} = ${i};`,
       ).join("\n") + "\n",
     );
-    git("add", "source.ts");
+    git("add", ".gitattributes", "source.ts");
     git(
       "-c",
       "user.name=Acceptance fixture",

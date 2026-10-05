@@ -25,7 +25,7 @@
     "package:installer": "npm run generate:icon && electron-builder --publish never --win nsis --x64 --config electron-builder.yml",
     "build:artifact": "npm run build && npm run package",
     "smoke": "node scripts/smoke.mjs",
-    "test": "vitest run --maxWorkers=2",
+    "test": "vitest run --maxWorkers=1",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run build:artifact && npm run smoke && npm run test"
   },
   "dependencies": {
