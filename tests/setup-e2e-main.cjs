@@ -1165,7 +1165,15 @@ async function start() {
     );
     assert.ok(shutdown?.enabled);
     shutdown.click(shutdown, undefined, {});
-    await waitFor(() => quitRequested, "native shutdown completed before quit");
+    await waitFor(() => {
+      const state = startupDiagnostics.snapshot().lifecycle;
+      if (
+        state.phase === "RECOVERY_REQUIRED" ||
+        state.shutdown === "RECOVERY_REQUIRED"
+      )
+        throw Error(`NATIVE_SHUTDOWN_RECOVERY:${JSON.stringify(state)}`);
+      return quitRequested;
+    }, "native shutdown completed before quit");
     assert.equal(nativeTray.isDestroyed(), true);
     const after = await fixtures.readRetainedWork(userData);
     assert.equal(after.shutdown.state, "COMPLETED");
@@ -1766,6 +1774,114 @@ async function start() {
     await capture("controlled-provider-answer-transfer");
     assertions.push(
       "test-owned production main sources with only deterministic F15 provider-port substitution: real renderer/preload/IPC/F16/F17/F21/persistence record the read-only answer, usage and explicit answer transfer; no actual Codex process, model contact, code mutation or publication",
+    );
+  }
+  if (stage === "conditional-activity") {
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedConditionalActivity(userData);
+    await click("Activity");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('.activity-viewer'))"),
+      "historical activity destination",
+    );
+    const selectActivity = async (selector, value) => {
+      await evaluate(
+        `(()=>{const e=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      );
+    };
+    const viewSelector = ".activity-viewer > label select";
+    await selectActivity(viewSelector, "ALL");
+    await evaluate("document.querySelector('.activity-advanced').open=true");
+    await setField(".activity-advanced input", "native-activity-history");
+    await click("Apply filters");
+    const rows = () =>
+      evaluate("document.querySelectorAll('.activity-entry').length");
+    await waitFor(
+      async () => (await rows()) === 50,
+      "first real 50-row history page",
+    );
+    assert.ok(await visible("PRMonitor recorded an event."));
+    assert.ok(
+      await visible("PRMonitor could not finish checking interrupted work."),
+    );
+    assert.ok(await visible("The outcome of saved work is not known."));
+    assert.ok(await visible("The work outcome is not known."));
+    assert.ok(await visible("Work failed."));
+    const firstIds = await evaluate(
+      "[...document.querySelectorAll('.activity-entry h3')].map(e=>e.id)",
+    );
+    await click("Load older activity");
+    await waitFor(
+      async () => (await rows()) === 65,
+      "older real history merges without duplicates",
+    );
+    const allIds = await evaluate(
+      "[...document.querySelectorAll('.activity-entry h3')].map(e=>e.id)",
+    );
+    assert.equal(new Set(allIds).size, 65);
+    assert.deepEqual(allIds.slice(0, 50), firstIds);
+    await selectActivity(viewSelector, "PR_WORK");
+    await waitFor(
+      async () =>
+        (await rows()) === 50 && !(await visible("Unclassified event")),
+      "PR view isolates historical scope",
+    );
+    await click("Load older activity");
+    await waitFor(
+      async () => (await rows()) === 63,
+      "PR history excludes application and unknown records",
+    );
+    await selectActivity(viewSelector, "APPLICATION");
+    await waitFor(
+      async () => (await rows()) === 1,
+      "application recovery isolates its single historical record",
+    );
+    assert.ok(
+      await visible("PRMonitor could not finish checking interrupted work."),
+    );
+    await selectActivity(viewSelector, "ALL");
+    await waitFor(async () => (await rows()) === 50, "all history restored");
+    await selectActivity(
+      ".activity-filters > label:nth-of-type(2) select",
+      "ERROR",
+    );
+    await click("Apply filters");
+    await waitFor(
+      async () => (await rows()) === 2,
+      "error filter preserves PR and application failure records",
+    );
+    await selectActivity(
+      ".activity-filters > label:nth-of-type(3) select",
+      "RECOVERY",
+    );
+    await click("Apply filters");
+    await waitFor(
+      async () => (await rows()) === 1,
+      "severity and recovery stage combine",
+    );
+    await evaluate(
+      "document.querySelector('.activity-event-details').open=true;document.querySelector('.activity-event-details details').open=true",
+    );
+    assert.ok(
+      await evaluate(
+        "[...document.querySelectorAll('.activity-event-details p')].some(e=>e.textContent.startsWith('Exact time (UTC):')&&e.querySelector('time[datetime]'))",
+      ),
+    );
+    assert.ok(
+      await evaluate(
+        "document.querySelector('.activity-event-details pre').textContent.includes('owned-historical-activity')",
+      ),
+    );
+    await capture("conditional-activity-history");
+    await setField(".activity-advanced input", "native-activity-no-match");
+    await click("Apply filters");
+    await waitFor(
+      () => visible("No activity matches these filters"),
+      "filtered empty historical activity",
+    );
+    assertions.push(
+      "historical observations seeded through real Activity writer: PR/application/unknown isolation, failure/uncertain/recovery copy, real 50/65-row pagination without duplicates, combined severity/stage/correlation filters, UTC/raw disclosures and filtered empty state through production renderer/preload/IPC/SQLite",
     );
   }
   if (stage === "conditional-settings") {

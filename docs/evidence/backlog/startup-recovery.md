@@ -48,3 +48,16 @@ creation time, name and working set, publishes only aggregate kinds, and does
 not terminate descendants or inspect command lines, paths or credentials.
 Raw application output remains bounded inside the verified test-owned Temp
 root. These diagnostics do not widen any gate or suppress a failed stage.
+
+At `146015a2fe5bc0525d33156a193eca73708fc738`, the
+[PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37271857070/job/111640356298)
+passes aggregate and all sixteen native journeys. The
+[push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37271853388/job/111640344560)
+passes aggregate and its first nine stages, then fails waiting for native
+Shutdown completion. At failure the window had reopened, recovery completed
+121 scopes, all 24 Git processes had exited and closed, and no owned descendants
+remained afterward. This is a separate lifecycle observation; its cause is not
+established from that job. New read-only diagnostics expose only known persisted
+F04 phases and F19 shutdown states/reasons, with a privacy regression. The native
+test now fails immediately on an observed recovery-required state and still
+requires successful Shutdown, COMPLETED persistence and retained history.

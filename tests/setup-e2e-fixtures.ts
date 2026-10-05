@@ -16,6 +16,72 @@ import {
 } from "../apps/desktop/src/main/persistence";
 import { managedPrFixture } from "../apps/desktop/tests/support/managed-pr-fixture";
 import { f18ReviewBundleRecordSchema } from "../apps/desktop/src/shared/f18-automatic-review";
+import { ActivityService } from "../apps/desktop/src/main/activity-service";
+import type { ActivityEventInput } from "../apps/desktop/src/shared/activity";
+
+/** Historical event fixtures written through the real normalized Activity writer. */
+export async function seedConditionalActivity(userData: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    let sequence = 0;
+    const base = Date.now();
+    const service = new ActivityService(store, {
+      clock: { now: () => new Date(base + sequence++).toISOString() },
+    });
+    const append = (id: string, fields: Partial<ActivityEventInput>) => {
+      const result = service.append({
+        eventId: `native-activity-${id}`,
+        eventType: "OPERATION_PROGRESS",
+        stage: "REVIEW",
+        correlationId: "native-activity-history",
+        occurrenceAt: new Date(base).toISOString(),
+        severity: "INFO",
+        reason: {
+          code: "PROGRESS",
+          what: "Historical fixture observation",
+          why: "Owned acceptance history",
+          nextAction: "NONE",
+        },
+        summary: "Historical fixture observation",
+        managedPrId: "shell-pr-1",
+        details: { fixture: "owned-historical-activity" },
+        ...fields,
+      });
+      if (result.outcome !== "inserted")
+        throw Error("CONDITIONAL_ACTIVITY_SEED_FAILED");
+    };
+    for (let i = 0; i < 60; i++) append(`progress-${i}`, {});
+    append("failure", { eventType: "OPERATION_FAILED", severity: "ERROR" });
+    append("unknown-outcome", {
+      eventType: "OPERATION_UNKNOWN_OUTCOME",
+      severity: "WARNING",
+    });
+    append("pr-recovery", {
+      eventType: "RECOVERY_FAILED",
+      stage: "RECOVERY",
+      severity: "WARNING",
+      details: { f28Event: "UNCERTAIN" },
+    });
+    append("application-recovery", {
+      eventType: "RECOVERY_FAILED",
+      stage: "RECOVERY",
+      managedPrId: undefined,
+      severity: "ERROR",
+      details: { fixture: "owned-historical-activity" },
+    });
+    append("legacy-unknown", {
+      eventType: "LEGACY_ACTIVITY",
+      stage: "SYSTEM",
+      managedPrId: undefined,
+      details: {},
+    });
+  } finally {
+    store.close();
+  }
+}
 
 /** Twenty real managed records; watching is paused before production startup. */
 export async function seedShell(userData: string) {

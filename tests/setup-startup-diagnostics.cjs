@@ -23,6 +23,55 @@ const reasons = new Set([
   "memory-eviction",
 ]);
 
+const shutdownReasons = new Set([
+  "SHUTDOWN_REQUESTED",
+  "SHUTDOWN_INTENT_COMMITTED",
+  "SERVICE_HANDOFF_STARTED",
+  "SHUTDOWN_COMPLETE",
+  "SERVICE_STOP_FAILED",
+  "SERVICE_STOP_TIMEOUT",
+  "SERVICE_HANDOFF_TIMEOUT",
+  "SERVICE_HANDOFF_FAILED",
+  "HANDOFF_RECOVERY_REQUIRED",
+  "INCOMPLETE_LIFECYCLE_HANDOFF",
+  "TRAY_REMOVAL_FAILED",
+]);
+exports.closedLifecycleObservation = function (status, intent) {
+  const allowed = (value, values) =>
+    values.includes(value) ? value : "UNKNOWN";
+  const reason = (value) =>
+    value === undefined
+      ? undefined
+      : shutdownReasons.has(value)
+        ? value
+        : "UNKNOWN";
+  return {
+    phase:
+      status === undefined
+        ? "NO_STATUS"
+        : allowed(status.phase, [
+            "STARTING",
+            "RUNNING",
+            "SHUTDOWN_REQUESTED",
+            "HANDING_OFF",
+            "STOPPED",
+            "RECOVERY_REQUIRED",
+          ]),
+    reason: reason(status?.reasonCode),
+    incompleteHandoff: status?.incompleteHandoff === true,
+    shutdown:
+      intent === undefined
+        ? "NO_INTENT"
+        : allowed(intent.state, [
+            "REQUESTED",
+            "HANDING_OFF",
+            "COMPLETED",
+            "RECOVERY_REQUIRED",
+          ]),
+    shutdownReason: reason(intent?.reasonCode),
+  };
+};
+
 exports.observeStartup = function ({ app, root, bootstrap }) {
   const started = Date.now();
   const events = [];
@@ -33,6 +82,38 @@ exports.observeStartup = function ({ app, root, bootstrap }) {
     active: 0,
     peakActive: 0,
     longestMs: 0,
+  };
+  const lifecycle = () => {
+    let db;
+    try {
+      db = new DatabaseSync(
+        path.join(
+          root,
+          bootstrap ? "bootstrap-user-data" : "user-data",
+          "database/prmonitor.sqlite",
+        ),
+        { readOnly: true },
+      );
+      db.exec("PRAGMA busy_timeout=0");
+      const setting = db
+        .prepare(
+          "SELECT value_json FROM settings WHERE setting_key = 'f04.lifecycle'",
+        )
+        .get();
+      const intent = db
+        .prepare(
+          "SELECT payload_json FROM f19_shutdown_intents WHERE shutdown_id = 'application-shutdown'",
+        )
+        .get();
+      return exports.closedLifecycleObservation(
+        setting ? JSON.parse(setting.value_json) : undefined,
+        intent ? JSON.parse(intent.payload_json) : undefined,
+      );
+    } catch {
+      return { phase: "UNAVAILABLE", shutdown: "UNAVAILABLE" };
+    } finally {
+      db?.close();
+    }
   };
   let acquired,
     windowsCreated = 0,
@@ -152,6 +233,7 @@ exports.observeStartup = function ({ app, root, bootstrap }) {
         ),
         freeMemoryMb: Math.round(os.freemem() / 1048576),
         recovery: recovery(),
+        lifecycle: lifecycle(),
       };
     },
   };

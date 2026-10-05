@@ -172,6 +172,7 @@ try {
     "conditional-review",
     "conditional-settings",
     "conditional-provider",
+    "conditional-activity",
   ]) {
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));
