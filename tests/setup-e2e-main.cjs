@@ -26,18 +26,27 @@ const startupDiagnostics =
     bootstrap: stage.startsWith("bootstrap"),
   });
 const ipcAudit = [];
+let ioDiagnostics;
 const registerHandler = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) =>
   registerHandler(channel, async (event, request) => {
     const response = await handler(event, request);
     if (
-      ["conditional-review", "conditional-provider"].includes(stage) &&
+      [
+        "conditional-review",
+        "conditional-provider",
+        "conditional-f22",
+      ].includes(stage) &&
       request?.type?.startsWith("review-bundle.")
     )
       ipcAudit.push({
         type: request.type,
         ok: response.ok,
         code: response.error?.code,
+        outcome: response.value?.outcome,
+        reason:
+          response.value?.reason?.code ??
+          response.value?.workspace?.f22?.reason?.code,
       });
     return response;
   });
@@ -73,6 +82,7 @@ async function finish(error, assertions = []) {
         fixtureRequests: network.length,
         forbiddenEffects: forbidden.length,
         startupDiagnostics: startupDiagnostics.snapshot(),
+        ioDiagnostics: ioDiagnostics?.snapshot(),
         error:
           error === undefined ? undefined : `${currentStep}: ${error.message}`,
       },
@@ -126,6 +136,10 @@ async function start() {
     await (
       await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
     ).seedGuardedWork(userData, root);
+  if (stage === "conditional-f22")
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedHeldFinalReview(userData);
   if (stage === "bootstrap-failure") {
     app.relaunch = () => {
       retryRelaunches++;
@@ -158,6 +172,11 @@ async function start() {
       return work;
     };
   }
+  ioDiagnostics = require("./setup-io-diagnostics.cjs").observeOwnedIo(
+    fs,
+    require("node:sqlite"),
+    root,
+  );
   syncBuiltinESMExports();
   globalThis.fetch = async (url, options) => {
     assert.equal(options?.method, "GET");
@@ -208,7 +227,7 @@ async function start() {
   });
   await import(
     pathToFileURL(
-      stage === "conditional-provider"
+      ["conditional-provider", "conditional-f22"].includes(stage)
         ? path.join(root, "controlled-app/main/index.cjs")
         : path.join(__dirname, "../apps/desktop/out/main/index.js"),
     ).href
@@ -308,6 +327,13 @@ async function start() {
     });
   const assertions = [];
   const reviewPane = async (label) => {
+    await waitFor(
+      () =>
+        evaluate(
+          `[...document.querySelectorAll('.review-bundle-workspace .workspace-panes button')].some(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}&&!b.disabled)`,
+        ),
+      `enabled workspace pane ${label}`,
+    );
     await evaluate(
       `[...document.querySelectorAll('.review-bundle-workspace:not([hidden]) .workspace-panes button')].find(b=>!b.closest('[hidden]')&&b.textContent.trim()===${JSON.stringify(label)}).click()`,
     );
@@ -1882,6 +1908,159 @@ async function start() {
     );
     assertions.push(
       "historical observations seeded through real Activity writer: PR/application/unknown isolation, failure/uncertain/recovery copy, real 50/65-row pagination without duplicates, combined severity/stage/correlation filters, UTC/raw disclosures and filtered empty state through production renderer/preload/IPC/SQLite",
+    );
+  }
+  if (stage === "conditional-f22") {
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedConditionalGate(userData, "guarded-final-review");
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await waitFor(
+      () => visible("Guarded final review with complete saved changes"),
+      "controlled held final review",
+    );
+    await reviewPane("Discard and re-evaluate");
+    const read = () =>
+      evaluate(
+        "window.prmonitor.readReviewBundle('guarded-final-review').then(r=>r.value.workspace)",
+      );
+    const initial = await read();
+    assert.equal(initial.f22.hold.active, true);
+    const bytes = await fs.readFile(
+      path.join(initial.worktree.canonicalPath, "source.ts"),
+    );
+    await click("Discard Review Bundle");
+    await waitFor(
+      () => ipcAudit.at(-1)?.type === "review-bundle.discard.preview",
+      "first authoritative remote observation settled",
+    );
+    assert.equal(ipcAudit.at(-1).reason, "STALE_GATE_REVISION");
+    assert.equal((await read()).f22PendingAction, undefined);
+    assert.deepEqual(
+      await fs.readFile(path.join(initial.worktree.canonicalPath, "source.ts")),
+      bytes,
+    );
+    // The first real observation advances the historical fixture's gate. Its
+    // stale intent is refused; the next explicit click uses the refreshed gate.
+    await click("Discard Review Bundle");
+    await waitFor(() => {
+      const response = ipcAudit.at(-1);
+      if (
+        response?.type.includes("discard") &&
+        (response.ok === false ||
+          response.outcome === "REJECTED" ||
+          response.outcome === "ATTENTION")
+      )
+        throw Error(`CONTROLLED_F22_REFUSED:${JSON.stringify(response)}`);
+      return evaluate(
+        "Boolean(document.querySelector('#f22-worktree-choice'))",
+      );
+    }, "actual discard preview with owned dirty worktree");
+    assert.equal(
+      await evaluate("document.querySelector('#f22-confirm-choice').disabled"),
+      true,
+    );
+    assert.equal(
+      await evaluate("document.activeElement.id"),
+      "f22-choice-heading",
+    );
+    await evaluate(
+      "(()=>{const e=document.querySelector('#f22-worktree-choice');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'CLEAR_AI_ONLY');e.dispatchEvent(new Event('change',{bubbles:true}));})()",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#f22-confirm-choice').disabled"),
+      true,
+    );
+    await evaluate("document.querySelector('#f22-confirmation').click()");
+    await waitFor(
+      () => evaluate("!document.querySelector('#f22-confirm-choice').disabled"),
+      "explicit choice confirmation enables guarded control",
+    );
+    await click("Close preview");
+    await waitFor(
+      async () => !(await read()).f22PendingAction,
+      "close preview persists bounded cancellation",
+    );
+    assert.deepEqual(
+      await fs.readFile(path.join(initial.worktree.canonicalPath, "source.ts")),
+      bytes,
+    );
+    await click("Discard Review Bundle");
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('#f22-worktree-choice'))"),
+      "second distinct discard preview",
+    );
+    await evaluate(
+      "(()=>{const e=document.querySelector('#f22-worktree-choice');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'KEEP_AND_CANCEL');e.dispatchEvent(new Event('change',{bubbles:true}));})()",
+    );
+    await click("Confirm action choice");
+    await waitFor(
+      async () => !(await read()).f22PendingAction,
+      "Keep and Cancel persists without destructive authorization",
+    );
+    assert.deepEqual(
+      await fs.readFile(path.join(initial.worktree.canonicalPath, "source.ts")),
+      bytes,
+    );
+    assert.equal((await read()).f22.hold.active, true);
+    await globalThis.__controlledF22ObserveMoved();
+    await click("Back to PR inbox");
+    await waitFor(
+      () =>
+        evaluate(
+          "![...document.querySelectorAll('.review-bundle-workspace')].some(e=>!e.closest('[hidden]'))",
+        ),
+      "review route returned to inbox",
+    );
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await waitFor(
+      () => visible("Guarded final review with complete saved changes"),
+      "remote-head stale review reopened",
+    );
+    await reviewPane("Files and changes");
+    await click("Refresh evidence");
+    await waitFor(
+      () => ipcAudit.at(-1)?.type === "review-bundle.worktree.refresh",
+      "explicit refresh returns observed gate to renderer",
+    );
+    await reviewPane("Discard and re-evaluate");
+    assert.equal((await read()).f22.actions.reevaluate, true);
+    await click("Re-evaluate at current head");
+    await waitFor(() => {
+      if (globalThis.__controlledF22Failure)
+        throw Error(
+          `CONTROLLED_F22_FAILURE:${JSON.stringify(globalThis.__controlledF22Failure)}`,
+        );
+      const response = ipcAudit.at(-1);
+      if (
+        response?.type === "review-bundle.reevaluate.preview" &&
+        (response.ok === false ||
+          response.outcome === "REJECTED" ||
+          response.outcome === "ATTENTION")
+      )
+        throw Error(`CONTROLLED_F22_REFUSED:${JSON.stringify(response)}`);
+      return evaluate(
+        "Boolean(document.querySelector('#f22-worktree-choice'))",
+      );
+    }, "actual re-evaluation preview after observed head movement");
+    assert.equal(
+      await evaluate("document.querySelector('#f22-confirm-choice').disabled"),
+      true,
+    );
+    await click("Close preview");
+    await waitFor(
+      async () => !(await read()).f22PendingAction,
+      "re-evaluation cancellation persists",
+    );
+    assert.equal((await read()).f22.hold.active, true);
+    assert.deepEqual(
+      await fs.readFile(path.join(initial.worktree.canonicalPath, "source.ts")),
+      bytes,
+    );
+    assert.deepEqual(globalThis.__controlledProviderContracts, []);
+    await capture("conditional-discard-cancel");
+    assertions.push(
+      "test-owned main with controlled remote-read port: actual durable F11 eligibility/claim/hold and F13 owned Git worktree; stale-gate refusal and discard/re-evaluation previews focus choices and require confirmation; Close preview and Keep Worktree and Cancel preserve source bytes and active hold; no clear, model, commit/push or publication effect",
     );
   }
   if (stage === "conditional-settings") {

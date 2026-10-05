@@ -61,3 +61,18 @@ established from that job. New read-only diagnostics expose only known persisted
 F04 phases and F19 shutdown states/reasons, with a privacy regression. The native
 test now fails immediately on an observed recovery-required state and still
 requires successful Shutdown, COMPLETED persistence and retained history.
+
+At `608bc25db1d637be14d63661511a47f5b62514c4`, the
+[PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37272722780/job/111642977539)
+passes aggregate and all seventeen native journeys. The
+[push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37272716150/job/111642958989)
+passes aggregate and Shutdown, then fails waiting for the Add-stage window.
+At 15,824 ms, recovery was LOCAL_WORK with 41/121 scopes complete; all eight
+observed Git processes had closed (longest 50 ms), and no window existed.
+F04 was RUNNING, the previous F19 shutdown was COMPLETED, free memory was about
+13 GB, and the post-close audit found no descendants. This does not identify
+the remaining wait. The subsequent harness observes owned filesystem promises
+and SQLite run/get/all/exec timing, including transaction calls, using fixed
+method labels only. Observation preserves return values and errors; it records
+no paths, statements, identifiers or stored values. No deadline, startup gate,
+security setting or product behavior changes.

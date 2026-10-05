@@ -53,7 +53,7 @@ try {
     platform: "node",
     format: "esm",
   });
-  // Build the same main sources with only the provider effect port substituted.
+  // Build the same main sources with controlled provider and remote-read ports.
   // All domain services, IPC validation, persistence and security guards remain real.
   const controlledApp = path.join(root, "controlled-app");
   await mkdir(path.join(controlledApp, "main"), { recursive: true });
@@ -86,6 +86,13 @@ try {
           );
           build.onResolve({ filter: /(?:^|\/)f21-ai-work-adapter$/ }, (args) =>
             args.importer === observer ? undefined : { path: observer },
+          );
+          const f22Fixture = path.join(
+            repository,
+            "tests/controlled-f22-fixture.ts",
+          );
+          build.onResolve({ filter: /(?:^|\/)f22-coordinator$/ }, (args) =>
+            args.importer === f22Fixture ? undefined : { path: f22Fixture },
           );
         },
       },
@@ -173,6 +180,7 @@ try {
     "conditional-settings",
     "conditional-provider",
     "conditional-activity",
+    "conditional-f22",
   ]) {
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));
@@ -239,7 +247,7 @@ try {
       `setup-e2e: ${stage}: ${result.ok ? "PASS" : "FAIL"}\n`,
     );
     process.stdout.write(
-      `setup-e2e diagnostics: ${JSON.stringify({ stage, startup: result.startupDiagnostics, closedProcessTree: result.closedProcessTree })}\n`,
+      `setup-e2e diagnostics: ${JSON.stringify({ stage, startup: result.startupDiagnostics, io: result.ioDiagnostics, closedProcessTree: result.closedProcessTree })}\n`,
     );
     if (code !== 0 || !result.ok)
       throw new Error(result.error || "E2E_CHILD_FAILED");

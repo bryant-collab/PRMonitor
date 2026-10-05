@@ -10,6 +10,7 @@ import {
   F25PersistenceRepositories,
   F19PersistenceRepositories,
   F22PersistenceRepositories,
+  F11PersistenceRepositories,
 } from "../apps/desktop/src/main/persistence";
 import { f18ReviewBundleRecordSchema } from "../apps/desktop/src/shared/f18-automatic-review";
 import { f26ConflictResolutionReadModelSchema } from "../apps/desktop/src/shared/f26-conflict-resolution";
@@ -22,6 +23,84 @@ import type {
   F25SynchronizationResultReadModel,
   F25SynchronizationBatchReadModel,
 } from "../apps/desktop/src/shared/f25-synchronization";
+import { evaluateF11Eligibility } from "../apps/desktop/src/shared/domain/eligibility";
+
+export async function seedHeldFinalReview(userData: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repositories = createPersistenceRepositories(store);
+    const bundle = new F18PersistenceRepositories(repositories).get(
+      "guarded-final-review",
+    );
+    if (!bundle) throw Error("CONTROLLED_F22_BUNDLE_MISSING");
+    const f11 = new F11PersistenceRepositories(store);
+    const feedback = bundle.input.feedback[0]!;
+    const result = evaluateF11Eligibility({
+      input: {
+        managedPrId: bundle.managedPrId,
+        serverId: bundle.input.pullRequest.baseRepository.serverId,
+        repositoryId: "saved-fixture-repository",
+        pullRequestNumber: 43,
+        sourceKind: feedback.sourceKind,
+        sourceId: feedback.sourceId,
+        remoteObjectKey: feedback.sourceId,
+        eventVersionId: feedback.eventVersionId,
+        semanticHash: feedback.semanticHash,
+        authorLogin: "fixture-reviewer",
+        body: "Preserve this owned acceptance change.",
+        currentPrState: "OPEN",
+        primaryState: "WATCHING",
+        associationState: "UNASSIGNED",
+        holdActive: false,
+        configuration: {
+          automationIdentity: {
+            serverId: bundle.input.pullRequest.baseRepository.serverId,
+            login: "fixture-bot",
+          },
+          ignoredAccounts: [],
+        },
+      },
+      correlationId: "controlled-f22-historical-claim",
+      now: new Date().toISOString(),
+    });
+    if (result.decision !== "ELIGIBLE")
+      throw Error(`CONTROLLED_F22_ELIGIBILITY_${result.reason.code}`);
+    f11.recordDecision(result);
+    // This is a historical state fixture inside the marker-owned database. The
+    // actual claim transaction, identity/event/association and hold guards run.
+    store.transaction((transaction) =>
+      transaction.run(
+        "UPDATE managed_prs SET state = 'WATCHING' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      ),
+    );
+    const claim = f11.claimAutomatic({
+      claimId: bundle.claimId,
+      holdId: "controlled-f22-held-final",
+      managedPrId: bundle.managedPrId,
+      operationId: bundle.operationId,
+      bundleId: bundle.bundleId,
+      eventVersionIds: bundle.input.remoteEventVersionIds,
+      configurationSnapshot: result.configurationSnapshot,
+      correlationId: result.correlationId,
+      currentPrState: "OPEN",
+      primaryState: "WATCHING",
+    });
+    if (claim.outcome !== "CLAIMED")
+      throw Error(`CONTROLLED_F22_CLAIM_${claim.reason.code}`);
+    store.transaction((transaction) =>
+      transaction.run(
+        "UPDATE managed_prs SET state = 'READY_FOR_REVIEW' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      ),
+    );
+  } finally {
+    store.close();
+  }
+}
 
 /** Fixed historical observation for a conditional UI fixture, not a live remote check. */
 export async function seedConditionalGate(
@@ -196,6 +275,7 @@ export async function seedGuardedWork(userData: string, root: string) {
             ...original.input.feedback[0],
             eventVersionId: "guarded-final-event",
             sourceId: "guarded-final-comment",
+            semanticHash: "d".repeat(64),
           },
         ],
       },
@@ -256,7 +336,7 @@ export async function seedGuardedWork(userData: string, root: string) {
           sourceKind: "REVIEW_COMMENT",
           sourceId: "guarded-final-comment",
           observedAt: time,
-          semanticHash: "guarded-final-hash",
+          semanticHash: "d".repeat(64),
           payload: { schemaVersion: 1 },
         },
       ],

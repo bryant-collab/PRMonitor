@@ -25,7 +25,7 @@ complete owned Git diff and guarded final review, independent task-setting
 drafts, native tray/Shutdown, retained cold restart and historical uncertain
 publication. Three more processes submit actual Add requests, exercise proposal
 decision/input/conversation guards, and create/reorder/revise/delete owned
-instructions plus save repository guidance. The exact seventeen-stage assertions
+instructions plus save repository guidance. The exact eighteen-stage assertions
 are in the evidence JSON. The conditional proposal uses a fixed historical F22
 observation, not a live remote check; owning decision/input guards remain active.
 
@@ -89,4 +89,4 @@ answer. This fixture is not a managed polling target. Chromium 125% zoom
 is a reproducible reflow check, not physical Windows DPI verification. Service
 and renderer tests provide the independent prerequisite/failure matrix.
 
-Two additional stages cover a controlled provider answer/usage/explicit answer transfer and historical Activity scope/filter/pagination/disclosure states. The controlled provider stage uses a test-owned build of the same production main sources with only the F15 effect port replaced and a delegating observational F21 wrapper; the other sixteen use ordinary production main. See docs/evidence/backlog/conditional-provider.md. Read-only lifecycle diagnostics publish only known phases/reasons and never persisted session identifiers.
+Three additional stages cover controlled provider answer/usage/explicit transfer, historical Activity scope/filter/pagination/disclosure, and guarded discard/re-evaluation previews and cancellation. Provider and F22 stages use a test-owned build of the same production main sources with only the F15 provider and F22 remote-read effect ports replaced, plus a delegating observational F21 wrapper. The other sixteen use ordinary production main. Actual F11 holds, F13 worktrees, typed IPC, persistence and domain guards remain active. See docs/evidence/backlog/conditional-provider.md and conditional-f22.md. Read-only lifecycle diagnostics publish only known phases/reasons and never persisted session identifiers. Bounded I/O observations retain original promise/value/error objects, aggregate only fixed filesystem/SQLite method names and timings, and never record paths, SQL or data.
