@@ -148,3 +148,10 @@ is absent, ambiguous, or cannot be enforced at the delegated boundary.
 | APP-AC-64 | 1, 4-5 |
 | APP-AC-70-APP-AC-71 | 2, 4-5 |
 | APP-AC-74 | 3-5 |
+
+
+## Issue 1 supplement: Mandatory setup configuration
+
+Approved scope: [resumable setup on startup](https://github.com/bryant-collab/PRMonitor/issues/1). All four durable independent task profiles must be enabled, validated and AVAILABLE. Provider/model/options/task bounds are rechecked against the registered provider. The effective policy and operational settings must be valid and compatible with each task, including workspace-write for mutating revision/conflict tasks. Defaults need no acknowledgement; optional common instructions, repository overrides and tuning do not gate readiness. Existing profile editors and Apply to All semantics remain authoritative; no setup progress flags or shadow profile state are persisted.
+
+Evidence: the setup readiness/local/provider/IPC/renderer/recovery tests, repository `npm run check`, and six-process production Electron `npm run test:setup`. See `docs/evidence/setup-readiness/README.md` for scenario mapping, retained screenshots, and exact residual manual coverage. Existing F03/F05/F13/F19/F29 owners keep their persistence, credential, filesystem, lifecycle and security rules.

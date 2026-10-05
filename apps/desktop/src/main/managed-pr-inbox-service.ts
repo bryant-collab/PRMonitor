@@ -29,6 +29,7 @@ export interface ManagedPrInboxServiceOptions {
 export class ManagedPrInboxService {
   private readonly now: () => string;
   private version = 0;
+  private facts = "";
   private readonly listeners = new Set<
     (snapshot: ManagedPrInboxReadModel) => void
   >();
@@ -38,13 +39,23 @@ export class ManagedPrInboxService {
   }
 
   public read(): ManagedPrInboxReadModel {
-    this.version += 1;
-    return projectManagedPrInbox({
+    const candidate = projectManagedPrInbox({
       managedPrs: this.options.managedPrs.listManagedPrs(),
       synchronizationResults: this.synchronizationSources(),
-      version: this.version,
+      version: this.version + 1,
       generatedAt: this.now(),
     });
+    const {
+      version: _version,
+      generatedAt: _generatedAt,
+      ...facts
+    } = candidate;
+    const signature = JSON.stringify(facts);
+    if (signature !== this.facts) {
+      this.facts = signature;
+      this.version += 1;
+    }
+    return { ...candidate, version: this.version };
   }
 
   public refresh(): ManagedPrInboxReadModel {

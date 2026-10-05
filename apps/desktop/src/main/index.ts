@@ -1,3 +1,5 @@
+import { recoveryActivityAttribution } from "../shared/recovery-attribution";
+import { projectManagedPrWork } from "./managed-pr-work";
 import {
   app,
   BrowserWindow,
@@ -6,10 +8,12 @@ import {
   powerMonitor,
   safeStorage,
 } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import os from "node:os";
+import { resolveRuntimePaths, type RuntimePaths } from "./runtime-paths";
 import { fileURLToPath } from "node:url";
 import {
   APPLICATION_ID,
@@ -17,7 +21,11 @@ import {
   SMOKE_READY_PREFIX,
   STARTUP_STATUS_ID,
 } from "../shared/startup";
-import { OPEN_TARGET_QUEUE_MAX, OpenTargetQueue } from "../shared/routing";
+import {
+  OPEN_TARGET_QUEUE_MAX,
+  OpenTargetQueue,
+  type OpenTarget,
+} from "../shared/routing";
 import type { CurrentState, IpcError } from "../shared/ipc";
 import { IPC_MAX_REQUEST_BYTES, IPC_MAX_RESPONSE_BYTES } from "../shared/ipc";
 import {
@@ -51,6 +59,15 @@ import {
   DEFAULT_SERVICE_HANDOFF_TIMEOUT_MS,
 } from "./lifecycle";
 import { IpcRouter } from "./ipc-router";
+import {
+  SetupReadinessService,
+  setupGitHubAccess,
+} from "./setup-readiness-service";
+import { createSetupLocalPrerequisitesReader } from "./setup-local-prerequisites";
+import {
+  startupRecoveryReadiness,
+  startupRecoveryRelaunchArguments,
+} from "./setup-startup-recovery";
 import { FetchGithubHttpTransport } from "./github-connection-test";
 import { GithubServerService } from "./github-server-service";
 import { ElectronSecureCredentialStore } from "./secure-credential-store";
@@ -193,6 +210,8 @@ let persistenceStore: PersistenceStore | undefined;
 let persistenceRepositories: PersistenceRepositories | undefined;
 let lifecycle: LifecycleCoordinator | undefined;
 let ipcRouter: IpcRouter | undefined;
+let setupReadinessService: SetupReadinessService | undefined;
+let setupReadinessTimer: NodeJS.Timeout | undefined;
 let windowManager: WindowManager | undefined;
 let githubServerService: GithubServerService | undefined;
 let managedPrService: ManagedPrService | undefined;
@@ -225,6 +244,7 @@ let f28LifecycleListenersAttached = false;
 let f28ResumeHandler: (() => void) | undefined;
 let f28NetworkPollTimer: NodeJS.Timeout | undefined;
 const pendingTargets = new OpenTargetQueue();
+let lastAcceptedOpenTarget: OpenTarget | undefined;
 
 const rendererEntry = path.join(
   currentDirectory,
@@ -299,20 +319,24 @@ function detachF28LifecycleListeners(): void {
   f28LifecycleListenersAttached = false;
 }
 
-function configureSmokePaths(): void {
-  if (!smokeMode) return;
-  const userDataDirectory = process.env.PRMONITOR_USER_DATA_DIR;
-  const cacheDirectory = process.env.PRMONITOR_CACHE_DIR;
-  if (
-    !userDataDirectory ||
-    !cacheDirectory ||
-    !path.isAbsolute(userDataDirectory) ||
-    !path.isAbsolute(cacheDirectory)
-  ) {
-    throw new Error("SMOKE_RUNTIME_PATHS_MISSING");
-  }
-  app.setPath("userData", userDataDirectory);
-  app.setPath("cache", cacheDirectory);
+let runtimePaths: RuntimePaths;
+function configureRuntimePaths(): void {
+  runtimePaths = resolveRuntimePaths({
+    environment: process.env,
+    packaged: app.isPackaged,
+    customerRoot: path.join(app.getPath("appData"), APPLICATION_TITLE),
+    appData: app.getPath("appData"),
+    temporaryRoot: os.tmpdir(),
+  });
+  for (const directory of [
+    runtimePaths.userData,
+    runtimePaths.cache,
+    runtimePaths.sessionData,
+  ])
+    mkdirSync(directory, { recursive: true });
+  app.setPath("userData", runtimePaths.userData);
+  app.setPath("cache", runtimePaths.cache);
+  app.setPath("sessionData", runtimePaths.sessionData);
 }
 
 const accessibilityProbe = `(() => {
@@ -344,7 +368,7 @@ const accessibilityProbe = `(() => {
       status.getAttribute("aria-live") === "polite" &&
       status.getAttribute("data-prmonitor-ready") === "true" &&
       managedPrForm.getAttribute("aria-label") === "Add a pull request" &&
-      managedPrHeading.textContent?.trim() === "Add and manage a PR" &&
+      managedPrHeading.textContent?.trim() === "Add PR" &&
       managedPrControls.length >= 7 &&
       managedPrControls.every((element) => element.tagName === "BUTTON" || element.labels?.length > 0 || element.getAttribute("aria-label") !== null) &&
       skipIndex >= 0 && statusIndex > skipIndex && skipFocused && enterMovesFocus,
@@ -377,7 +401,48 @@ function smokeFailure(reason: string, error?: unknown): void {
 
 async function runAccessibilityProbe(
   window: BrowserWindow,
-): Promise<{ ok: boolean; forcedColors: boolean }> {
+): Promise<{ ok: boolean; forcedColors: boolean; reason?: string }> {
+  // Exercise the real focused Add PR route; settings and forms are absent from unrelated views.
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const opened = await window.webContents.executeJavaScript(
+      `(() => {
+      const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === 'Add PR' && !item.disabled);
+      if (!button) return false; button.click(); return true;
+    })()`,
+      true,
+    );
+    if (opened) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+  // Route activation and the Add form's IPC reads complete asynchronously.
+  // Reuse the existing probe deadline instead of assuming a fixed render delay.
+  let formReady = false;
+  while (Date.now() < deadline) {
+    formReady = await window.webContents.executeJavaScript(
+      `(() => {
+        const form = document.querySelector('form[aria-label="Add a pull request"]');
+        return Boolean(form && document.querySelector('#managed-pr-heading') &&
+          form.querySelectorAll('input, textarea, select, button').length >= 7);
+      })()`,
+      true,
+    );
+    if (formReady) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+  if (!formReady)
+    return {
+      ok: false,
+      forcedColors: false,
+      reason: "ACCESSIBILITY_TARGET_MISSING",
+    };
+  await window.webContents.executeJavaScript(
+    `(() => {
+    const optional = document.querySelector('.optional-pr-settings');
+    if (optional) optional.open = true;
+  })()`,
+    true,
+  );
   const normal = (await window.webContents.executeJavaScript(
     accessibilityProbe,
     true,
@@ -385,9 +450,14 @@ async function runAccessibilityProbe(
     ok: boolean;
     forcedColors: boolean;
   };
-  if (!normal.ok) return normal;
-  if (!(await runKeyboardProbe(window))) {
-    return { ok: false, forcedColors: false };
+  if (!normal.ok)
+    return { ...normal, reason: "ACCESSIBILITY_SEMANTICS_FAILED" };
+  if (!(await runKeyboardProbe(window, deadline))) {
+    return {
+      ok: false,
+      forcedColors: false,
+      reason: "ACCESSIBILITY_KEYBOARD_FAILED",
+    };
   }
 
   try {
@@ -402,14 +472,21 @@ async function runAccessibilityProbe(
       accessibilityProbe,
       true,
     )) as { ok: boolean; forcedColors: boolean };
-    const forcedKeyboard = await runKeyboardProbe(window);
+    const forcedKeyboard = await runKeyboardProbe(window, deadline);
     await window.webContents.debugger.sendCommand(
       "Emulation.setEmulatedMedia",
       { features: [] },
     );
     window.webContents.debugger.detach();
     if (!forced.ok || !forced.forcedColors || !forcedKeyboard)
-      return { ok: false, forcedColors: forced.forcedColors };
+      return {
+        ok: false,
+        forcedColors: forced.forcedColors,
+        reason:
+          !forced.ok || !forced.forcedColors
+            ? "ACCESSIBILITY_FORCED_COLORS_FAILED"
+            : "ACCESSIBILITY_FORCED_KEYBOARD_FAILED",
+      };
   } catch (error) {
     try {
       if (window.webContents.debugger.isAttached())
@@ -425,7 +502,18 @@ async function runAccessibilityProbe(
   return { ok: true, forcedColors: true };
 }
 
-async function runKeyboardProbe(window: BrowserWindow): Promise<boolean> {
+async function runKeyboardProbe(
+  window: BrowserWindow,
+  deadline: number,
+): Promise<boolean> {
+  const waitForFocus = async (expression: string): Promise<boolean> => {
+    while (Date.now() < deadline) {
+      if (await window.webContents.executeJavaScript(expression, true))
+        return true;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  };
   await window.webContents.executeJavaScript(
     `(() => {
       const body = document.body;
@@ -437,19 +525,18 @@ async function runKeyboardProbe(window: BrowserWindow): Promise<boolean> {
   );
   window.webContents.sendInputEvent({ type: "keyDown", keyCode: "TAB" });
   window.webContents.sendInputEvent({ type: "keyUp", keyCode: "TAB" });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const tabTarget = (await window.webContents.executeJavaScript(
+  // Native input is processed by the renderer asynchronously. Observe its
+  // actual focus result within the existing accessibility deadline.
+  const tabTarget = await waitForFocus(
     `document.activeElement?.classList.contains("skip-link") === true`,
-    true,
-  )) as boolean;
+  );
+  if (!tabTarget) return false;
 
   window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
   window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const enterTarget = (await window.webContents.executeJavaScript(
+  const enterTarget = await waitForFocus(
     `document.activeElement?.id === "${STARTUP_STATUS_ID}"`,
-    true,
-  )) as boolean;
+  );
   return tabTarget && enterTarget;
 }
 
@@ -513,7 +600,7 @@ function resolveF16ValidationSummary(
 }
 
 try {
-  configureSmokePaths();
+  configureRuntimePaths();
 } catch (error) {
   smokeFailure("SMOKE_RUNTIME_PATHS_INVALID", error);
 }
@@ -551,7 +638,7 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const f03Repositories = createPersistenceRepositories(persistenceStore);
   persistenceRepositories = f03Repositories;
   f19PersistenceRepositories = new F19PersistenceRepositories(persistenceStore);
-  const f13Root = path.join(userDataDirectory, "worktrees");
+  const f13Root = runtimePaths.worktrees;
   await mkdir(f13Root, { recursive: true });
   const f13Repositories = new F13PersistenceRepositories(persistenceStore);
   f13WorktreeService = new F13WorktreeService({
@@ -689,6 +776,40 @@ async function initializeMainProcessPersistence(): Promise<void> {
   const initializedF16PreferencesService = f16PreferencesService;
   if (initializedF16PreferencesService === undefined)
     throw new Error("PRMONITOR_F16_PREFERENCES_SERVICE_NOT_READY");
+  setupReadinessService = new SetupReadinessService({
+    providers: f15ProviderRegistry,
+    readPreferences: () => initializedF16PreferencesService.readPreferences(),
+    readGitHubAccess: () => {
+      if (githubServerService === undefined)
+        throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
+      return setupGitHubAccess(githubServerService.readSettings());
+    },
+    readLocalPrerequisites: createSetupLocalPrerequisitesReader({
+      resolveRoot: (input) => initializedF13WorktreeService.resolveRoot(input),
+      readWorktreeRoot: () => {
+        const root =
+          initializedF16PreferencesService.readPreferences().operational
+            .worktreeRoot;
+        return {
+          worktreeRoot: root?.canonicalPath ?? f13Root,
+          rootRevision: root?.rootRevision ?? 0,
+        };
+      },
+      persistenceHealthy: () =>
+        persistenceStore !== undefined &&
+        persistenceStore.health.status !== "recovery_required",
+      protectedRoots: [
+        path.join(userDataDirectory, "database"),
+        path.join(userDataDirectory, "secure-credentials"),
+      ],
+      developerClonePaths: () =>
+        managedPrService
+          ?.list()
+          .managedPrs.flatMap((pr) =>
+            pr.localClone === undefined ? [] : [pr.localClone.canonicalRoot],
+          ) ?? [],
+    }),
+  });
   const initializedF14ValidationService = f14ValidationService;
   if (initializedF14ValidationService === undefined)
     throw new Error("PRMONITOR_F14_VALIDATION_SERVICE_NOT_READY");
@@ -1611,6 +1732,32 @@ async function initializeMainProcessPersistence(): Promise<void> {
   });
 }
 
+function refreshSetupReadiness(): void {
+  const service = setupReadinessService;
+  if (service === undefined) return;
+  service.invalidate();
+  void service
+    .read()
+    .then((projection) => {
+      ipcRouter?.publishSetupReadiness(projection);
+    })
+    .catch(() => undefined);
+}
+
+function setupChange<T>(change: () => T): T {
+  try {
+    const result = change();
+    if (result instanceof Promise) {
+      return result.finally(refreshSetupReadiness) as T;
+    }
+    refreshSetupReadiness();
+    return result;
+  } catch (error) {
+    refreshSetupReadiness();
+    throw error;
+  }
+}
+
 function createCurrentState(): CurrentState {
   if (lifecycle === undefined || persistenceStore === undefined) {
     throw new Error("PRMONITOR_MAIN_NOT_READY");
@@ -1700,8 +1847,120 @@ function f28ManagedPrScopes(
   }));
 }
 
+function createApplicationWindowManager(): void {
+  const platform =
+    process.platform === "win32"
+      ? new WindowsWindowPlatformAdapter()
+      : new ElectronWindowPlatformAdapter();
+  windowManager = new WindowManager({
+    rendererEntry,
+    preloadEntry,
+    platform,
+    rendererReadyTimeoutMs: smokeMode ? 12_000 : 10_000,
+    createWindow: ({ preload, show }) => {
+      const created = new BrowserWindow({
+        width: 720,
+        height: 480,
+        show,
+        title: APPLICATION_TITLE,
+        ...(applicationIconPath() === undefined
+          ? {}
+          : { icon: applicationIconPath() }),
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          webSecurity: true,
+          allowRunningInsecureContent: false,
+          webviewTag: false,
+          navigateOnDragDrop: false,
+          sandbox: true,
+          preload,
+        },
+      });
+      configureF29BrowserWindowSecurity(created);
+      return created as unknown as ManagedWindowLike;
+    },
+    sendTarget: (contents, target) =>
+      ipcRouter?.deliverOpenTarget(contents.id, target) ?? false,
+    onRendererAttached: (contents) => ipcRouter?.attachRenderer(contents),
+    onRendererDetached: (contentsId) => {
+      ipcRouter?.detachRenderer(contentsId);
+      requestF28RendererReplacement();
+    },
+  });
+}
+
+async function openStartupRecoveryShell(error: unknown): Promise<void> {
+  // No lifecycle service has started. Keep the failed database and all
+  // committed configuration intact, and expose no domain action handlers.
+  persistenceStore?.close();
+  persistenceStore = undefined;
+  const startedAt = new Date().toISOString();
+  const status = {
+    schemaVersion: 1 as const,
+    phase: "RECOVERY_REQUIRED" as const,
+    sessionId: `startup-recovery-${randomUUID()}`,
+    correlationId: "startup-recovery",
+    startedAt,
+    updatedAt: startedAt,
+    reasonCode: "LOCAL_INITIALIZATION_FAILED",
+    incompleteHandoff: true,
+  };
+  let revision = 0;
+  let retryRequested = false;
+  ipcRouter = new IpcRouter(ipcMain, {
+    security: f29SecurityService,
+    readCurrentState: () => ({
+      schemaVersion: 1,
+      applicationTitle: "PRMonitor",
+      lifecycle: status,
+      persistence: { status: "recovery_required", schemaVersion: 0 },
+    }),
+    getLifecycleStatus: () => status,
+    readSetupReadiness: async () => startupRecoveryReadiness(error, ++revision),
+    retrySetupReadiness: async () => {
+      if (!retryRequested) {
+        retryRequested = true;
+        setImmediate(() => {
+          app.relaunch({
+            args: startupRecoveryRelaunchArguments(
+              process.argv.slice(1),
+              lastAcceptedOpenTarget,
+            ),
+          });
+          app.exit(0);
+        });
+      }
+      return startupRecoveryReadiness(error, ++revision);
+    },
+    requestShutdown: async () => {
+      setImmediate(() => app.quit());
+      return { ok: true, status };
+    },
+    onRendererReady: (senderId) => windowManager?.markRendererReady(senderId),
+  });
+  ipcRouter.install();
+  createApplicationWindowManager();
+  const target = pendingTargets.dequeue();
+  const openWork = windowManager?.open(target);
+  for (
+    let queued = pendingTargets.dequeue();
+    queued !== undefined;
+    queued = pendingTargets.dequeue()
+  ) {
+    void windowManager?.open(queued);
+  }
+  await openWork;
+}
+
 async function startMainProcess(): Promise<void> {
-  await initializeMainProcessPersistence();
+  try {
+    await initializeMainProcessPersistence();
+  } catch (error) {
+    if (smokeMode) throw error;
+    await openStartupRecoveryShell(error);
+    return;
+  }
   if (persistenceRepositories === undefined)
     throw new Error("PRMONITOR_REPOSITORIES_MISSING");
   lifecycle = new LifecycleCoordinator({
@@ -1785,9 +2044,11 @@ async function startMainProcess(): Promise<void> {
           "managed_pr",
           "scheduler",
         ),
-      recover: ({ sessionId, scope }) => {
+      reconcileSession: () => {
         prWatcher?.reconcileStartup();
         reviewScheduler?.read();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "SCHEDULER_RECOVERY_RECONCILED",
@@ -1803,8 +2064,10 @@ async function startMainProcess(): Promise<void> {
       stage: "HOLDS",
       listScopes: () =>
         f28ManagedPrScopes("f28-holds", "HOLDS", "managed_pr", "holds"),
-      recover: ({ sessionId, scope }) => {
+      reconcileSession: () => {
         f11EligibilityService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "HOLDS_RECOVERY_RECONCILED",
@@ -1825,9 +2088,11 @@ async function startMainProcess(): Promise<void> {
           "managed_pr",
           "local-work",
         ),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f13WorktreeService?.reconcileStartup();
         await f14ValidationService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "LOCAL_WORK_RECOVERY_RECONCILED",
@@ -1843,9 +2108,11 @@ async function startMainProcess(): Promise<void> {
       stage: "AI",
       listScopes: () =>
         f28ManagedPrScopes("f28-ai", "AI", "ai_operation", "ai-work"),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f21ConversationService?.reconcileStartup();
         await f26AiWorkAdapter?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "AI_RECOVERY_RECONCILED",
@@ -1867,8 +2134,10 @@ async function startMainProcess(): Promise<void> {
           "publication",
           "review-publication",
         ),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f23PublicationService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "REVIEW_PUBLICATION_RECOVERY_RECONCILED",
@@ -1890,8 +2159,10 @@ async function startMainProcess(): Promise<void> {
           "publication",
           "sync-publication",
         ),
-      recover: async ({ sessionId, scope }) => {
+      reconcileSession: async () => {
         await f27SynchronizationService?.reconcileStartup();
+      },
+      recover: ({ sessionId, scope }) => {
         return f28OwnerOutcome(sessionId, scope, {
           classification: "COMPLETED",
           code: "SYNC_PUBLICATION_RECOVERY_RECONCILED",
@@ -1934,6 +2205,7 @@ async function startMainProcess(): Promise<void> {
                 ...(event.scopeKey === undefined
                   ? {}
                   : { operationId: event.scopeKey }),
+                ...recoveryActivityAttribution(event.scope),
                 occurrenceAt: event.occurrenceAt,
                 severity:
                   event.event === "UNCERTAIN" || event.event === "BLOCKED"
@@ -2047,6 +2319,16 @@ async function startMainProcess(): Promise<void> {
   ipcRouter = new IpcRouter(ipcMain, {
     security: f29SecurityService,
     readCurrentState: () => createCurrentState(),
+    readSetupReadiness: () => {
+      if (setupReadinessService === undefined)
+        return Promise.reject(new Error("PRMONITOR_SETUP_SERVICE_NOT_READY"));
+      return setupReadinessService.read();
+    },
+    retrySetupReadiness: () => {
+      if (setupReadinessService === undefined)
+        return Promise.reject(new Error("PRMONITOR_SETUP_SERVICE_NOT_READY"));
+      return setupReadinessService.read();
+    },
     getLifecycleStatus: () =>
       lifecycle?.getStatus() ?? {
         schemaVersion: 1,
@@ -2155,19 +2437,19 @@ async function startMainProcess(): Promise<void> {
     saveTaskProfile: (input) => {
       if (f16PreferencesService === undefined)
         throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
-      return f16PreferencesService.saveTaskProfile(input);
+      return setupChange(() => f16PreferencesService!.saveTaskProfile(input));
     },
     savePolicy: (input) => {
       if (f16PreferencesService === undefined)
         throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
-      return f16PreferencesService.savePolicy(input);
+      return setupChange(() => f16PreferencesService!.savePolicy(input));
     },
     saveOperationalPreferences: (input) => {
       if (f16PreferencesService === undefined)
         return Promise.reject(
           new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY"),
         );
-      return f16PreferencesService.saveOperational(input);
+      return setupChange(() => f16PreferencesService!.saveOperational(input));
     },
     saveCommonInstruction: (input) => {
       if (f16PreferencesService === undefined)
@@ -2249,36 +2531,42 @@ async function startMainProcess(): Promise<void> {
     upsertGithubProfile: (input) => {
       if (githubServerService === undefined)
         throw new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY");
-      return githubServerService.upsertProfile(input);
+      return setupChange(() => githubServerService!.upsertProfile(input));
     },
     submitGithubCredential: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.submitCredential({
-        serverId: input.serverId,
-        value: input.token,
-        operationId: input.operationId,
-      });
+      return setupChange(() =>
+        githubServerService!.submitCredential({
+          serverId: input.serverId,
+          value: input.token,
+          operationId: input.operationId,
+        }),
+      );
     },
     testGithubConnection: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.testConnection(input);
+      return setupChange(() => githubServerService!.testConnection(input));
     },
     retryGithubOperation: (operationId) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.retryOperation(operationId);
+      return setupChange(() =>
+        githubServerService!.retryOperation(operationId),
+      );
     },
     cleanupGithubOperation: (operationId) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.cleanupOperation(operationId);
+      return setupChange(() =>
+        githubServerService!.cleanupOperation(operationId),
+      );
     },
     removeGithubProfile: (input) => {
       if (githubServerService === undefined)
         return Promise.reject(new Error("PRMONITOR_GITHUB_SERVICE_NOT_READY"));
-      return githubServerService.removeProfile(input);
+      return setupChange(() => githubServerService!.removeProfile(input));
     },
     readManagedPrs: () => {
       if (managedPrService === undefined)
@@ -2516,6 +2804,21 @@ async function startMainProcess(): Promise<void> {
         throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
       return f20WorkspaceService.read(bundleId);
     },
+    readManagedPrWork: (managedPrId, offset) => {
+      if (
+        persistenceRepositories === undefined ||
+        f27SynchronizationService === undefined
+      )
+        throw Error("SAVED_WORK_NOT_READY");
+      return projectManagedPrWork(
+        managedPrId,
+        new F18PersistenceRepositories(
+          persistenceRepositories,
+        ).listForManagedPr(managedPrId),
+        f27SynchronizationService.listBatches(),
+        offset,
+      );
+    },
     readReviewBundlePublication: (bundleId) => {
       if (f23PublicationService === undefined)
         return Promise.reject(
@@ -2694,46 +2997,7 @@ async function startMainProcess(): Promise<void> {
     ipcRouter?.publishActivity(event);
   });
 
-  const platform =
-    process.platform === "win32"
-      ? new WindowsWindowPlatformAdapter()
-      : new ElectronWindowPlatformAdapter();
-  windowManager = new WindowManager({
-    rendererEntry,
-    preloadEntry,
-    platform,
-    rendererReadyTimeoutMs: smokeMode ? 12_000 : 10_000,
-    createWindow: ({ preload, show }) => {
-      const created = new BrowserWindow({
-        width: 720,
-        height: 480,
-        show,
-        title: APPLICATION_TITLE,
-        ...(applicationIconPath() === undefined
-          ? {}
-          : { icon: applicationIconPath() }),
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          webSecurity: true,
-          allowRunningInsecureContent: false,
-          webviewTag: false,
-          navigateOnDragDrop: false,
-          sandbox: true,
-          preload,
-        },
-      });
-      configureF29BrowserWindowSecurity(created);
-      return created as unknown as ManagedWindowLike;
-    },
-    sendTarget: (contents, target) =>
-      ipcRouter?.deliverOpenTarget(contents.id, target) ?? false,
-    onRendererAttached: (contents) => ipcRouter?.attachRenderer(contents),
-    onRendererDetached: (contentsId) => {
-      ipcRouter?.detachRenderer(contentsId);
-      requestF28RendererReplacement();
-    },
-  });
+  createApplicationWindowManager();
 
   if (
     f19PersistenceRepositories === undefined ||
@@ -2818,6 +3082,11 @@ async function startMainProcess(): Promise<void> {
     f28LifecycleListenersAttached = true;
   }
   await f19Coordinator.start();
+  // Ambient local changes (Git, storage, authentication, filesystem access)
+  // are rechecked while a view exists; this never starts domain work.
+  setupReadinessTimer = setInterval(() => {
+    if (windowManager?.visibleWindowId !== undefined) refreshSetupReadiness();
+  }, 30_000);
 
   if (smokeMode && !smokeNonce) {
     smokeFailure("SMOKE_NONCE_MISSING");
@@ -2830,6 +3099,8 @@ async function startMainProcess(): Promise<void> {
     );
 
   const initialTarget = pendingTargets.dequeue();
+  if (windowManager === undefined)
+    throw new Error("PRMONITOR_WINDOW_MANAGER_NOT_READY");
   const openWork: Promise<WindowOpenResult> = windowManager.open(initialTarget);
   for (
     let target = pendingTargets.dequeue();
@@ -2848,7 +3119,7 @@ async function startMainProcess(): Promise<void> {
     }
     const probe = await runAccessibilityProbe(smokeWindow);
     if (!probe.ok || !probe.forcedColors || smokeReady) {
-      smokeFailure("ACCESSIBILITY_PROBE_FAILED");
+      smokeFailure(probe.reason ?? "ACCESSIBILITY_PROBE_FAILED");
       return;
     }
     smokeReady = true;
@@ -2863,6 +3134,7 @@ const primaryInstance = new PrimaryInstanceCoordinator({
   host: app,
   queue: pendingTargets,
   onAcceptedTarget: (target) => {
+    lastAcceptedOpenTarget = target;
     if (windowManager !== undefined) void windowManager.open(target);
   },
 });
@@ -2875,6 +3147,9 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  if (setupReadinessTimer !== undefined) clearInterval(setupReadinessTimer);
+  setupReadinessTimer = undefined;
+  setupReadinessService = undefined;
   detachF28LifecycleListeners();
   f28RecoveryCoordinator?.stop();
   f28RecoveryCoordinator = undefined;

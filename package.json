@@ -28,6 +28,7 @@
     "f30:trace-template": "node scripts/f30-release.mjs trace-template",
     "f30:gate": "node scripts/f30-release.mjs gate",
     "test:desktop": "npm --workspace @prmonitor/desktop run test",
+    "test:setup": "node tests/setup-e2e.mjs",
     "test:validation-contract": "npm --workspace @prmonitor/validation-contract run test",
     "test:spec-linter": "npm --workspace @prmonitor/spec-linter run test",
     "test": "npm run test:release && npm run build:validation-contract && npm run test:desktop && npm run test:validation-contract && npm run test:spec-linter",

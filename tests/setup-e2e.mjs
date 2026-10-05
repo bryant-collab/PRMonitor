@@ -1,0 +1,381 @@
+import { spawn, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+  lstat,
+  realpath,
+  readdir,
+  rm,
+  cp,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { observeClosedProcessTree } from "./setup-process-diagnostics.mjs";
+
+const repository = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const argumentsForJourney = process.argv.slice(2);
+if (argumentsForJourney.some((argument) => argument !== "--effects-only"))
+  throw Error("E2E_UNKNOWN_ARGUMENT");
+const effectsOnly = argumentsForJourney.includes("--effects-only");
+const require = createRequire(
+  path.join(repository, "apps/desktop/package.json"),
+);
+const electron = require("electron");
+const approvedPreview = await readFile(
+  path.join(repository, "tests/fixtures/approved-reference.html"),
+);
+if (
+  createHash("sha256").update(approvedPreview).digest("hex") !==
+  "f7b3c0cd8ba6d0eed0c9ebe414187285daa7268dafc9dc7ee78f6afc6d4503a0"
+)
+  throw Error("E2E_REFERENCE_HASH_MISMATCH");
+// Windows CI can expose Temp through an 8.3 alias. Persist F13's canonical
+// ownership paths without changing its production path-movement guard.
+const temporaryRoot = await realpath(os.tmpdir());
+const root = await realpath(
+  await mkdtemp(path.join(temporaryRoot, "prmonitor-setup-e2e-")),
+);
+await writeFile(
+  path.join(root, ".setup-e2e-owner.json"),
+  JSON.stringify({ owner: "prmonitor-setup-e2e", root: path.resolve(root) }),
+);
+const evidence = path.join(repository, "docs/evidence/setup-readiness");
+const results = [];
+try {
+  await require("esbuild").build({
+    entryPoints: [path.join(repository, "tests/setup-e2e-fixtures.ts")],
+    outfile: path.join(root, "fixtures.mjs"),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+  });
+  // Build the same main sources with controlled provider and remote-read ports.
+  // All domain services, IPC validation, persistence and security guards remain real.
+  const controlledApp = path.join(root, "controlled-app");
+  await mkdir(path.join(controlledApp, "main"), { recursive: true });
+  await writeFile(
+    path.join(controlledApp, "package.json"),
+    '{"type":"module"}\n',
+  );
+  await require("esbuild").build({
+    entryPoints: [path.join(repository, "apps/desktop/src/main/index.ts")],
+    outfile: path.join(controlledApp, "main/index.cjs"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    define: {
+      "import.meta.url": JSON.stringify(
+        pathToFileURL(path.join(controlledApp, "main/index.cjs")).href,
+      ),
+    },
+    external: ["electron"],
+    plugins: [
+      {
+        name: "owned-controlled-provider",
+        setup(build) {
+          build.onResolve({ filter: /(?:^|\/)codex-adapter$/ }, () => ({
+            path: path.join(repository, "tests/controlled-provider-fixture.ts"),
+          }));
+          const observer = path.join(
+            repository,
+            "tests/controlled-conversation-observer.ts",
+          );
+          build.onResolve({ filter: /(?:^|\/)f21-ai-work-adapter$/ }, (args) =>
+            args.importer === observer ? undefined : { path: observer },
+          );
+          const f22Fixture = path.join(
+            repository,
+            "tests/controlled-f22-fixture.ts",
+          );
+          build.onResolve({ filter: /(?:^|\/)f22-coordinator$/ }, (args) =>
+            args.importer === f22Fixture ? undefined : { path: f22Fixture },
+          );
+          const publicationFixture = path.join(
+            repository,
+            "tests/controlled-publication-fixture.ts",
+          );
+          build.onResolve({ filter: /(?:^|\/)f23-release-service$/ }, (args) =>
+            args.importer === publicationFixture
+              ? undefined
+              : { path: publicationFixture },
+          );
+          const syncFixture = path.join(
+            repository,
+            "tests/controlled-sync-fixture.ts",
+          );
+          build.onResolve(
+            { filter: /(?:^|\/)f27-synchronization-service$/ },
+            (args) =>
+              args.importer === syncFixture ? undefined : { path: syncFixture },
+          );
+        },
+      },
+    ],
+  });
+  await cp(
+    path.join(repository, "apps/desktop/out/renderer"),
+    path.join(controlledApp, "renderer"),
+    { recursive: true },
+  );
+  await cp(
+    path.join(repository, "apps/desktop/out/preload"),
+    path.join(controlledApp, "preload"),
+    { recursive: true },
+  );
+  await writeFile(path.join(root, "approved-preview.html"), approvedPreview);
+  await mkdir(evidence, { recursive: true });
+  await writeFile(
+    path.join(root, ".prmonitor-runtime-owner.json"),
+    JSON.stringify({
+      owner: "prmonitor-runtime-fixture",
+      root: path.resolve(root),
+    }),
+  );
+  for (const child of [
+    "user-data",
+    "session-data",
+    "home",
+    "app-data",
+    "local-app-data",
+    "bootstrap-user-data",
+    "cache",
+    "worktrees",
+  ])
+    await mkdir(path.join(root, child));
+  await writeFile(
+    path.join(root, "bootstrap-user-data", "database"),
+    "setup-e2e-owned-path-obstruction",
+  );
+
+  // Only Windows bootstrap variables survive; authentication never inherits.
+  const environment = {};
+  for (const name of [
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "COMSPEC",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERNAME",
+    "USERDOMAIN",
+  ]) {
+    if (process.env[name] !== undefined) environment[name] = process.env[name];
+  }
+  Object.assign(environment, {
+    TEMP: temporaryRoot,
+    TMP: temporaryRoot,
+    PRMONITOR_E2E_ROOT: root,
+    PRMONITOR_E2E_EVIDENCE: evidence,
+    HOME: path.join(root, "home"),
+  });
+  const stages = [
+    "fresh",
+    "partial",
+    "restart",
+    "lost-auth",
+    "bootstrap-failure",
+    "bootstrap-fixed",
+    "shell",
+    "guarded",
+    "settings",
+    "lifecycle",
+    "retained-restart",
+    "publication-uncertain",
+    "add-success",
+    "conditional-review",
+    "conditional-settings",
+    "conditional-provider",
+    "conditional-activity",
+    "conditional-f22",
+    "conditional-publication",
+    "conditional-sync",
+    "conditional-preferences",
+  ];
+  let effectsProfilesCopied = false;
+  for (const stage of stages.filter(
+    (stage) =>
+      !effectsOnly ||
+      [
+        "fresh",
+        "partial",
+        "restart",
+        "lost-auth",
+        "bootstrap-failure",
+        "bootstrap-fixed",
+        "shell",
+        "conditional-publication",
+        "conditional-sync",
+        "conditional-preferences",
+      ].includes(stage),
+  )) {
+    if (
+      !effectsProfilesCopied &&
+      ["guarded", "conditional-publication"].includes(stage)
+    ) {
+      await cp(
+        path.join(root, "user-data"),
+        path.join(root, "publication-user-data"),
+        { recursive: true },
+      );
+      await cp(
+        path.join(root, "user-data"),
+        path.join(root, "sync-user-data"),
+        { recursive: true },
+      );
+      await cp(
+        path.join(root, "user-data"),
+        path.join(root, "preferences-user-data"),
+        { recursive: true },
+      );
+      effectsProfilesCopied = true;
+    }
+    if (stage === "bootstrap-fixed")
+      await rm(path.join(root, "bootstrap-user-data", "database"));
+    const childEnvironment = { ...environment, PRMONITOR_E2E_STAGE: stage };
+    if (stage !== "fresh" && stage !== "lost-auth")
+      childEnvironment.OPENAI_API_KEY = "setup-e2e-nonsecret-fixture";
+    const processStarted = Date.now();
+    const child = spawn(
+      electron,
+      [
+        "--no-sandbox",
+        "--disable-gpu",
+        path.join(repository, "tests/setup-e2e-main.cjs"),
+      ],
+      {
+        cwd: repository,
+        env: childEnvironment,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    // Keep child diagnostics bounded and private to the owned temporary root.
+    let output = "";
+    for (const stream of [child.stdout, child.stderr])
+      stream.on("data", (chunk) => {
+        output = (output + chunk.toString()).slice(-64000);
+      });
+    const code = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (process.platform === "win32" && child.pid) {
+          try {
+            execFileSync(
+              "taskkill.exe",
+              ["/PID", String(child.pid), "/T", "/F"],
+              { stdio: "ignore", windowsHide: true },
+            );
+          } catch {
+            child.kill();
+          }
+        } else child.kill();
+        reject(new Error("E2E_PARENT_TIMEOUT"));
+      }, 65000);
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+    await writeFile(path.join(root, `${stage}.log`), output);
+    const result = JSON.parse(
+      await readFile(path.join(root, `${stage}.json`), "utf8").catch(() => {
+        throw new Error(`E2E_CHILD_NO_RESULT: exit ${code}`);
+      }),
+    );
+    result.closedProcessTree = await observeClosedProcessTree(
+      child.pid,
+      processStarted,
+    );
+    results.push(result);
+    process.stdout.write(
+      `setup-e2e: ${stage}: ${result.ok ? "PASS" : "FAIL"}\n`,
+    );
+    process.stdout.write(
+      `setup-e2e diagnostics: ${JSON.stringify({ stage, startup: result.startupDiagnostics, io: result.ioDiagnostics, closedProcessTree: result.closedProcessTree })}\n`,
+    );
+    if (code !== 0 || !result.ok)
+      throw new Error(result.error || "E2E_CHILD_FAILED");
+  }
+  await writeFile(
+    path.join(evidence, effectsOnly ? "effects-results.json" : "results.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        isolatedDataIdentity: createHash("sha256")
+          .update(root)
+          .digest("hex")
+          .slice(0, 16),
+        scenarios: results,
+        limitations: [
+          "DOM flash observation starts when renderer bridge is available; renderer coordination tests separately cover initial loading.",
+          "Native guarded journeys use real persisted records and an owned Git worktree. No live provider or external publication was authorized; positive provider/publication effects are covered by service integration tests with controlled ports.",
+          "Chromium zoom and forced-color emulation check reflow. Physical Windows DPI, independent text scaling, screen-reader speech and taskbar clicking require computer-control tooling unavailable in this execution environment.",
+          "Native lifecycle acceptance invokes the real Electron menu item's callback; it does not claim a physical Windows taskbar click.",
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+} catch (error) {
+  process.stderr.write(`setup-e2e: ${error.message}\n`);
+  process.exitCode = 1;
+} finally {
+  const marker = JSON.parse(
+    await readFile(path.join(root, ".setup-e2e-owner.json"), "utf8"),
+  );
+  if (
+    marker.owner !== "prmonitor-setup-e2e" ||
+    marker.root !== path.resolve(root)
+  )
+    throw Error("E2E_CLEANUP_OWNER_MISMATCH");
+  const within = (parent, child) => {
+    const relative = path.relative(path.resolve(parent), path.resolve(child));
+    return (
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative)
+    );
+  };
+  if (
+    !within(temporaryRoot, root) ||
+    path.resolve(temporaryRoot) === path.resolve(root)
+  )
+    throw Error("E2E_CLEANUP_OUTSIDE_TEMP");
+  const visit = async (directory) => {
+    const info = await lstat(directory);
+    if (info.isSymbolicLink() || !info.isDirectory())
+      throw Error("E2E_CLEANUP_REPARSE_POINT");
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const child = path.join(directory, entry.name);
+      if (!within(root, child)) throw Error("E2E_CLEANUP_OUTSIDE_OWNER");
+      const stat = await lstat(child);
+      if (stat.isSymbolicLink()) throw Error("E2E_CLEANUP_REPARSE_POINT");
+      if (stat.isDirectory()) await visit(child);
+    }
+  };
+  await visit(root);
+  await rm(root, { recursive: true, force: false });
+  process.stdout.write(
+    "setup-e2e: marked isolated test state cleaned after ownership and path validation\n",
+  );
+}

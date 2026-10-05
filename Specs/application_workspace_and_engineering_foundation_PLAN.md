@@ -4,6 +4,12 @@ Terminology: a vertical slice, or tracer bullet, is a unit of work that extends 
 
 # Plan: Application workspace and engineering foundation
 
+> Approved CI compatibility exception, 2026-10-05: references to the Linux
+> `ubuntu-latest` matrix label temporarily use `ubuntu-22.04`. Clean installation,
+> pinned dependencies, aggregate checks and sandboxed production smoke remain
+> mandatory. Retire before 2027-04-17; see
+> [runner evidence and migration criteria](../docs/evidence/backlog/ubuntu-runner-pin.md).
+
 > **Document status:** Implemented foundation and F15 import-boundary conformance
 >
 > **Owning PRD:** `Specs/application_workspace_and_engineering_foundation_PRD.md`

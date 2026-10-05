@@ -284,3 +284,8 @@ The feature includes an early Windows Desktop A/B/C spike. It must exercise the 
 6. Record route delivery, renderer readiness, focus/foreground result, and timing on Desktop C.
 7. Repeat from a fresh process and publish the adapter result and fallback for downstream features.
 ```
+
+
+## Issue 1 supplement: Startup landing and recovery
+
+Approved scope: [resumable setup on startup](https://github.com/bryant-collab/PRMonitor/issues/1). Default HOME/launch/window recreation reads the bounded main-owned five-check setup projection before choosing setup or inbox. Explicit saved-work targets remain view requests and take precedence with a setup-attention banner. Database or local-root bootstrap failure opens a recovery-only setup shell that preserves original data and admits no domain services. Ordinary setup reads never relaunch; explicit Retry coalesces a restart attempt of the same authoritative configuration and carries the latest validated view target. No setup screen pauses or cancels work.

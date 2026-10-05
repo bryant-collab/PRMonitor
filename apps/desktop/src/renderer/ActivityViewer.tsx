@@ -1,240 +1,262 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   ACTIVITY_SEVERITIES,
   ACTIVITY_STAGES,
-  isActivityQuerySnapshot,
   type ActivityEventView,
   type ActivityQuery,
-  type ActivityQuerySnapshot,
 } from "../shared/activity";
+import {
+  activityScope,
+  presentActivity,
+} from "../shared/activity-presentation";
 import type { OpenTarget } from "../shared/routing";
+import {
+  createActivityReader,
+  type ActivityReadState,
+} from "./activity-reader";
 
 interface ActivityViewerProps {
+  readonly visible?: boolean;
   readonly enabled: boolean;
   readonly onNavigate?: (target: OpenTarget) => void;
+  readonly onAddPr?: () => void;
+  readonly managedPrId?: string;
+  readonly pullRequests?: readonly {
+    readonly id: string;
+    readonly label: string;
+  }[];
+}
+const defaultQuery: ActivityQuery = {
+  view: "PR_WORK",
+  limit: 50,
+  direction: "desc",
+};
+const label = (value: string) => value.toLowerCase().replaceAll("_", " ");
+
+export function ActivityRow({
+  event,
+  onOpen,
+}: {
+  readonly event: ActivityEventView;
+  readonly onOpen?: (id: string) => void;
+}) {
+  const presentation = presentActivity(event);
+  const date = new Date(event.recordedAt);
+  return (
+    <li className="activity-entry">
+      <article aria-labelledby={`activity-event-${event.eventId}`}>
+        <div className="activity-entry-heading">
+          <time dateTime={event.recordedAt}>
+            {Number.isNaN(date.valueOf())
+              ? "Time unavailable"
+              : new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }).format(date)}
+          </time>
+          <h3 id={`activity-event-${event.eventId}`}>{presentation.summary}</h3>
+          <span
+            className={`status-pill activity-severity-${event.severity.toLowerCase()}`}
+          >
+            {label(event.severity)}
+          </span>
+        </div>
+        <span className="activity-attribution">
+          {activityScope(event) === "APPLICATION"
+            ? "Application"
+            : (event.workItemLabel ??
+              (activityScope(event) === "PR_WORK"
+                ? "PR work"
+                : "Unclassified event"))}
+        </span>
+        <details className="activity-event-details">
+          <summary>View event details</summary>
+          {presentation.explanation === undefined ? null : (
+            <p>{presentation.explanation}</p>
+          )}
+          {presentation.nextAction === undefined ? null : (
+            <p>{presentation.nextAction}</p>
+          )}
+          <p>
+            Exact time (UTC):{" "}
+            <time dateTime={event.recordedAt}>{event.recordedAt}</time>
+          </p>
+          {event.relatedTarget === undefined ? null : (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onOpen?.(event.eventId)}
+            >
+              Open related work
+            </button>
+          )}
+          <details>
+            <summary>Raw support data (redacted)</summary>
+            <pre tabIndex={0}>{JSON.stringify(event, null, 2)}</pre>
+          </details>
+        </details>
+      </article>
+    </li>
+  );
 }
 
-const DEFAULT_QUERY: ActivityQuery = { limit: 50, direction: "desc" };
-
-function label(value: string): string {
-  return value.toLowerCase().replaceAll("_", " ");
-}
-
-function displayDetails(event: ActivityEventView): string {
-  return JSON.stringify(event.details, null, 2);
-}
-
-function acceptSnapshot(
-  previous: ActivityQuerySnapshot | undefined,
-  next: ActivityQuerySnapshot,
-): ActivityQuerySnapshot {
-  if (previous === undefined) return next;
-  const events = new Map<string, ActivityEventView>();
-  for (const event of previous.events) events.set(event.eventId, event);
-  for (const event of next.events) events.set(event.eventId, event);
-  const ordered = [...events.values()].sort((left, right) => {
-    const time = right.recordedAt.localeCompare(left.recordedAt);
-    return time !== 0 ? time : right.eventId.localeCompare(left.eventId);
+export function ActivityViewer({
+  visible = true,
+  enabled,
+  onNavigate,
+  onAddPr,
+  managedPrId: fixedPr,
+  pullRequests = [],
+}: ActivityViewerProps) {
+  const [state, setState] = useState<ActivityReadState>({
+    loading: true,
+    lastKnown: false,
   });
-  return {
-    ...next,
-    events: ordered.slice(0, 200),
-    hasMore: next.hasMore,
-  };
-}
-
-export function ActivityViewer({ enabled, onNavigate }: ActivityViewerProps) {
-  const [snapshot, setSnapshot] = useState<ActivityQuerySnapshot>();
-  const [query, setQuery] = useState<ActivityQuery>(DEFAULT_QUERY);
-  const [managedPrId, setManagedPrId] = useState("");
+  const [query, setQuery] = useState<ActivityQuery>({
+    ...defaultQuery,
+    ...(fixedPr === undefined ? {} : { managedPrId: fixedPr }),
+  });
+  const [selectedPr, setSelectedPr] = useState(fixedPr ?? "");
   const [correlationId, setCorrelationId] = useState("");
   const [workItemKey, setWorkItemKey] = useState("");
   const [severity, setSeverity] = useState("");
   const [stage, setStage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>();
-  const [lastKnown, setLastKnown] = useState(false);
-
-  const load = useCallback(
-    async (nextQuery: ActivityQuery, append = false) => {
-      const bridge = window.prmonitor;
-      if (bridge === undefined) return;
-      setLoading(true);
-      try {
-        const response = await bridge.readActivity(nextQuery);
-        if (!response.ok || response.value.kind !== "activity-query") {
-          setError(
-            response.ok
-              ? "The activity read returned an invalid snapshot."
-              : response.error.message,
-          );
-          setLastKnown(snapshot !== undefined);
-          return;
-        }
-        const nextSnapshot = response.value.snapshot;
-        setSnapshot((current) =>
-          append && current !== undefined
-            ? acceptSnapshot(current, nextSnapshot)
-            : nextSnapshot,
-        );
-        setError(undefined);
-        setLastKnown(false);
-      } catch {
-        setError(
-          "The activity history could not be read. Retry the read without changing operation state.",
-        );
-        setLastKnown(snapshot !== undefined);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [snapshot],
-  );
+  const reader = useRef<ReturnType<typeof createActivityReader>>(undefined);
+  const { snapshot, loading, error, lastKnown } = state;
 
   useEffect(() => {
-    if (!enabled) return () => undefined;
-    let active = true;
+    if (!enabled) return;
     const bridge = window.prmonitor;
-    if (bridge === undefined) return () => undefined;
-    const unsubscribe = bridge.onActivityUpdated((event) => {
-      if (!active) return;
-      setSnapshot((current) => {
-        if (current === undefined) return current;
-        if (
-          current.events.some((existing) => existing.eventId === event.eventId)
-        )
-          return current;
-        return acceptSnapshot(current, {
-          ...current,
-          generatedAt: event.recordedAt,
-          events: [event],
-        });
-      });
-    });
-    void load(DEFAULT_QUERY).then(async () => {
-      if (!active) return;
-      const response = await bridge.subscribeActivity(DEFAULT_QUERY);
-      if (!active) return;
-      if (
-        response.ok &&
-        response.value.kind === "activity-query" &&
-        isActivityQuerySnapshot(response.value.snapshot)
-      ) {
-        setSnapshot(response.value.snapshot);
-        setError(undefined);
-        setLastKnown(false);
-      } else if (!response.ok) {
-        setError(response.error.message);
-        setLastKnown(snapshot !== undefined);
-      }
-    });
-    return () => {
-      active = false;
-      unsubscribe();
+    const next = createActivityReader(async (input, subscribe) => {
+      await bridge?.ready();
+      return subscribe
+        ? bridge?.subscribeActivity(input)
+        : bridge?.readActivity(input);
+    }, setState);
+    reader.current = next;
+    const unsubscribe = bridge?.onActivityUpdated(next.updated);
+    const initial = {
+      ...query,
+      ...(fixedPr === undefined ? {} : { managedPrId: fixedPr }),
     };
-  }, [enabled]);
+    setQuery(initial);
+    void next.load(initial, "replace");
+    return () => {
+      next.dispose();
+      unsubscribe?.();
+      reader.current = undefined;
+    };
+  }, [enabled, fixedPr]);
 
-  const submit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const nextQuery: ActivityQuery = {
-        limit: 50,
-        direction: "desc",
-        ...(managedPrId.trim() === ""
-          ? {}
-          : { managedPrId: managedPrId.trim() }),
-        ...(correlationId.trim() === ""
-          ? {}
-          : { correlationId: correlationId.trim() }),
-        ...(workItemKey.trim() === ""
-          ? {}
-          : { workItemKey: workItemKey.trim() }),
-        ...(severity === ""
-          ? {}
-          : { severity: severity as ActivityQuery["severity"] }),
-        ...(stage === "" ? {} : { stage: stage as ActivityQuery["stage"] }),
-      };
-      setQuery(nextQuery);
-      void load(nextQuery);
-      void window.prmonitor?.subscribeActivity(nextQuery);
-    },
-    [correlationId, load, managedPrId, severity, stage, workItemKey],
-  );
-
-  const loadOlder = useCallback(() => {
-    if (snapshot?.nextCursor === undefined) return;
-    const older = { ...query, cursor: snapshot.nextCursor };
-    void load(older, true);
-  }, [load, query, snapshot]);
-
+  const changeQuery = (input: ActivityQuery) => {
+    setQuery(input);
+    void reader.current?.load(input, "replace");
+  };
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    changeQuery({
+      view: query.view,
+      limit: 50,
+      direction: "desc",
+      ...((fixedPr ?? selectedPr).trim() === ""
+        ? {}
+        : { managedPrId: (fixedPr ?? selectedPr).trim() }),
+      ...(correlationId.trim() === ""
+        ? {}
+        : { correlationId: correlationId.trim() }),
+      ...(workItemKey.trim() === "" ? {} : { workItemKey: workItemKey.trim() }),
+      ...(severity === ""
+        ? {}
+        : { severity: severity as ActivityQuery["severity"] }),
+      ...(stage === "" ? {} : { stage: stage as ActivityQuery["stage"] }),
+    });
+  };
   const openRelated = useCallback(
     async (eventId: string) => {
       const response = await window.prmonitor?.navigateActivity(eventId);
-      if (response?.ok && response.value.kind === "activity-navigation") {
+      if (response?.ok && response.value.kind === "activity-navigation")
         onNavigate?.(response.value.target);
-        return;
-      }
-      setError(
-        response?.ok === false
-          ? response.error.message
-          : "The related record is unavailable.",
-      );
+      else
+        setState((current) => ({
+          ...current,
+          error:
+            "The related work is unavailable. Refresh activity to check again.",
+        }));
     },
     [onNavigate],
   );
+  const filtered = Object.keys(query).some(
+    (key) =>
+      !["view", "limit", "direction"].includes(key) &&
+      query[key as keyof ActivityQuery] !== undefined,
+  );
+  const emptyPr = !filtered && query.view === "PR_WORK";
 
-  return (
+  return !visible ? null : (
     <section
       className="activity-viewer"
       aria-labelledby="activity-heading"
       aria-busy={loading}
     >
       <div className="section-heading">
-        <div>
-          <p className="eyebrow">Durable diagnostics</p>
-          <h2 id="activity-heading">Activity</h2>
-        </div>
-        <span className="store-state" aria-label="Activity event count">
-          {snapshot === undefined
-            ? "loading"
-            : `${snapshot.events.length} shown`}
+        <h2 id="activity-heading">Activity</h2>
+        <span aria-label="Activity event count">
+          {snapshot === undefined ? "" : `${snapshot.events.length} shown`}
         </span>
       </div>
       <p className="section-help">
-        Activity is safe evidence for understanding background work. Owning
-        records remain authoritative, and this view cannot start or change an
-        operation.
+        See what PRMonitor has done and whether anything needs your attention.
       </p>
+      <label>
+        Activity view
+        <select
+          value={query.view ?? "PR_WORK"}
+          onChange={(event) =>
+            changeQuery({
+              ...query,
+              cursor: undefined,
+              view: event.target.value as ActivityQuery["view"],
+            })
+          }
+        >
+          <option value="PR_WORK">PR work</option>
+          <option value="APPLICATION">Application diagnostics</option>
+          <option value="ALL">All activity</option>
+        </select>
+      </label>
       <form
         className="activity-filters"
         aria-label="Filter activity"
         onSubmit={submit}
       >
-        <label>
-          Managed PR id
-          <input
-            value={managedPrId}
-            onChange={(event) => setManagedPrId(event.target.value)}
-            maxLength={128}
-          />
-        </label>
-        <label>
-          Correlation id
-          <input
-            value={correlationId}
-            onChange={(event) => setCorrelationId(event.target.value)}
-            maxLength={128}
-          />
-        </label>
-        <label>
-          Work item
-          <input
-            value={workItemKey}
-            onChange={(event) => setWorkItemKey(event.target.value)}
-            maxLength={256}
-            placeholder="PROJ-42 or owner/repo#42"
-          />
-        </label>
+        {fixedPr === undefined ? (
+          <label>
+            Pull request
+            <select
+              value={selectedPr}
+              onChange={(event) => setSelectedPr(event.target.value)}
+            >
+              <option value="">All pull requests</option>
+              {pullRequests.map((pr) => (
+                <option key={pr.id} value={pr.id}>
+                  {pr.label}
+                </option>
+              ))}
+              {selectedPr !== "" &&
+              !pullRequests.some((pr) => pr.id === selectedPr) ? (
+                <option value={selectedPr}>Saved pull request</option>
+              ) : null}
+            </select>
+          </label>
+        ) : (
+          <p>Activity for the selected pull request</p>
+        )}
         <label>
           Severity
           <select
@@ -263,6 +285,26 @@ export function ActivityViewer({ enabled, onNavigate }: ActivityViewerProps) {
             ))}
           </select>
         </label>
+        <details className="activity-advanced">
+          <summary>Advanced filters</summary>
+          <label>
+            Correlation ID
+            <input
+              value={correlationId}
+              onChange={(event) => setCorrelationId(event.target.value)}
+              maxLength={128}
+            />
+          </label>
+          <label>
+            Work-item key
+            <input
+              value={workItemKey}
+              onChange={(event) => setWorkItemKey(event.target.value)}
+              maxLength={256}
+              placeholder="PROJ-42 or owner/repo#42"
+            />
+          </label>
+        </details>
         <button type="submit" disabled={loading}>
           Apply filters
         </button>
@@ -270,117 +312,89 @@ export function ActivityViewer({ enabled, onNavigate }: ActivityViewerProps) {
           type="button"
           className="secondary-button"
           disabled={loading}
-          onClick={() => void load(query)}
+          onClick={() => void reader.current?.load(query)}
         >
-          Retry read
+          Refresh activity
         </button>
       </form>
       <div className="activity-status" role="status" aria-live="polite">
-        {loading && snapshot === undefined
-          ? "Loading durable activity..."
-          : null}
-        {!loading && snapshot?.events.length === 0
-          ? "No activity matches the current filters."
-          : null}
+        {loading ? "Loading activity…" : null}
         {lastKnown
-          ? " Showing the last valid activity snapshot; the latest read needs a retry."
+          ? "Showing last-known activity. The latest read failed."
           : null}
-        {error !== undefined ? ` ${error}` : null}
       </div>
-      {snapshot === undefined ? null : (
-        <p className="retention-note">
-          Activity retention is bounded to{" "}
-          {snapshot.retention.policy.maxAgeDays} days,{" "}
-          {snapshot.retention.policy.maxEvents.toLocaleString("en-US")} events,
-          or {Math.round(snapshot.retention.policy.maxBytes / 1024 / 1024)} MiB.{" "}
-          {snapshot.retention.prunedBefore === undefined ? null : (
+      {error === undefined ? null : <p role="alert">{error}</p>}
+      {!loading && error === undefined && snapshot?.events.length === 0 ? (
+        <div className="activity-empty">
+          <h3>
+            {filtered
+              ? "No activity matches these filters"
+              : emptyPr
+                ? "No PR activity yet"
+                : "No activity yet"}
+          </h3>
+          {emptyPr ? (
             <>
-              Older history may be unavailable before{" "}
-              {snapshot.retention.prunedBefore}.{" "}
+              <p>
+                PRMonitor will record activity here when you add pull requests
+                and work begins
+              </p>
+              <button type="button" onClick={onAddPr}>
+                Add PR
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  changeQuery({ ...defaultQuery, view: "APPLICATION" })
+                }
+              >
+                View application diagnostics
+              </button>
             </>
-          )}
-          Authoritative operation records are retained separately.
-        </p>
-      )}
-      {snapshot !== undefined && snapshot.events.length > 0 ? (
-        <ol
-          className="activity-timeline"
-          aria-label="Correlated activity timeline"
-        >
-          {snapshot.events.map((event) => (
-            <li key={event.eventId} className="activity-entry">
-              <article aria-labelledby={`activity-event-${event.eventId}`}>
-                <div className="activity-entry-heading">
-                  <span
-                    className={`status-pill activity-severity-${event.severity.toLowerCase()}`}
-                  >
-                    {label(event.severity)}
-                  </span>
-                  <time dateTime={event.recordedAt}>{event.recordedAt}</time>
-                </div>
-                <h3 id={`activity-event-${event.eventId}`}>{event.summary}</h3>
-                <dl className="activity-details">
-                  <div>
-                    <dt>What</dt>
-                    <dd>{event.reason.what}</dd>
-                  </div>
-                  <div>
-                    <dt>Why</dt>
-                    <dd>{event.reason.why}</dd>
-                  </div>
-                  <div>
-                    <dt>Stage</dt>
-                    <dd>{label(event.stage)}</dd>
-                  </div>
-                  <div>
-                    <dt>Reason</dt>
-                    <dd>{event.reason.code}</dd>
-                  </div>
-                  <div>
-                    <dt>Correlation</dt>
-                    <dd>{event.correlationId}</dd>
-                  </div>
-                  {event.operationId === undefined ? null : (
-                    <div>
-                      <dt>Operation</dt>
-                      <dd>{event.operationId}</dd>
-                    </div>
-                  )}
-                  {event.workItemLabel === undefined ? null : (
-                    <div>
-                      <dt>Work item</dt>
-                      <dd>{event.workItemLabel}</dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>Next action</dt>
-                    <dd>{label(event.reason.nextAction)}</dd>
-                  </div>
-                </dl>
-                <details>
-                  <summary>Safe structured details</summary>
-                  <pre>{displayDetails(event)}</pre>
-                </details>
-                {event.relatedTarget === undefined ? null : (
-                  <button
-                    type="button"
-                    className="link-button activity-related-button"
-                    onClick={() => void openRelated(event.eventId)}
-                  >
-                    Open related record
-                  </button>
-                )}
-              </article>
-            </li>
-          ))}
-        </ol>
+          ) : null}
+        </div>
       ) : null}
+      {snapshot === undefined ? null : (
+        <>
+          <ol className="activity-timeline" aria-label="Activity history">
+            {snapshot.events.map((event) => (
+              <ActivityRow
+                key={event.eventId}
+                event={event}
+                onOpen={(id) => void openRelated(id)}
+              />
+            ))}
+          </ol>
+          <details className="activity-retention">
+            <summary>About activity history</summary>
+            <p>
+              PRMonitor keeps activity for up to{" "}
+              {snapshot.retention.policy.maxAgeDays} days,{" "}
+              {snapshot.retention.policy.maxEvents.toLocaleString()} events, or{" "}
+              {Math.round(snapshot.retention.policy.maxBytes / 1024 / 1024)}{" "}
+              MiB. Saved reviews and work results have separate history.
+            </p>
+            {snapshot.retention.prunedBefore === undefined ? null : (
+              <p>
+                Older activity before {snapshot.retention.prunedBefore} may be
+                unavailable.
+              </p>
+            )}
+          </details>
+        </>
+      )}
       {snapshot?.hasMore ? (
         <button
           type="button"
           className="secondary-button"
           disabled={loading}
-          onClick={loadOlder}
+          onClick={() =>
+            void reader.current?.load(
+              { ...query, cursor: snapshot.nextCursor },
+              "older",
+            )
+          }
         >
           Load older activity
         </button>

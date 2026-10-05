@@ -511,7 +511,10 @@ export class TrayNotificationCoordinator {
           "NOTIFICATION_FAILED",
           "NOTIFICATION_FAILED",
           "Open Worktree target unavailable",
-          { activationId: activation.activationId },
+          {
+            activationId: activation.activationId,
+            nativeAction: "OPEN_WORKTREE",
+          },
           "WARNING",
         );
         return {
@@ -536,7 +539,10 @@ export class TrayNotificationCoordinator {
           "NOTIFICATION_FAILED",
           "NOTIFICATION_FAILED",
           "Operation worktree could not be opened",
-          { activationId: activation.activationId },
+          {
+            activationId: activation.activationId,
+            nativeAction: "OPEN_WORKTREE",
+          },
           "WARNING",
         );
         return {
@@ -554,6 +560,7 @@ export class TrayNotificationCoordinator {
         {
           activationId: activation.activationId,
           operationId: notification.worktree.operationId,
+          nativeAction: "OPEN_WORKTREE",
         },
         result.ok ? "INFO" : "WARNING",
       );
@@ -580,7 +587,11 @@ export class TrayNotificationCoordinator {
         "NOTIFICATION_FAILED",
         "NOTIFICATION_FAILED",
         "Native target remains retryable",
-        { activationId: activation.activationId, targetKind: target.kind },
+        {
+          activationId: activation.activationId,
+          targetKind: target.kind,
+          nativeAction: "OPEN_TARGET",
+        },
         "WARNING",
       );
       return { ok: false, outcome: "RETRY", reasonCode: "TARGET_OPEN_FAILED" };
@@ -591,7 +602,11 @@ export class TrayNotificationCoordinator {
       opened ? "NOTIFICATION_SENT" : "NOTIFICATION_FAILED",
       opened ? "NOTIFICATION_SENT" : "NOTIFICATION_FAILED",
       opened ? "Native target opened" : "Native target remains retryable",
-      { activationId: activation.activationId, targetKind: target.kind },
+      {
+        activationId: activation.activationId,
+        targetKind: target.kind,
+        nativeAction: "OPEN_TARGET",
+      },
       opened ? "INFO" : "WARNING",
       undefined,
       target.target,
@@ -627,7 +642,7 @@ export class TrayNotificationCoordinator {
           "NOTIFICATION_FAILED",
           "NOTIFICATION_FAILED",
           "PRMonitor window open is retryable",
-          { command },
+          { command, nativeAction: "OPEN_APP" },
           "WARNING",
         );
         return undefined;
@@ -638,7 +653,7 @@ export class TrayNotificationCoordinator {
         result.ok
           ? "PRMonitor window opened"
           : "PRMonitor window open is retryable",
-        { command },
+        { command, nativeAction: "OPEN_APP" },
         result.ok ? "INFO" : "WARNING",
       );
       return result;
@@ -942,6 +957,7 @@ export class TrayNotificationCoordinator {
         : "Native notification not delivered",
       {
         notificationId: persisted.notificationId,
+        nativeAction: "DELIVER_NOTIFICATION",
         outcomeId: persisted.outcomeId,
         state: persisted.state,
         attempt: persisted.attemptCount,

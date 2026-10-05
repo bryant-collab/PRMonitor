@@ -917,14 +917,18 @@ function providerWorktreeHandoff(input: {
       ...(snapshot.manifest.headSha === undefined
         ? {}
         : { currentHeadRevision: snapshot.manifest.headSha }),
-      files: snapshot.manifest.files.map((file) => {
-        const {
-          contentBase64: _contentBase64,
-          contentComplete: _contentComplete,
-          ...metadata
-        } = file;
-        return metadata;
-      }),
+      files: snapshot.manifest.files.map((file) => ({
+        path: file.path,
+        kind: file.kind,
+        staged: file.staged,
+        worktreeChanged: file.worktreeChanged,
+        ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
+        ...(file.contentHash === undefined
+          ? {}
+          : { contentHash: file.contentHash }),
+        ...(file.sizeBytes === undefined ? {} : { sizeBytes: file.sizeBytes }),
+        ...(file.binary === undefined ? {} : { binary: file.binary }),
+      })),
       ignoredFiles: [...snapshot.manifest.ignoredFiles],
       complete: snapshot.manifest.complete,
     },

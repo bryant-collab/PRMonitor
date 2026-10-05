@@ -1,0 +1,1057 @@
+import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import {
+  initializePersistence,
+  createPersistenceRepositories,
+  F18PersistenceRepositories,
+  F13PersistenceRepositories,
+  F07PersistenceRepositories,
+  F25PersistenceRepositories,
+  F19PersistenceRepositories,
+  F22PersistenceRepositories,
+  F11PersistenceRepositories,
+  F14ValidationRepositories,
+} from "../apps/desktop/src/main/persistence";
+import { f18ReviewBundleRecordSchema } from "../apps/desktop/src/shared/f18-automatic-review";
+import { f26ConflictResolutionReadModelSchema } from "../apps/desktop/src/shared/f26-conflict-resolution";
+import { f23CandidateSchema } from "../apps/desktop/src/shared/f23-release";
+import type {
+  F24ResolutionRow,
+  F24PreparationAuthorization,
+} from "../apps/desktop/src/shared/f24-synchronization";
+import type {
+  F25SynchronizationResultReadModel,
+  F25SynchronizationBatchReadModel,
+} from "../apps/desktop/src/shared/f25-synchronization";
+import { evaluateF11Eligibility } from "../apps/desktop/src/shared/domain/eligibility";
+import { F13WorktreeService } from "../apps/desktop/src/main/f13-service";
+
+export async function seedHeldFinalReview(userData: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repositories = createPersistenceRepositories(store);
+    const bundle = new F18PersistenceRepositories(repositories).get(
+      "guarded-final-review",
+    );
+    if (!bundle) throw Error("CONTROLLED_F22_BUNDLE_MISSING");
+    const f11 = new F11PersistenceRepositories(store);
+    const existingHold = f11.getActiveHold(bundle.managedPrId);
+    if (existingHold !== undefined) {
+      const existingClaim = f11.getActiveClaim(bundle.managedPrId);
+      if (
+        existingHold.bundleId !== bundle.bundleId ||
+        existingHold.operationId !== bundle.operationId ||
+        existingHold.claimId !== bundle.claimId ||
+        existingClaim?.claimId !== bundle.claimId ||
+        existingClaim.operationId !== bundle.operationId ||
+        existingClaim.bundleId !== bundle.bundleId
+      )
+        throw Error("CONTROLLED_F22_EXISTING_OWNER_MISMATCH");
+      return;
+    }
+    const feedback = bundle.input.feedback[0]!;
+    const result = evaluateF11Eligibility({
+      input: {
+        managedPrId: bundle.managedPrId,
+        serverId: bundle.input.pullRequest.baseRepository.serverId,
+        repositoryId: "saved-fixture-repository",
+        pullRequestNumber: 43,
+        sourceKind: feedback.sourceKind,
+        sourceId: feedback.sourceId,
+        remoteObjectKey: feedback.sourceId,
+        eventVersionId: feedback.eventVersionId,
+        semanticHash: feedback.semanticHash,
+        authorLogin: "fixture-reviewer",
+        body: "Preserve this owned acceptance change.",
+        currentPrState: "OPEN",
+        primaryState: "WATCHING",
+        associationState: "UNASSIGNED",
+        holdActive: false,
+        configuration: {
+          automationIdentity: {
+            serverId: bundle.input.pullRequest.baseRepository.serverId,
+            login: "fixture-bot",
+          },
+          ignoredAccounts: [],
+        },
+      },
+      correlationId: "controlled-f22-historical-claim",
+      now: new Date().toISOString(),
+    });
+    if (result.decision !== "ELIGIBLE")
+      throw Error(`CONTROLLED_F22_ELIGIBILITY_${result.reason.code}`);
+    f11.recordDecision(result);
+    // This is a historical state fixture inside the marker-owned database. The
+    // actual claim transaction, identity/event/association and hold guards run.
+    store.transaction((transaction) => {
+      transaction.run(
+        "UPDATE managed_prs SET state = 'WATCHING' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET primary_state = 'WATCHING' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      );
+    });
+    const claim = f11.claimAutomatic({
+      claimId: bundle.claimId,
+      holdId: "controlled-f22-held-final",
+      managedPrId: bundle.managedPrId,
+      operationId: bundle.operationId,
+      bundleId: bundle.bundleId,
+      eventVersionIds: bundle.input.remoteEventVersionIds,
+      configurationSnapshot: result.configurationSnapshot,
+      correlationId: result.correlationId,
+      currentPrState: "OPEN",
+      primaryState: "WATCHING",
+    });
+    if (claim.outcome !== "CLAIMED")
+      throw Error(`CONTROLLED_F22_CLAIM_${claim.reason.code}`);
+    store.transaction((transaction) => {
+      transaction.run(
+        "UPDATE managed_prs SET state = 'READY_FOR_REVIEW' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      );
+      transaction.run(
+        "UPDATE f07_managed_prs SET primary_state = 'READY_FOR_REVIEW' WHERE managed_pr_id = ?",
+        bundle.managedPrId,
+      );
+    });
+  } finally {
+    store.close();
+  }
+}
+
+/** Fixed historical observation for a conditional UI fixture, not a live remote check. */
+export async function seedConditionalGate(
+  userData: string,
+  bundleId = "setup-saved-review",
+) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const states = new F22PersistenceRepositories(store);
+    const current = states.getBundleState(bundleId);
+    if (!current) throw Error("CONDITIONAL_REGISTERED_GATE_MISSING");
+    const { reason, ...saved } = current;
+    void reason;
+    states.putBundleState({
+      expectedRevision: current.revision,
+      state: {
+        ...saved,
+        status: "CURRENT",
+        revision: current.revision + 1,
+        observedIdentity: current.identity,
+        observedBaseSha: current.expectedBaseSha,
+        observedHeadSha: current.expectedHeadSha,
+        observedBaseRepository: current.expectedBaseRepository,
+        observedHeadRepository: current.expectedHeadRepository,
+        observedBaseBranch: current.expectedBaseBranch,
+        observedHeadBranch: current.expectedHeadBranch,
+        observationRevision: 1,
+        observedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  } finally {
+    store.close();
+  }
+}
+
+/** Creates only local owned fixture repositories, before the application effect guard. */
+export async function seedGuardedWork(
+  userData: string,
+  root: string,
+  pathPrefix = "",
+) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repositories = createPersistenceRepositories(store);
+    const reviews = new F18PersistenceRepositories(repositories);
+    const original = reviews.get("setup-saved-review");
+    if (!original) throw Error("GUARDED_REVIEW_FIXTURE_MISSING");
+    const time = new Date().toISOString();
+    const clone = path.join(root, `${pathPrefix}guarded-review-clone`),
+      operationRoot = path.join(
+        root,
+        "worktrees",
+        `${pathPrefix}guarded-review-operation`,
+      ),
+      source = path.join(operationRoot, "source-repository"),
+      worktree = path.join(operationRoot, "worktree");
+    await mkdir(clone, { recursive: true });
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: clone,
+        encoding: "utf8",
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    git("init", "--initial-branch=main");
+    // The fixture and production F13 use different Git environment boundaries.
+    // Pin the owned file's bytes in repository attributes so system autocrlf
+    // settings cannot make a restored checkpoint clean for only one boundary.
+    await writeFile(
+      path.join(clone, ".gitattributes"),
+      ".gitattributes text eol=lf\nsource.ts text eol=lf\n",
+    );
+    await writeFile(
+      path.join(clone, "source.ts"),
+      Array.from(
+        { length: 300 },
+        (_, i) => `export const original${i} = ${i};`,
+      ).join("\n") + "\n",
+    );
+    git("add", ".gitattributes", "source.ts");
+    git(
+      "-c",
+      "user.name=Acceptance fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "commit",
+      "-m",
+      "Owned acceptance baseline",
+    );
+    const baseline = git("rev-parse", "HEAD");
+    const prId = "guarded-final-pr",
+      bundleId = "guarded-final-review",
+      operationId = "guarded-review-operation",
+      worktreeId = "guarded-review-worktree";
+    if (pathPrefix === "publication-") {
+      const server = {
+        kind: "GHES" as const,
+        host: "saved.example.invalid",
+        webOrigin: "https://saved.example.invalid",
+        apiBaseUrl: "https://saved.example.invalid/api/v3",
+        serverKey: "saved-fixture-server",
+      };
+      const repository = {
+        schemaVersion: 1 as const,
+        server,
+        owner: "publication-fixture",
+        name: "owned-review",
+        key: "publication-fixture/owned-review",
+        available: true as const,
+      };
+      const remote = {
+        schemaVersion: 1 as const,
+        canonicalUrl:
+          "https://saved.example.invalid/publication-fixture/owned-review/pull/43",
+        pullRequestKey: "publication-fixture/owned-review#43",
+        serverId: "saved-fixture-server",
+        server,
+        owner: "publication-fixture",
+        repositoryName: "owned-review",
+        number: 43,
+        state: "OPEN" as const,
+        merged: false,
+        title: "Guarded final review",
+        baseRepository: repository,
+        headRepository: repository,
+        baseBranch: "main",
+        headBranch: "saved-change",
+        baseSha: baseline,
+        headSha: baseline,
+        defaultBranch: "main",
+      };
+      const prs = new F07PersistenceRepositories(store);
+      prs.beginAddAttempt({
+        attemptId: "owned-publication-add",
+        correlationId: "owned-publication-add",
+        idempotencyKey: "owned-publication-add",
+        canonicalPrKey: remote.pullRequestKey,
+        serverId: remote.serverId,
+        profileVersion: 1,
+        normalizedUrl: remote.canonicalUrl,
+        parsedInput: { schemaVersion: 1 },
+        context: null,
+        syncSourceBranchOverride: null,
+      });
+      prs.commitManagedPr({
+        attemptId: "owned-publication-add",
+        managedPrId: prId,
+        remote,
+        primaryState: "READY_FOR_REVIEW",
+        context: null,
+        syncSourceBranchOverride: null,
+      });
+    } else
+      repositories.putManagedPr({
+        managedPrId: prId,
+        serverId: "saved-fixture-server",
+        baseRepositoryId: "saved-fixture-repository",
+        headRepositoryId: "saved-fixture-repository",
+        number: 43,
+        baseBranch: "main",
+        headBranch: "saved-change",
+        baseSha: baseline,
+        headSha: baseline,
+        state: "READY_FOR_REVIEW",
+      });
+    new F13PersistenceRepositories(store).reserveOperation({
+      operationId,
+      idempotencyKey: operationId,
+      correlationId: operationId,
+      ownerType: "REVIEW_BUNDLE",
+      ownerId: bundleId,
+      managedPrId: prId,
+      developerClonePath: clone,
+      operationKind: "REVIEW",
+      worktreeId,
+      configuredRoot: path.join(root, "worktrees"),
+      rootRevision: 1,
+      canonicalPath: worktree,
+      sourceRepository: original.input.pullRequest.baseRepository,
+      refs: {
+        baseRepository: original.input.pullRequest.baseRepository,
+        headRepository: original.input.pullRequest.headRepository,
+        baseBranch: "main",
+        headBranch: "saved-change",
+        prBaseSha: baseline,
+        prHeadSha: baseline,
+      },
+      shaSnapshot: {
+        prBaseSha: baseline,
+        prHeadSha: baseline,
+        worktreeBaselineSha: baseline,
+      },
+      initialBaselineSha: baseline,
+      lifecycle: "ACTIVE",
+    });
+    await mkdir(operationRoot, { recursive: true });
+    git("clone", "--no-hardlinks", clone, source);
+    // Deliberately exercise the system-autocrlf checkout boundary within this
+    // owned repository; F13 keeps its production isolated Git environment.
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "core.autocrlf=true",
+        "worktree",
+        "add",
+        "--detach",
+        worktree,
+        baseline,
+      ],
+      {
+        cwd: source,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    // Invalidate checkout's stat cache without changing bytes, so a clean
+    // fixture cannot depend on Git reusing a different policy's cached result.
+    const attributePath = path.join(worktree, ".gitattributes");
+    await writeFile(attributePath, await readFile(attributePath));
+    const attributionService = new F13WorktreeService({
+      repositories: new F13PersistenceRepositories(store),
+    });
+    const beforePublication =
+      pathPrefix === "publication-"
+        ? await attributionService.beginAiTurn({
+            operationId,
+            ownerId: bundleId,
+            turnId: "owned-publication-historical-turn",
+          })
+        : undefined;
+    if (beforePublication?.ok === false) {
+      const reason =
+        beforePublication.reason?.code === "WORKTREE_CONDITION_UNVERIFIED"
+          ? "WORKTREE_CONDITION_UNVERIFIED"
+          : "OTHER_F13_REFUSAL";
+      const inspected = await attributionService.inspectOperation(
+        operationId,
+        bundleId,
+        "INSPECTION",
+      );
+      const attributes = await readFile(
+        path.join(worktree, ".gitattributes"),
+        "utf8",
+      );
+      throw Error(
+        `OWNED_PUBLICATION_BEFORE_SNAPSHOT_FAILED:${reason}:${inspected.condition.classification}:${attributes.includes("\r\n") ? "ATTRIBUTES_CRLF" : "ATTRIBUTES_LF"}`,
+      );
+    }
+    await writeFile(
+      path.join(worktree, "source.ts"),
+      Array.from(
+        { length: 300 },
+        (_, i) => `export const changed${i} = ${i + 1};`,
+      ).join("\n") + "\n",
+    );
+    if (beforePublication?.ok) {
+      const after = await attributionService.completeAiTurn({
+        operationId,
+        ownerId: bundleId,
+        turnId: "owned-publication-historical-turn",
+        beforeSnapshotId: beforePublication.snapshot!.snapshotId,
+      });
+      if (!after.ok) throw Error("OWNED_PUBLICATION_AFTER_SNAPSHOT_FAILED");
+      new F14ValidationRepositories(store).saveRunIntent({
+        runId: "guarded-validation",
+        operationId,
+        idempotencyKey: "guarded-validation",
+        correlationId: "guarded-validation",
+        ownerType: "REVIEW_BUNDLE",
+        ownerId: bundleId,
+        consumer: "review",
+        requestedPhase: "post_change",
+        resolutionStatus: "ready",
+        evidence: {
+          recordType: "validation-run",
+          schemaVersion: 1,
+          runId: "guarded-validation",
+          phase: "post_change",
+          status: "passed",
+          startedAt: time,
+          completedAt: time,
+          steps: [],
+          manualAttestations: [],
+          warnings: [],
+        },
+        nextAction: "FINAL_REVIEW",
+      });
+    }
+    const record = f18ReviewBundleRecordSchema.parse({
+      ...original,
+      bundleId,
+      managedPrId: prId,
+      operationId,
+      batchId: "guarded-final-batch",
+      claimId: "guarded-final-claim",
+      stage: "FINAL_REVIEW",
+      phase: "FINAL_RECORDED",
+      createdAt: time,
+      updatedAt: time,
+      noImplementationChanges: false,
+      nextAction: "FINAL_REVIEW",
+      input: {
+        ...original.input,
+        bundleId,
+        managedPrId: prId,
+        operationId,
+        batchId: "guarded-final-batch",
+        claimId: "guarded-final-claim",
+        remoteEventVersionIds: ["guarded-final-event"],
+        pullRequest: {
+          ...original.input.pullRequest,
+          title: "Guarded final review with complete saved changes",
+          baseSha: baseline,
+          headSha: baseline,
+        },
+        feedback: [
+          {
+            ...original.input.feedback[0],
+            eventVersionId: "guarded-final-event",
+            sourceId: "guarded-final-comment",
+            semanticHash: "d".repeat(64),
+          },
+        ],
+      },
+      items: [
+        {
+          ...original.items[0],
+          itemId: "guarded-final-item",
+          eventVersionId: "guarded-final-event",
+          recommendation: {
+            ...original.items[0]!.recommendation,
+            remoteEventVersionId: "guarded-final-event",
+            disposition: "fixed",
+            relatedFiles: ["source.ts"],
+          },
+          decision: { decision: "accepted", finalDisposition: "fixed" },
+        },
+      ],
+      worktree: {
+        operationId,
+        worktreeId,
+        ownerType: "REVIEW_BUNDLE",
+        ownerId: bundleId,
+        canonicalPath: worktree,
+        rootRevision: 1,
+        snapshotId: "guarded-worktree-snapshot",
+        baselineSha: baseline,
+        currentSha: baseline,
+        stateFingerprint: "guarded-fingerprint",
+        clean: false,
+        complete: true,
+        changedFiles: ["source.ts"],
+      },
+      postChangeValidation: {
+        runId: "guarded-validation",
+        operationId,
+        requestedPhase: "post_change",
+        status: "passed",
+        nextAction: "FINAL_REVIEW",
+        warningCodes: [],
+        steps: [
+          {
+            stepId: "guarded-validation-step",
+            kind: "BUILD",
+            status: "passed",
+            exitCode: 0,
+          },
+        ],
+        version: 1,
+      },
+      draftResponses:
+        pathPrefix === "publication-"
+          ? [
+              {
+                eventVersionId: "guarded-final-event",
+                text: "The owned fixture change is ready for review.",
+                source: "HUMAN_DRAFT",
+              },
+            ]
+          : [],
+    });
+    reviews.persistIntent({
+      record,
+      events: [
+        {
+          id: "guarded-final-event",
+          managedPrId: prId,
+          sourceKind: "REVIEW_COMMENT",
+          sourceId: "guarded-final-comment",
+          observedAt: time,
+          semanticHash: "d".repeat(64),
+          payload: { schemaVersion: 1 },
+        },
+      ],
+    });
+
+    const prs = new F07PersistenceRepositories(store);
+    const rows: F24ResolutionRow[] = [1, 2].map((index) => {
+      const pr = prs.getManagedPr(`shell-pr-${index}`);
+      if (!pr || !pr.headRepository.available)
+        throw Error("GUARDED_SYNC_PR_MISSING");
+      return {
+        schemaVersion: 1,
+        managedPrId: pr.id,
+        configurationRevisionId: pr.configuration.revisionId,
+        configurationRevision: pr.configuration.revision,
+        inboxProjectionRevision: 1,
+        sourceProvenance: "PR_BASE_BRANCH",
+        syncSourceBranch: pr.prBaseBranch,
+        prHeadBranch: pr.prHeadBranch,
+        sourceRepository: pr.baseRepository,
+        destinationRepository: pr.headRepository,
+        syncSourceSha: pr.prBaseSha,
+        prHeadSha: pr.prHeadSha,
+        storedPrBaseSha: pr.prBaseSha,
+        storedPrHeadSha: pr.prHeadSha,
+        currentPrState: "OPEN",
+        currentPrMerged: false,
+        observedAt: time,
+        observationRevision: `guarded-observation-${index}`,
+        observations: [],
+        eligibility: "ELIGIBLE",
+        reason: {
+          schemaVersion: 1,
+          code: "ELIGIBLE",
+          category: "ELIGIBLE",
+          what: "Exact saved branch revisions.",
+          why: "These are isolated persisted fixture records.",
+          nextAction: "NONE",
+          retryable: false,
+          correlationId: "guarded-sync",
+        },
+        operationId: `guarded-sync-${index}`,
+      };
+    });
+    const capabilities = {
+      canCommit: false,
+      canPush: false,
+      canPublish: false,
+      canInvokeAi: false,
+    } as const;
+    const authorization: F24PreparationAuthorization = {
+      schemaVersion: 1,
+      kind: "SynchronizationPreparationAuthorization",
+      intentId: "guarded-sync-intent",
+      idempotencyKey: "guarded-sync-intent",
+      resolutionRevision: "guarded-sync-resolution",
+      createdAt: time,
+      eligible: rows,
+      skippedManagedPrIds: [],
+      skipped: [],
+      preparationOnly: true,
+      capabilities: {
+        prepareWorktree: true,
+        commit: false,
+        push: false,
+        githubWrite: false,
+        aiProvider: false,
+        publication: false,
+        conversationResolution: false,
+      },
+    };
+    const results: F25SynchronizationResultReadModel[] = rows.map(
+      (row, index) => {
+        const operationId = row.operationId;
+        if (operationId === undefined)
+          throw new Error("GUARDED_OPERATION_MISSING");
+        const side = (side: "SOURCE" | "DESTINATION") => ({
+          schemaVersion: 1 as const,
+          side,
+          baseSha: row.storedPrBaseSha,
+          tipSha: side === "SOURCE" ? row.syncSourceSha : row.prHeadSha,
+          files: [{ path: "source.ts", kind: "modified" }],
+          patchSegments: [],
+          commitMetadata: [],
+          evidenceHash: `guarded-${side}`,
+          complete: true,
+        });
+        const conflictResolution = f26ConflictResolutionReadModelSchema.parse({
+          schemaVersion: 1,
+          status: "AMBIGUOUS",
+          taskProfile: {
+            snapshotId: `guarded-profile-${index}`,
+            snapshotHash: "guarded-profile-hash",
+            profileId: "guarded-profile",
+            profileRevision: 1,
+            providerId: "codex-sdk",
+            modelId: "gpt-5.4-mini",
+            policyId: "read-only",
+            policyRevision: 1,
+            configuredTurnBudget: 1,
+            timeoutMs: 1000,
+          },
+          context: {
+            schemaVersion: 1,
+            sourceRepository: {
+              serverId: row.sourceRepository.server.serverKey,
+              owner: row.sourceRepository.owner,
+              name: row.sourceRepository.name,
+            },
+            destinationRepository: {
+              serverId: row.destinationRepository.server.serverKey,
+              owner: row.destinationRepository.owner,
+              name: row.destinationRepository.name,
+            },
+            sourceBranch: row.syncSourceBranch,
+            destinationBranch: row.prHeadBranch,
+            sourceSha: row.syncSourceSha,
+            destinationSha: row.prHeadSha,
+            mergeBaseSha: row.storedPrBaseSha,
+            sourceChangeSet: side("SOURCE"),
+            destinationChangeSet: side("DESTINATION"),
+            conflicts: [
+              {
+                path: "source.ts",
+                contentSegments: [
+                  {
+                    index: 0,
+                    total: 1,
+                    text: "<<<<<<< source\nkeep source\n=======\nkeep PR\n>>>>>>> PR\n",
+                  },
+                ],
+                contentComplete: true,
+              },
+            ],
+            pullRequest: {
+              managedPrId: row.managedPrId,
+              title: `Guarded synchronization result ${index + 1}`,
+            },
+            intent: { commonInstructions: [] },
+            missingContext: [],
+          },
+          consultationHistory: [
+            {
+              id: `guarded-question-${index}`,
+              kind: "USER_QUESTION",
+              createdAt: time,
+              paths: ["source.ts"],
+              competingIntents: [
+                "Keep the source behavior.",
+                "Keep the PR behavior.",
+              ],
+              question: `Which behavior should result ${index + 1} keep?`,
+            },
+          ],
+          turnHistory: [],
+          usage: {
+            providerInvoked: false,
+            turns: 0,
+            tokens: 26,
+            inputTokens: 17,
+            outputTokens: 9,
+            totalTokens: 26,
+            unavailable: false,
+          },
+          nextAction: "ANSWER_USER",
+          updatedAt: time,
+        });
+        return {
+          schemaVersion: 1,
+          kind: "synchronization-result",
+          operationId,
+          batchId: "guarded-sync-batch",
+          managedPrId: row.managedPrId,
+          status: "NEEDS_ATTENTION",
+          stage: "ATTENTION",
+          mergeOutcome: "CONFLICT_DETECTED",
+          input: {
+            schemaVersion: 1,
+            authorizationId: "guarded-sync-authorization",
+            intentId: authorization.intentId,
+            idempotencyKey: authorization.idempotencyKey,
+            resolutionRevision: authorization.resolutionRevision,
+            operationId,
+            row,
+            capturedAt: time,
+          },
+          conflicts: [{ path: "source.ts" }],
+          conflictResolution,
+          aiUsage: { providerInvoked: false, turns: 0, tokens: 0 },
+          reason: {
+            code: "USER_INTENT_REQUIRED",
+            what: `Result ${index + 1} needs a human answer.`,
+            why: "The two branch intentions differ.",
+            nextAction: "MANUAL_RESOLUTION",
+            correlationId: "guarded-sync",
+          },
+          nextAction: "MANUAL_RESOLUTION",
+          capabilities,
+          version: 1,
+          createdAt: time,
+          updatedAt: time,
+        };
+      },
+    );
+    const batch: F25SynchronizationBatchReadModel = {
+      schemaVersion: 1,
+      kind: "synchronization-batch",
+      batchId: "guarded-sync-batch",
+      authorizationId: "guarded-sync-authorization",
+      intentId: authorization.intentId,
+      idempotencyKey: authorization.idempotencyKey,
+      resolutionRevision: authorization.resolutionRevision,
+      status: "NEEDS_ATTENTION",
+      authorization,
+      operationIds: results.map((r) => r.operationId),
+      counts: {
+        total: 2,
+        eligible: 2,
+        skipped: 0,
+        ready: 0,
+        attention: 2,
+        failed: 0,
+        pending: 0,
+      },
+      results,
+      capabilities,
+      version: 1,
+      createdAt: time,
+      updatedAt: time,
+    };
+    new F25PersistenceRepositories(repositories).persistAdmission({
+      batch,
+      results,
+    });
+  } finally {
+    store.close();
+  }
+}
+
+/** Simulates persisted completion while the renderer is on another destination. */
+export async function seedConditionalSyncWork(userData: string, root: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repositories = createPersistenceRepositories(store);
+    const f13 = new F13PersistenceRepositories(store);
+    const f25 = new F25PersistenceRepositories(repositories);
+    const template = f13.getOperation("guarded-review-operation")!;
+    const service = new F13WorktreeService({ repositories: f13 });
+    for (const suffix of ["1", "2", "3"]) {
+      const operationId = `guarded-sync-${suffix}`;
+      const stored = f25.getResult(operationId);
+      const original = stored ?? f25.getResult("guarded-sync-1")!;
+      const baseline = new F18PersistenceRepositories(repositories).get(
+        "guarded-final-review",
+      )?.worktree?.baselineSha;
+      if (!baseline) throw Error("OWNED_SYNC_BASELINE_MISSING");
+      const current = {
+        ...original,
+        operationId,
+        input: {
+          ...original.input,
+          operationId,
+          row: {
+            ...original.input.row,
+            operationId,
+            prHeadSha: baseline,
+            syncSourceSha: baseline,
+            storedPrHeadSha: baseline,
+            storedPrBaseSha: baseline,
+          },
+        },
+        mergeBaseSha: baseline,
+        sourceChangeEvidence: {
+          schemaVersion: 1 as const,
+          side: "SOURCE" as const,
+          baseSha: baseline,
+          tipSha: baseline,
+          files: [],
+          evidenceHash: `owned-sync-source-${suffix}`,
+          complete: true,
+        },
+        prHeadChangeEvidence: {
+          schemaVersion: 1 as const,
+          side: "DESTINATION" as const,
+          baseSha: baseline,
+          tipSha: baseline,
+          files: [],
+          evidenceHash: `owned-sync-destination-${suffix}`,
+          complete: true,
+        },
+      };
+      const operationRoot = path.join(root, "worktrees", `sync-${operationId}`);
+      const source = path.join(operationRoot, "source-repository"),
+        worktree = path.join(operationRoot, "worktree");
+      await mkdir(operationRoot, { recursive: true });
+      execFileSync(
+        "git",
+        ["clone", "--no-hardlinks", template.developerClonePath, source],
+        { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+      );
+      execFileSync("git", ["worktree", "add", "--detach", worktree, baseline], {
+        cwd: source,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      f13.reserveOperation({
+        ...template,
+        operationId,
+        idempotencyKey: operationId,
+        correlationId: operationId,
+        ownerType: "SYNCHRONIZATION_RESULT",
+        ownerId: operationId,
+        operationKind: "SYNCHRONIZATION",
+        worktreeId: `sync-worktree-${suffix}`,
+        canonicalPath: worktree,
+        initialBaselineSha: baseline,
+        lifecycle: "ACTIVE",
+      });
+      const before = await service.beginAiTurn({
+        operationId,
+        ownerId: operationId,
+        turnId: `owned-sync-turn-${suffix}`,
+      });
+      if (!before.ok) throw Error("OWNED_SYNC_BEFORE_SNAPSHOT_FAILED");
+      await writeFile(
+        path.join(worktree, "source.ts"),
+        `export const ownedSync${suffix} = true;\n`,
+      );
+      const after = await service.completeAiTurn({
+        operationId,
+        ownerId: operationId,
+        turnId: `owned-sync-turn-${suffix}`,
+        beforeSnapshotId: before.snapshot!.snapshotId,
+      });
+      if (!after.ok) throw Error("OWNED_SYNC_AFTER_SNAPSHOT_FAILED");
+      const evidence = {
+        operationId,
+        worktreeId: `sync-worktree-${suffix}`,
+        ownerId: operationId,
+        canonicalPath: worktree,
+        rootRevision: 1,
+        baselineSha: baseline,
+        currentHeadSha: baseline,
+        condition: "AI_ATTRIBUTED_ONLY",
+      };
+      const handoff = {
+        kind: "F26_CONFLICT_HANDOFF" as const,
+        operationId,
+        batchId: current.batchId,
+        managedPrId: current.managedPrId,
+        input: current.input,
+        worktree: evidence,
+        mergeBaseSha: current.mergeBaseSha!,
+        sourceChangeEvidence: current.sourceChangeEvidence!,
+        prHeadChangeEvidence: current.prHeadChangeEvidence!,
+        conflicts: current.conflicts,
+        capabilities: {
+          canResolveConflict: true as const,
+          canCommit: false as const,
+          canPush: false as const,
+          canPublish: false as const,
+        },
+        nextAction: "MANUAL_RESOLUTION" as const,
+      };
+      const { conflictResolution, ...withoutConflict } = current;
+      f25.putResult(
+        suffix !== "2"
+          ? {
+              ...current,
+              worktree: evidence,
+              handoff,
+              version: current.version + 1,
+            }
+          : {
+              ...withoutConflict,
+              worktree: evidence,
+              status: "READY_TO_PUBLISH",
+              stage: "COMPLETED",
+              mergeOutcome: "CLEAN_MERGE",
+              conflicts: [],
+              validation: {
+                runId: "owned-sync-validation",
+                status: "passed",
+                warnings: [],
+                nextAction: "NONE",
+                version: 1,
+              },
+              nextAction: "REVIEW",
+              version: current.version + 1,
+            },
+        stored?.version ?? 0,
+      );
+      void conflictResolution;
+    }
+    const batch = f25.getBatch("guarded-sync-batch")!;
+    const operationIds = [...batch.operationIds, "guarded-sync-3"];
+    f25.putBatch({
+      ...batch,
+      operationIds,
+      results: operationIds.map((id) => f25.getResult(id)!),
+      counts: { ...batch.counts, eligible: 3, ready: 1, attention: 2 },
+    });
+  } finally {
+    store.close();
+  }
+}
+
+export async function advanceGuardedResult(userData: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const results = new F25PersistenceRepositories(
+      createPersistenceRepositories(store),
+    );
+    const current = results.getResult("guarded-sync-1");
+    if (!current) throw Error("GUARDED_RESULT_MISSING");
+    results.putResult(
+      {
+        ...current,
+        version: current.version + 1,
+        updatedAt: new Date().toISOString(),
+        reason: { ...current.reason, what: "Saved result updated while away." },
+      },
+      current.version,
+    );
+  } finally {
+    store.close();
+  }
+}
+
+export async function readRetainedWork(userData: string) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repositories = createPersistenceRepositories(store);
+    return {
+      reviews: ["setup-saved-review", "guarded-final-review"].map((id) =>
+        new F18PersistenceRepositories(repositories).get(id),
+      ),
+      results: new F25PersistenceRepositories(repositories).listResults(),
+      shutdown: new F19PersistenceRepositories(store).getShutdownIntent(),
+      worktree: new F13PersistenceRepositories(store).getOperation(
+        "guarded-review-operation",
+      ),
+    };
+  } finally {
+    store.close();
+  }
+}
+
+export async function installerData(userData: string, seed: boolean) {
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repository = createPersistenceRepositories(store);
+    if (seed)
+      repository.putSetting("installer-acceptance-retained", {
+        owner: "installer-acceptance",
+        savedWork: ["review-history", "sync-history"],
+        context:
+          "Keep this saved configuration across installation and upgrade.",
+      });
+    return repository.getSetting("installer-acceptance-retained");
+  } finally {
+    store.close();
+  }
+}
+
+/** A fixed historical approval/outcome fixture; creates no external effects. */
+export async function seedUncertainPublication(
+  userData: string,
+  value: unknown,
+) {
+  const candidate = f23CandidateSchema.parse(value);
+  const store = await initializePersistence({
+    databasePath: path.join(userData, "database/prmonitor.sqlite"),
+    backupRoot: path.join(userData, "backups"),
+  });
+  try {
+    const repository = createPersistenceRepositories(store);
+    const approvalId = "guarded-historical-approval";
+    repository.saveApproval({
+      approvalId,
+      scope: "REVIEW_BUNDLE",
+      reviewedSnapshotHash: candidate.candidateHash,
+      payload: {
+        owner: "acceptance-fixture",
+        candidateHash: candidate.candidateHash,
+        completeDiffAcknowledged: true,
+      },
+    });
+    const payload = {
+      candidate,
+      responsePlan: [],
+      approvedAt: new Date().toISOString(),
+      completeDiffAcknowledged: true,
+      unattributedChangesAcknowledged: true,
+      commitAttemptStarted: true,
+      recoveryEffect: "COMMIT",
+    };
+    const intent = repository.createPublicationIntent({
+      id: "guarded-historical-publication",
+      kind: "REVIEW_BUNDLE",
+      ownerId: "guarded-final-review",
+      approvalId,
+      idempotencyKey: "guarded-historical-publication",
+      expectedBaselineSha: candidate.baselineSha,
+      expectedHeadSha: candidate.expectedHeadSha,
+      proposedResult: candidate,
+      payload,
+    });
+    repository.updatePublicationIntent({
+      publicationId: intent.id,
+      expectedVersion: intent.version,
+      phase: "RECOVERING",
+      recoveryState: "RECONCILIATION_REQUIRED",
+      payload,
+    });
+  } finally {
+    store.close();
+  }
+}

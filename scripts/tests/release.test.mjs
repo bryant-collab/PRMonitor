@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { createPackage } from "@electron/asar";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -27,6 +28,7 @@ async function releaseFixture(t, version = "0.1.0") {
   await mkdir(path.join(directory, "apps", "desktop"), { recursive: true });
   for (const file of [
     "scripts/f30-release.mjs",
+    "scripts/runtime-payload.mjs",
     "package.json",
     "package-lock.json",
     "apps/desktop/package.json",
@@ -103,6 +105,30 @@ test("manifest checksums match the exact pretty-printed bytes on disk", async (t
     `${digest(fixture.installerBytes)}  ${fixture.installerName}\n${digest(manifestBytes)}  release-manifest.json\n`,
   );
   assert.notEqual(digest(manifestBytes), digest(JSON.stringify(manifest)));
+});
+
+test("release inspection rejects runtime state inside an archive and beside it", async (t) => {
+  const fixture = await releaseFixture(t);
+  const unpacked = path.join(fixture.directory, "release", "win-unpacked");
+  await writeFile(
+    path.join(unpacked, "state.sqlite-wal"),
+    "fixture database journal",
+  );
+  assert.match(
+    fixture.run("manifest").stderr,
+    /F30_PAYLOAD_SCAN_FAILED.*state.sqlite-wal/u,
+  );
+  await rm(path.join(unpacked, "state.sqlite-wal"));
+  const contents = path.join(fixture.directory, "archive-fixture");
+  await mkdir(contents);
+  await mkdir(path.join(unpacked, "resources"));
+  await writeFile(path.join(contents, "state.sqlite"), "fixture database");
+  await createPackage(contents, path.join(unpacked, "resources", "app.asar"));
+  // The fixture source is deliberately outside the package and makes the test repository dirty.
+  assert.match(
+    fixture.run("manifest", "--allow-dirty").stderr,
+    /F30_PAYLOAD_SCAN_FAILED.*state.sqlite/u,
+  );
 });
 
 test("a stale installer from another version cannot enter the manifest", async (t) => {

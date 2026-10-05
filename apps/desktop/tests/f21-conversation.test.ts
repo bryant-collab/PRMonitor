@@ -12,6 +12,7 @@ import {
 } from "../src/shared/ai-work";
 import {
   aiProviderOutputContractSchema,
+  aiProviderInputSnapshotSchema,
   aiProviderTurnResultSchema,
   outputContractForTask,
   type AIProviderRequest,
@@ -721,11 +722,69 @@ function createHarness(
     persistence,
     runInputs,
     events,
+    aiWork,
     getBundle: () => currentBundle,
   };
 }
 
 describe("F21 read-only conversation and Review Revision", () => {
+  it("cancelling an in-flight revision waits for its single durable completion writer", async () => {
+    const harness = createHarness({ includeReport: true });
+    const originalRun = harness.aiWork.run;
+    const deferred = () => {
+      let resolve!: (result: F21AIWorkResult) => void;
+      const promise = new Promise<F21AIWorkResult>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    };
+    const entered = deferred();
+    const released = deferred();
+    Object.assign(harness.aiWork, {
+      run: async (input: F21AIWorkInput) => {
+        const result = await originalRun(input);
+        const stopped = {
+          ...result,
+          readModel: aiReadModel(
+            input.operationId,
+            "NEEDS_ATTENTION",
+            result.readModel.reports,
+          ),
+        };
+        entered.resolve(stopped);
+        return released.promise;
+      },
+      cancel: async () => {
+        const stopped = await entered.promise;
+        released.resolve(stopped);
+        return stopped;
+      },
+    });
+    const initiating = harness.service.requestRevision(
+      intent("REVIEW_REVISION", "cancel-owned-revision"),
+    );
+    const stopped = await entered.promise;
+    const cancelling = harness.service.cancel({
+      bundleId: BUNDLE_ID,
+      operationId: stopped.readModel.operation.operationId,
+    });
+    const [initiatingResult, cancellingResult] = await Promise.all([
+      initiating,
+      cancelling,
+    ]);
+    expect(harness.events.filter((event) => event === "finalize")).toHaveLength(
+      1,
+    );
+    expect(cancellingResult.bundleVersion).toBe(initiatingResult.bundleVersion);
+    expect(cancellingResult.lastRevision?.revisionId).toBe(
+      "cancel-owned-revision",
+    );
+    expect(
+      harness.persistence
+        .listMessages(BUNDLE_ID)
+        .filter((message) => message.role === "assistant"),
+    ).toHaveLength(1);
+  });
   it("CT-F21-01 keeps the two modes explicit and rejects unknown intent fields", () => {
     expect(
       f21UserIntentSchema.safeParse(
@@ -779,6 +838,17 @@ describe("F21 read-only conversation and Review Revision", () => {
       "READ_ONLY_CONVERSATION",
     );
     expect(harness.runInputs[0]?.worktree).toBeUndefined();
+    const providerInput = aiProviderInputSnapshotSchema.parse(
+      harness.runInputs[0]?.input,
+    );
+    expect(providerInput.pullRequest).toEqual({
+      baseRepository: bundle().input.pullRequest.baseRepository,
+      headRepository: bundle().input.pullRequest.headRepository,
+      baseBranch: bundle().input.pullRequest.baseBranch,
+      headBranch: bundle().input.pullRequest.headBranch,
+      baseSha: bundle().input.pullRequest.baseSha,
+      headSha: bundle().input.pullRequest.headSha,
+    });
     expect(readModel.turns.at(-1)?.status).toBe("COMPLETED");
     expect(readModel.turns.at(-1)?.answer).toContain("read-only");
     expect(

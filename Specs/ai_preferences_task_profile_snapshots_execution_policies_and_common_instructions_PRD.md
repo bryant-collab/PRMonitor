@@ -406,3 +406,8 @@ permission to proceed.
 - **CT-F16-08:** Boundary fixtures cover F04 IPC schemas, renderer closure/restart, stale writers, atomic failure, keyboard/focus/forced-colors semantics, F16-B01-F16-B08 oversized/secret-shaped inputs, path validation handoff, and absence of SDK/publication capabilities.
 - **CT-F16-09:** Thin consumers for F15, F17, F18, F21, and F26 compile and run against only the F16 resolver/snapshot ports; a static scan proves no F16 provider SDK import or ad hoc profile/policy construction.
 - **CT-F16-10:** A bounds corpus covers every F16-B01-F16-B08 below/exact/above case, nested option depth/key/item limits, profile count and aggregate-text limits, snapshot total, delegated-bound missing/lower outcomes, stable refusal reasons, and proves no truncation, partial persistence, IPC delivery, provider start, or unbounded diagnostic.
+
+
+## Issue 1 supplement: Mandatory setup configuration
+
+Approved scope: [resumable setup on startup](https://github.com/bryant-collab/PRMonitor/issues/1). All four durable independent task profiles must be enabled, validated and AVAILABLE. Provider/model/options/task bounds are rechecked against the registered provider. The effective policy and operational settings must be valid and compatible with each task, including workspace-write for mutating revision/conflict tasks. Defaults need no acknowledgement; optional common instructions, repository overrides and tuning do not gate readiness. Existing profile editors and Apply to All semantics remain authoritative; no setup progress flags or shadow profile state are persisted.

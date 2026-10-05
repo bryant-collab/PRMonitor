@@ -63,7 +63,54 @@ function decodeAction(row: SqlRow): F22ActionIntent {
     },
     1,
   );
-  return f22ActionIntentSchema.parse(payload);
+  return f22ActionIntentSchema.parse(restoreActionProjection(payload));
+}
+
+const OBSERVATION_REFERENCE = /^f22-observation-[a-f0-9]{32}$/u;
+
+/** Preserve the generated reference without relaxing the codec's secret policy. */
+function actionProjection(action: F22ActionIntent): unknown {
+  const preview = action.result?.preview;
+  if (preview?.kind !== "F22_REEVALUATION_PREVIEW") return action;
+  const { observationToken, ...remote } = preview.remote;
+  if (observationToken === undefined) return action;
+  if (!OBSERVATION_REFERENCE.test(observationToken))
+    throw new Error("F22_INVALID_OBSERVATION_REFERENCE");
+  return {
+    ...action,
+    result: {
+      ...action.result,
+      preview: {
+        ...preview,
+        remote: { ...remote, observationRef: observationToken },
+      },
+    },
+  };
+}
+
+function restoreActionProjection(action: F22ActionIntent): unknown {
+  const preview = action.result?.preview;
+  if (preview?.kind !== "F22_REEVALUATION_PREVIEW") return action;
+  const remote = preview.remote as typeof preview.remote & {
+    observationRef?: unknown;
+  };
+  if (remote.observationRef === undefined) return action;
+  if (
+    typeof remote.observationRef !== "string" ||
+    !OBSERVATION_REFERENCE.test(remote.observationRef)
+  )
+    throw new Error("F22_INVALID_OBSERVATION_REFERENCE");
+  const { observationRef, ...rest } = remote;
+  return {
+    ...action,
+    result: {
+      ...action.result,
+      preview: {
+        ...preview,
+        remote: { ...rest, observationToken: observationRef },
+      },
+    },
+  };
 }
 
 export interface F22PersistencePort {
@@ -239,7 +286,7 @@ export class F22PersistenceRepositories implements F22PersistencePort {
     const action = f22ActionIntentSchema.parse(input);
     this.id(action.actionId, "F22 action identifier");
     this.id(action.idempotencyKey, "F22 idempotency key");
-    const encoded = encodeSnapshot(action, 1);
+    const encoded = encodeSnapshot(actionProjection(action), 1);
     return this.store.transaction((transaction) => {
       const existingByKey = transaction.get(
         "SELECT * FROM f22_action_intents WHERE idempotency_key = ?",
@@ -285,7 +332,7 @@ export class F22PersistenceRepositories implements F22PersistencePort {
     readonly expectedVersion?: number;
   }): F22ActionIntent {
     const action = f22ActionIntentSchema.parse(input.action);
-    const encoded = encodeSnapshot(action, 1);
+    const encoded = encodeSnapshot(actionProjection(action), 1);
     return this.store.transaction((transaction) => {
       const row = transaction.get(
         "SELECT * FROM f22_action_intents WHERE action_id = ?",

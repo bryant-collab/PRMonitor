@@ -1,4 +1,5 @@
 import { parseOpenTargetRecord, type OpenTarget } from "./routing";
+import { activityScope } from "./activity-presentation";
 
 export const ACTIVITY_SCHEMA_VERSION = 1 as const;
 export const ACTIVITY_MAX_PAGE_SIZE = 200;
@@ -266,6 +267,7 @@ export interface ActivityEventView extends ActivityEventRecord {
 }
 
 export interface ActivityQuery {
+  readonly view?: "PR_WORK" | "APPLICATION" | "ALL";
   readonly managedPrId?: string;
   readonly ownerType?: string;
   readonly ownerId?: string;
@@ -925,8 +927,17 @@ export function normalizeActivityQuery(
       "The activity query must be a plain object.",
     );
   const queryInput = input as ActivityQuery;
+  if (
+    queryInput.view !== undefined &&
+    !["PR_WORK", "APPLICATION", "ALL"].includes(queryInput.view)
+  )
+    throw new ActivityContractError(
+      "INVALID_QUERY",
+      "The activity view is unsupported.",
+    );
   const allowed = new Set([
     "managedPrId",
+    "view",
     "ownerType",
     "ownerId",
     "operationId",
@@ -1031,6 +1042,7 @@ export function normalizeActivityQuery(
       "The activity direction is unsupported.",
     );
   return {
+    ...(queryInput.view === undefined ? {} : { view: queryInput.view }),
     ...(managedPrId === undefined ? {} : { managedPrId }),
     ...(ownerType === undefined ? {} : { ownerType }),
     ...(ownerId === undefined ? {} : { ownerId }),
@@ -1059,6 +1071,9 @@ export function matchesActivityQuery(
   const normalized = normalizeActivityQuery(query);
   const workItemKey = formatWorkItemRef(event.workItem);
   return (
+    (normalized.view === undefined ||
+      normalized.view === "ALL" ||
+      activityScope(event) === normalized.view) &&
     (normalized.managedPrId === undefined ||
       event.managedPrId === normalized.managedPrId) &&
     (normalized.ownerType === undefined ||

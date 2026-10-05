@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { primaryLabels, prSummary } from "./PrDetail";
+import { customerExplanation } from "./customer-copy";
 import type {
   ManagedPrInboxGroup,
   ManagedPrInboxReadModel,
@@ -10,6 +13,11 @@ import type {
 } from "../shared/f24-synchronization";
 
 interface ManagedPrInboxProps {
+  readonly listScrollTop?: number;
+  readonly onListScroll?: (top: number) => void;
+  readonly detail?: ReactNode;
+  readonly toolbar?: ReactNode;
+  readonly selectedManagedPrId?: string;
   readonly snapshot: ManagedPrInboxReadModel | undefined;
   readonly loading: boolean;
   readonly error: string | undefined;
@@ -27,23 +35,8 @@ interface ManagedPrInboxProps {
   readonly confirmingPreparation: boolean;
   readonly onSelectionCommand: (input: F24SelectionCommandInput) => void;
   readonly onOpenSynchronization: () => void;
+  readonly onResetSelection?: () => void;
   readonly onConfirmPreparation: () => void;
-}
-
-const stateLabels = {
-  WATCHING: "WATCHING",
-  WORKING: "WORKING",
-  READY_FOR_REVIEW: "READY_FOR_REVIEW",
-  NEEDS_ATTENTION: "NEEDS_ATTENTION",
-} as const;
-
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return "Time unavailable";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 function readableStatus(value: string): string {
@@ -56,130 +49,88 @@ function InboxGroup({
   onNavigate,
   selection,
   onSelectionCommand,
+  selectedManagedPrId,
 }: {
   readonly group: ManagedPrInboxGroup;
   readonly cards: ManagedPrInboxReadModel["cards"];
   readonly onNavigate: ManagedPrInboxProps["onNavigate"];
   readonly selection: ManagedPrInboxProps["selection"];
   readonly onSelectionCommand: ManagedPrInboxProps["onSelectionCommand"];
+  readonly selectedManagedPrId?: string;
 }) {
   if (cards.length === 0) return null;
   return (
     <section
-      className={`inbox-group inbox-group-${group.id.toLowerCase()}`}
-      aria-labelledby={`inbox-group-${group.id.toLowerCase()}`}
+      className="inbox-group"
+      aria-labelledby={"inbox-group-" + group.id.toLowerCase()}
     >
-      <div className="inbox-group-heading">
-        <div>
-          <p className="eyebrow">
-            {group.id === "ACTION_NEEDED" ? "Human decision" : "Review state"}
-          </p>
-          <h3 id={`inbox-group-${group.id.toLowerCase()}`}>{group.label}</h3>
-        </div>
-        <span
-          className="store-state"
-          aria-label={`${group.count} ${group.label} pull requests`}
-        >
-          {group.count}
-        </span>
-      </div>
+      <h3 id={"inbox-group-" + group.id.toLowerCase()}>
+        {group.label} <span>{group.count}</span>
+      </h3>
       <div className="inbox-card-list">
-        {cards.map((card) => {
-          const titleId = `inbox-card-title-${card.id}`;
-          const descriptionId = `inbox-card-description-${card.id}`;
-          return (
-            <article
-              className={`inbox-card inbox-card-${card.primaryState.toLowerCase()}`}
-              key={card.id}
-              aria-labelledby={titleId}
-              aria-describedby={descriptionId}
+        {cards.map((card) => (
+          <article
+            key={card.id}
+            className={
+              "inbox-card" +
+              (selectedManagedPrId === card.id ? " inspected-pr" : "")
+            }
+          >
+            <label className="inbox-card-selection">
+              <input
+                type="checkbox"
+                checked={
+                  selection?.selectedManagedPrIds.includes(card.id) ?? false
+                }
+                onChange={() =>
+                  onSelectionCommand({
+                    command: "TOGGLE",
+                    projectionRevision: selection?.projectionRevision ?? 0,
+                    managedPrId: card.id,
+                  })
+                }
+                aria-label={"Select " + card.reference + " for synchronization"}
+              />
+              <span>Branch sync selection</span>
+            </label>
+            <button
+              type="button"
+              className="inbox-inspect"
+              aria-pressed={selectedManagedPrId === card.id}
+              onClick={() => onNavigate(card.id, "details")}
             >
-              <label className="inbox-card-selection">
-                <input
-                  type="checkbox"
-                  checked={
-                    selection?.selectedManagedPrIds.includes(card.id) ?? false
-                  }
-                  onChange={() =>
-                    onSelectionCommand({
-                      command: "TOGGLE",
-                      projectionRevision: selection?.projectionRevision ?? 0,
-                      managedPrId: card.id,
-                    })
-                  }
-                  aria-label={`Select ${card.reference} for synchronization`}
-                />
-                <span>Select for synchronization</span>
-              </label>
-              <div className="inbox-card-heading">
-                <div className="inbox-card-title-block">
-                  <h4 id={titleId}>{card.title ?? card.reference}</h4>
-                  <p className="inbox-reference">{card.reference}</p>
-                </div>
-                <span className="inbox-state" data-state={card.primaryState}>
-                  {stateLabels[card.primaryState]}
+              <span className="inbox-reference">{card.reference}</span>
+              <strong>{card.title ?? card.reference}</strong>
+              <span className="inbox-state" data-state={card.primaryState}>
+                {primaryLabels[card.primaryState]}
+              </span>
+              <span>{prSummary(card)}</span>
+              {card.synchronization === undefined ? null : (
+                <span>
+                  Branch sync: {readableStatus(card.synchronization.status)}
                 </span>
-              </div>
-              <p className="inbox-card-description" id={descriptionId}>
-                {card.reason.what} {card.reason.why}
-              </p>
-              <dl className="inbox-card-details">
-                <div>
-                  <dt>State updated</dt>
-                  <dd>{formatTimestamp(card.stateUpdatedAt)}</dd>
-                </div>
-                <div>
-                  <dt>Next action</dt>
-                  <dd>{readableStatus(card.reason.nextAction)}</dd>
-                </div>
-                <div>
-                  <dt>Local clone</dt>
-                  <dd>{readableStatus(card.localSetupStatus)}</dd>
-                </div>
-              </dl>
-              {card.synchronization !== undefined ? (
-                <div
-                  className="inbox-sync-overlay"
-                  role="status"
-                  aria-label={`Synchronization status ${readableStatus(card.synchronization.status)}`}
-                >
-                  <span className="inbox-sync-label">
-                    Synchronization overlay
-                  </span>
-                  <strong>{readableStatus(card.synchronization.status)}</strong>
-                  <span>
-                    {card.synchronization.reason.what}{" "}
-                    {card.synchronization.reason.why}
-                  </span>
-                </div>
-              ) : null}
-              <div
-                className="inbox-card-actions"
-                aria-label={`Actions for ${card.reference}`}
-              >
-                <button
-                  type="button"
-                  onClick={() => onNavigate(card.id, "details")}
-                >
-                  Details
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onNavigate(card.id, "settings")}
-                >
-                  Settings
-                </button>
-              </div>
-            </article>
-          );
-        })}
+              )}
+            </button>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => onNavigate(card.id, "settings")}
+            >
+              PR settings
+            </button>
+          </article>
+        ))}
       </div>
     </section>
   );
 }
 
 export function ManagedPrInbox({
+  listScrollTop,
+  onListScroll,
+  detail,
+  toolbar,
+  selectedManagedPrId,
   snapshot,
   loading,
   error,
@@ -194,6 +145,7 @@ export function ManagedPrInbox({
   confirmingPreparation,
   onSelectionCommand,
   onOpenSynchronization,
+  onResetSelection,
   onConfirmPreparation,
 }: ManagedPrInboxProps) {
   const cardsById = new Map(
@@ -207,7 +159,7 @@ export function ManagedPrInbox({
       <div className="section-heading">
         <div>
           <p className="eyebrow">Review inbox</p>
-          <h2 id="managed-pr-inbox-heading">Managed pull requests</h2>
+          <h2 id="managed-pr-inbox-heading">PR inbox</h2>
         </div>
         {snapshot !== undefined ? (
           <span
@@ -218,10 +170,7 @@ export function ManagedPrInbox({
           </span>
         ) : null}
       </div>
-      <p className="section-help">
-        The inbox is read from main-process state. Synchronization appears as a
-        separate overlay and never changes the review state.
-      </p>
+      {toolbar}
       {snapshot !== undefined && snapshot.cards.length > 0 ? (
         <div
           className="inbox-selection-toolbar"
@@ -272,6 +221,21 @@ export function ManagedPrInbox({
           </div>
         </div>
       ) : null}
+      {snapshot !== undefined &&
+      selection !== undefined &&
+      selection.projectionRevision !== snapshot.version ? (
+        <p role="status">
+          The PR inbox changed. Reset branch sync selection to select from the
+          current inbox. This clears sync checkboxes and keeps the inspected PR.{" "}
+          <button
+            type="button"
+            disabled={selectionBusy}
+            onClick={onResetSelection}
+          >
+            Reset branch sync selection
+          </button>
+        </p>
+      ) : null}
       {loading ? (
         <p className="inbox-status" role="status" aria-live="polite">
           Loading the managed pull-request inbox…
@@ -291,35 +255,55 @@ export function ManagedPrInbox({
           Showing last known inbox data.
         </p>
       ) : null}
-      {!loading &&
-      error === undefined &&
-      snapshot !== undefined &&
-      snapshot.cards.length === 0 ? (
-        <div className="inbox-empty" role="status">
-          <strong>No managed pull requests yet.</strong>
-          <span>Add a pull request to begin watching it.</span>
-          <button type="button" onClick={onAddPr}>
-            Add PR
-          </button>
+      <div
+        className={
+          "inbox-columns" +
+          (selectedManagedPrId === undefined ? "" : " has-inspection")
+        }
+      >
+        <div
+          className="inbox-list"
+          tabIndex={0}
+          aria-label="Pull request list"
+          ref={(element) => {
+            if (element !== null && listScrollTop !== undefined)
+              element.scrollTop = listScrollTop;
+          }}
+          onScroll={(event) => onListScroll?.(event.currentTarget.scrollTop)}
+        >
+          {!loading &&
+          error === undefined &&
+          snapshot !== undefined &&
+          snapshot.cards.length === 0 ? (
+            <div className="inbox-empty" role="status">
+              <strong>No pull requests yet</strong>
+              <span>Add a pull request to begin watching it.</span>
+              <button type="button" onClick={onAddPr}>
+                Add PR
+              </button>
+            </div>
+          ) : null}
+          {snapshot !== undefined && snapshot.cards.length > 0 ? (
+            <div className="inbox-groups">
+              {snapshot.groups.map((group) => (
+                <InboxGroup
+                  key={group.id}
+                  group={group}
+                  cards={group.cardIds.flatMap((id) => {
+                    const card = cardsById.get(id);
+                    return card === undefined ? [] : [card];
+                  })}
+                  onNavigate={onNavigate}
+                  selectedManagedPrId={selectedManagedPrId}
+                  selection={selection}
+                  onSelectionCommand={onSelectionCommand}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {snapshot !== undefined && snapshot.cards.length > 0 ? (
-        <div className="inbox-groups">
-          {snapshot.groups.map((group) => (
-            <InboxGroup
-              key={group.id}
-              group={group}
-              cards={group.cardIds.flatMap((id) => {
-                const card = cardsById.get(id);
-                return card === undefined ? [] : [card];
-              })}
-              onNavigate={onNavigate}
-              selection={selection}
-              onSelectionCommand={onSelectionCommand}
-            />
-          ))}
-        </div>
-      ) : null}
+        {detail}
+      </div>
       {confirmation !== undefined ? (
         <section
           className="sync-confirmation"
@@ -342,11 +326,14 @@ export function ManagedPrInbox({
             {confirmation.rows.map((row) => (
               <article className="sync-confirmation-row" key={row.managedPrId}>
                 <div className="sync-row-heading">
-                  <strong>{row.managedPrId}</strong>
+                  <strong>
+                    {cardsById.get(row.managedPrId)?.reference ??
+                      "Saved pull request"}
+                  </strong>
                   <span
                     className={`sync-eligibility sync-${row.eligibility.toLowerCase()}`}
                   >
-                    {row.eligibility}
+                    {readableStatus(row.eligibility)}
                   </span>
                 </div>
                 <dl className="sync-row-details">
@@ -382,9 +369,23 @@ export function ManagedPrInbox({
                   className="sync-row-reason"
                   role={row.eligibility === "INELIGIBLE" ? "alert" : undefined}
                 >
-                  {row.reason.what} {row.reason.why} Next action:{" "}
-                  {readableStatus(row.reason.nextAction)}.
+                  {customerExplanation(
+                    `${row.reason.what} ${row.reason.why}`,
+                    row.eligibility === "INELIGIBLE"
+                      ? "This pull request cannot be prepared. Check its PR settings and refresh the summary."
+                      : "This pull request can be prepared using the exact branches and revisions shown above.",
+                  )}
                 </p>
+                <details>
+                  <summary>Raw support data</summary>
+                  <pre tabIndex={0}>
+                    {JSON.stringify(
+                      { managedPrId: row.managedPrId, reason: row.reason },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </details>
               </article>
             ))}
           </div>
@@ -407,9 +408,10 @@ export function ManagedPrInbox({
       ) : null}
       {preparationIntent !== undefined ? (
         <p className="sync-intent-status" role="status" aria-live="polite">
-          Preparation intent {preparationIntent.snapshot.intentId} is{" "}
+          Branch synchronization preparation is{" "}
           {preparationIntent.handoff.status.toLowerCase()}. No merge, push,
-          response, AI, or publication authority was granted.
+          response or AI work started. Publication still requires explicit
+          approval.
         </p>
       ) : null}
     </section>

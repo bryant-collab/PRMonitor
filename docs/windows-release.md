@@ -39,6 +39,22 @@ must be separate, clearly named, and explicitly confirmed.
 
 ## Clean-machine procedure
 
+Use a disposable Windows account or VM snapshot with no prior PRMonitor profile
+for first-install evidence. Reinstalling under an existing account deliberately
+retains its legitimate history; it does not simulate a fresh installation. Do
+not delete customer storage to obtain an empty Activity view.
+
+Manual unpackaged development uses `%APPDATA%\PRMonitor Development`. To
+deliberately inspect the production profile from a manual development session,
+set `PRMONITOR_USE_PRODUCTION_PROFILE=1` explicitly for that process. Automated
+test/smoke/acceptance launchers must instead provide marked temporary roots via
+`PRMONITOR_ISOLATED_ROOT`, `PRMONITOR_USER_DATA_DIR`, `PRMONITOR_CACHE_DIR` and
+`PRMONITOR_WORKTREE_DIR`. Missing or unsafe isolation fails before persistence.
+
+Packaged payload inspection rejects runtime DB/WAL/SHM files, backups, session
+caches and runtime fixture directories. Routine startup and tray events remain
+durable under Application diagnostics; PR work is the default Activity view.
+
 1. Start with a Windows 11 x64 machine or VM snapshot with no PRMonitor
    checkout. Install the documented Git prerequisite.
 2. Verify the candidate's `release-manifest.json` and `checksums.sha256`.

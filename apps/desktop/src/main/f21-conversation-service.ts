@@ -162,7 +162,14 @@ function providerInput(
     ...(conversationId === undefined ? {} : { conversationId }),
     remoteEventVersionIds: bundle.input.remoteEventVersionIds,
     eventVersionIds: bundle.input.remoteEventVersionIds,
-    pullRequest: bundle.input.pullRequest,
+    pullRequest: {
+      baseRepository: bundle.input.pullRequest.baseRepository,
+      headRepository: bundle.input.pullRequest.headRepository,
+      baseBranch: bundle.input.pullRequest.baseBranch,
+      headBranch: bundle.input.pullRequest.headBranch,
+      baseSha: bundle.input.pullRequest.baseSha,
+      headSha: bundle.input.pullRequest.headSha,
+    },
     ...(bundle.input.contextText === undefined
       ? {}
       : { prIntentContext: bundle.input.contextText }),
@@ -386,6 +393,27 @@ function failedWorkSummary(operationId: string): F18AiWorkSummary {
 }
 
 export class F21ConversationService implements F21ConversationBoundary {
+  private readonly operationCompletions = new Map<
+    string,
+    Promise<F21ConversationReadModel>
+  >();
+
+  /** The initiating command owns the one durable F21 completion. Cancellation
+   * waits for that writer instead of racing a second bundle finalization. */
+  private completeOperation(
+    operationId: string,
+    work: () => Promise<F21ConversationReadModel>,
+  ): Promise<F21ConversationReadModel> {
+    const completion = work();
+    this.operationCompletions.set(operationId, completion);
+    const settled = () => {
+      if (this.operationCompletions.get(operationId) === completion)
+        this.operationCompletions.delete(operationId);
+    };
+    void completion.then(settled, settled);
+    return completion;
+  }
+
   public constructor(private readonly options: F21ConversationServiceOptions) {}
 
   public read(bundleId: string): F21ConversationReadModel {
@@ -495,7 +523,12 @@ export class F21ConversationService implements F21ConversationBoundary {
     const turns = this.options.persistence.listTurns(input.bundleId);
     const operationId = input.operationId ?? turns.at(-1)?.operationId;
     if (operationId !== undefined) {
+      const completion = this.operationCompletions.get(operationId);
       const result = await this.options.aiWork.cancel(operationId);
+      if (completion !== undefined) {
+        await completion;
+        return this.read(bundle.bundleId);
+      }
       const latest = [...turns]
         .reverse()
         .find((turn) => turn.operationId === operationId);
@@ -595,34 +628,36 @@ export class F21ConversationService implements F21ConversationBoundary {
         );
       }
     }
-    let result: F21AIWorkResult;
-    try {
-      result = await this.options.aiWork.continue({
-        operationId: input.operationId,
-        confirmation,
+    return this.completeOperation(input.operationId, async () => {
+      let result: F21AIWorkResult;
+      try {
+        result = await this.options.aiWork.continue({
+          operationId: input.operationId,
+          confirmation,
+        });
+      } catch {
+        if (continuationIntent === undefined)
+          throw new Error("F21_AI_CONTINUATION_FAILED");
+        return this.persistBlockedRevision(
+          revisionBundle,
+          continuationIntent,
+          continuationInspection,
+          reason(
+            "F21_AI_CONTINUATION_FAILED",
+            "The explicitly authorized continuation could not be started or reconciled.",
+            "REVIEW_EVIDENCE",
+          ),
+          { finalize: true, operationId: input.operationId },
+        );
+      }
+      return await this.persistResult({
+        bundle: revisionBundle,
+        mode: latest.mode,
+        message: latest.userMessage,
+        result,
+        revisionId:
+          latest.mode === "REVIEW_REVISION" ? id("f21-revision") : undefined,
       });
-    } catch {
-      if (continuationIntent === undefined)
-        throw new Error("F21_AI_CONTINUATION_FAILED");
-      return this.persistBlockedRevision(
-        revisionBundle,
-        continuationIntent,
-        continuationInspection,
-        reason(
-          "F21_AI_CONTINUATION_FAILED",
-          "The explicitly authorized continuation could not be started or reconciled.",
-          "REVIEW_EVIDENCE",
-        ),
-        { finalize: true, operationId: input.operationId },
-      );
-    }
-    return await this.persistResult({
-      bundle: revisionBundle,
-      mode: latest.mode,
-      message: latest.userMessage,
-      result,
-      revisionId:
-        latest.mode === "REVIEW_REVISION" ? id("f21-revision") : undefined,
     });
   }
 
@@ -633,6 +668,7 @@ export class F21ConversationService implements F21ConversationBoundary {
     if (parsed.mode !== "REVIEW_REVISION") throw new Error("F21_MODE_MISMATCH");
     if (parsed.priorOperationId === undefined)
       throw new Error("F21_PRIOR_OPERATION_REQUIRED");
+    const priorOperationId = parsed.priorOperationId;
     assertSafeUserText(parsed.message);
     let bundle = this.requireBundle(parsed.bundleId);
     this.ensureReadModel(bundle);
@@ -788,48 +824,50 @@ export class F21ConversationService implements F21ConversationBoundary {
           }),
       createdAt: now(this.options.clock),
     });
-    let result: F21AIWorkResult;
-    try {
-      result = await this.options.aiWork.startNewOperation({
-        mode: "REVIEW_REVISION",
-        operationId,
-        priorOperationId: parsed.priorOperationId,
-        confirmation,
-        f13OperationId: bundle.operationId,
-        ownerId: bundle.bundleId,
-        bundleId: bundle.bundleId,
-        taskSnapshot,
-        input: provider,
-        revisionRequest,
-        worktree: handoff.handoff,
-        ...(parsed.acknowledgeUnattributedChanges === undefined
-          ? {}
-          : {
-              acknowledgeUnattributedChanges:
-                parsed.acknowledgeUnattributedChanges,
-            }),
-        configuredTurnBudget: parsed.selectedBudget ?? 1,
-      });
-    } catch {
-      return this.persistBlockedRevision(
+    return this.completeOperation(operationId, async () => {
+      let result: F21AIWorkResult;
+      try {
+        result = await this.options.aiWork.startNewOperation({
+          mode: "REVIEW_REVISION",
+          operationId,
+          priorOperationId,
+          confirmation,
+          f13OperationId: bundle.operationId,
+          ownerId: bundle.bundleId,
+          bundleId: bundle.bundleId,
+          taskSnapshot,
+          input: provider,
+          revisionRequest,
+          worktree: handoff.handoff,
+          ...(parsed.acknowledgeUnattributedChanges === undefined
+            ? {}
+            : {
+                acknowledgeUnattributedChanges:
+                  parsed.acknowledgeUnattributedChanges,
+              }),
+          configuredTurnBudget: parsed.selectedBudget ?? 1,
+        });
+      } catch {
+        return this.persistBlockedRevision(
+          bundle,
+          parsed,
+          inspection,
+          reason(
+            "F21_AI_WORK_START_FAILED",
+            "The new bounded Review Revision operation could not be started or reconciled.",
+            "REVIEW_EVIDENCE",
+          ),
+          { finalize: true, operationId },
+        );
+      }
+      return await this.persistResult({
         bundle,
-        parsed,
+        mode: "REVIEW_REVISION",
+        message: parsed.message,
+        result,
+        revisionId: parsed.intentId,
         inspection,
-        reason(
-          "F21_AI_WORK_START_FAILED",
-          "The new bounded Review Revision operation could not be started or reconciled.",
-          "REVIEW_EVIDENCE",
-        ),
-        { finalize: true, operationId },
-      );
-    }
-    return await this.persistResult({
-      bundle,
-      mode: "REVIEW_REVISION",
-      message: parsed.message,
-      result,
-      revisionId: parsed.intentId,
-      inspection,
+      });
     });
   }
 
@@ -882,34 +920,36 @@ export class F21ConversationService implements F21ConversationBoundary {
       "READ_ONLY_CONVERSATION",
     );
     if (!admitted) return this.read(input.bundleId);
-    let result: F21AIWorkResult;
-    try {
-      result = await this.options.aiWork.run({
-        mode: "READ_ONLY_CONVERSATION",
-        operationId,
-        ownerId: bundle.bundleId,
-        bundleId: bundle.bundleId,
-        taskSnapshot,
-        input: provider,
-        configuredTurnBudget: 1,
-      });
-    } catch {
-      return this.persistConversationFailure(
+    return this.completeOperation(operationId, async () => {
+      let result: F21AIWorkResult;
+      try {
+        result = await this.options.aiWork.run({
+          mode: "READ_ONLY_CONVERSATION",
+          operationId,
+          ownerId: bundle.bundleId,
+          bundleId: bundle.bundleId,
+          taskSnapshot,
+          input: provider,
+          configuredTurnBudget: 1,
+        });
+      } catch {
+        return this.persistConversationFailure(
+          bundle,
+          input,
+          reason(
+            "F21_READ_ONLY_TURN_FAILED",
+            "The bounded read-only conversation turn could not be started or reconciled.",
+            "REVIEW_EVIDENCE",
+          ),
+        );
+      }
+      return await this.persistResult({
         bundle,
-        input,
-        reason(
-          "F21_READ_ONLY_TURN_FAILED",
-          "The bounded read-only conversation turn could not be started or reconciled.",
-          "REVIEW_EVIDENCE",
-        ),
-      );
-    }
-    return await this.persistResult({
-      bundle,
-      mode: "READ_ONLY_CONVERSATION",
-      message: input.message,
-      result,
-      conversationReference: result.conversationReference,
+        mode: "READ_ONLY_CONVERSATION",
+        message: input.message,
+        result,
+        conversationReference: result.conversationReference,
+      });
     });
   }
 
@@ -1046,46 +1086,48 @@ export class F21ConversationService implements F21ConversationBoundary {
           }),
       createdAt: now(this.options.clock),
     });
-    let result: F21AIWorkResult;
-    try {
-      result = await this.options.aiWork.run({
-        mode: "REVIEW_REVISION",
-        operationId,
-        f13OperationId: bundle.operationId,
-        ownerId: bundle.bundleId,
-        bundleId: bundle.bundleId,
-        taskSnapshot,
-        input: provider,
-        revisionRequest,
-        worktree: handoff.handoff,
-        ...(input.acknowledgeUnattributedChanges === undefined
-          ? {}
-          : {
-              acknowledgeUnattributedChanges:
-                input.acknowledgeUnattributedChanges,
-            }),
-        configuredTurnBudget: 1,
-      });
-    } catch {
-      return this.persistBlockedRevision(
+    return this.completeOperation(operationId, async () => {
+      let result: F21AIWorkResult;
+      try {
+        result = await this.options.aiWork.run({
+          mode: "REVIEW_REVISION",
+          operationId,
+          f13OperationId: bundle.operationId,
+          ownerId: bundle.bundleId,
+          bundleId: bundle.bundleId,
+          taskSnapshot,
+          input: provider,
+          revisionRequest,
+          worktree: handoff.handoff,
+          ...(input.acknowledgeUnattributedChanges === undefined
+            ? {}
+            : {
+                acknowledgeUnattributedChanges:
+                  input.acknowledgeUnattributedChanges,
+              }),
+          configuredTurnBudget: 1,
+        });
+      } catch {
+        return this.persistBlockedRevision(
+          bundle,
+          input,
+          inspection,
+          reason(
+            "F21_AI_WORK_START_FAILED",
+            "The bounded Review Revision turn could not be started or reconciled.",
+            "REVIEW_EVIDENCE",
+          ),
+          { finalize: true, operationId },
+        );
+      }
+      return await this.persistResult({
         bundle,
-        input,
+        mode: "REVIEW_REVISION",
+        message: input.message,
+        result,
+        revisionId: input.intentId,
         inspection,
-        reason(
-          "F21_AI_WORK_START_FAILED",
-          "The bounded Review Revision turn could not be started or reconciled.",
-          "REVIEW_EVIDENCE",
-        ),
-        { finalize: true, operationId },
-      );
-    }
-    return await this.persistResult({
-      bundle,
-      mode: "REVIEW_REVISION",
-      message: input.message,
-      result,
-      revisionId: input.intentId,
-      inspection,
+      });
     });
   }
 

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifySmokeFailure } from "../../apps/desktop/scripts/smoke-failure.mjs";
+import {
+  classifySmokeFailure,
+  classifySandboxSubreason,
+  classifyApplicationSmokeReason,
+} from "../../apps/desktop/scripts/smoke-failure.mjs";
 
 test("smoke failures expose fixed categories without child-output contents", () => {
   for (const [stderr, category] of [
@@ -19,4 +23,72 @@ test("smoke failures expose fixed categories without child-output contents", () 
   ]) {
     assert.equal(classifySmokeFailure(stderr), category);
   }
+});
+
+test("startup diagnostics require an exact closed protocol reason and never disclose private details", () => {
+  for (const reason of [
+    "ACCESSIBILITY_TARGET_MISSING",
+    "ACCESSIBILITY_SEMANTICS_FAILED",
+    "ACCESSIBILITY_KEYBOARD_FAILED",
+    "ACCESSIBILITY_FORCED_COLORS_FAILED",
+    "ACCESSIBILITY_FORCED_KEYBOARD_FAILED",
+  ]) {
+    assert.equal(
+      classifyApplicationSmokeReason(
+        `private/path\nPRMONITOR_SMOKE_ERROR:${reason}:private text`,
+      ),
+      reason,
+    );
+    assert.equal(
+      classifyApplicationSmokeReason(
+        `PRMONITOR_SMOKE_ERROR:${reason}_PRIVATE_TEXT`,
+      ),
+      "UNCLASSIFIED",
+    );
+  }
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "private/path\nPRMONITOR_SMOKE_ERROR:ACCESSIBILITY_PROBE_FAILED:private text",
+    ),
+    "ACCESSIBILITY_PROBE_FAILED",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "PRMONITOR_SMOKE_ERROR:READINESS_TIMEOUT\r\nprivate/path",
+    ),
+    "READINESS_TIMEOUT",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason("PRMONITOR_SMOKE_ERROR:PRIVATE_TEXT"),
+    "UNCLASSIFIED",
+  );
+  assert.equal(
+    classifyApplicationSmokeReason(
+      "PRMONITOR_SMOKE_ERROR:READINESS_TIMEOUT_PRIVATE_TEXT",
+    ),
+    "UNCLASSIFIED",
+  );
+});
+
+test("sandbox subreasons distinguish helper configuration from namespace rejection without exposing child text", () => {
+  assert.equal(
+    classifySandboxSubreason(
+      "private-path SUID sandbox helper binary must be owned by root and mode 4755",
+    ),
+    "HELPER_OWNERSHIP_OR_MODE",
+  );
+  assert.equal(
+    classifySandboxSubreason(
+      "private-path Failed to move to new namespace: Operation not permitted",
+    ),
+    "NAMESPACE_PERMISSION",
+  );
+  assert.equal(
+    classifySandboxSubreason("No usable sandbox! private-path"),
+    "NO_USABLE_SANDBOX",
+  );
+  assert.equal(
+    classifySandboxSubreason("private unrecognized contents"),
+    "UNCLASSIFIED",
+  );
 });

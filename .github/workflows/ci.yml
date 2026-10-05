@@ -21,10 +21,14 @@ jobs:
       - run: npm install --global npm@11.17.0
       - run: npm ci
       - run: npm run check
+      - name: Setup startup and restart acceptance
+        run: npm run test:setup
 
   ubuntu:
     name: Ubuntu Xvfb foundation check
-    runs-on: ubuntu-latest
+    # Approved temporary compatibility pin; retire before 2027-04-17.
+    # Evidence and migration exit criteria: docs/evidence/backlog/ubuntu-runner-pin.md
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-git
@@ -36,3 +40,6 @@ jobs:
       - run: npm ci
       - run: sudo apt-get update && sudo apt-get install --yes xvfb
       - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" npm run check
+      - name: Read-only Linux sandbox diagnostics
+        if: always()
+        run: node scripts/linux-sandbox-diagnostics.mjs

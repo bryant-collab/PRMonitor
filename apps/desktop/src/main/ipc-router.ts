@@ -1,8 +1,10 @@
+import type { ManagedPrWork } from "../shared/managed-pr-work";
 import {
   boundedIpcResponse,
   IPC_CHANNELS,
   IPC_MAX_RESPONSE_BYTES,
   parseIpcOpenTargetEvent,
+  parseIpcSetupReadinessUpdatedEvent,
   parseIpcRequest,
   type CurrentState,
   type IpcError,
@@ -13,6 +15,7 @@ import {
   type LifecycleStatus,
 } from "../shared/ipc";
 import type { F28RecoveryProjection } from "../shared/f28-recovery";
+import type { SetupReadiness } from "../shared/setup-readiness";
 import { parseOpenTargetRecord, type OpenTarget } from "../shared/routing";
 import type {
   GithubServerProfileInput,
@@ -135,6 +138,8 @@ export interface IpcServices {
   readonly readCurrentState: (sessionId: string) => CurrentState;
   readonly getLifecycleStatus: () => LifecycleStatus;
   readonly readRecovery?: () => F28RecoveryProjection;
+  readonly readSetupReadiness?: () => Promise<SetupReadiness>;
+  readonly retrySetupReadiness?: () => Promise<SetupReadiness>;
   readonly requestRecovery?: () => Promise<F28RecoveryProjection>;
   readonly exportSupportDiagnostics?: () => Promise<F30SupportDiagnosticsExportResult>;
   readonly requestShutdown: () => Promise<{
@@ -313,6 +318,10 @@ export interface IpcServices {
     destination: ManagedPrNavigationDestination,
   ) => OpenTarget;
   readonly readReviewBundle?: (bundleId: string) => F20WorkspaceReadModel;
+  readonly readManagedPrWork?: (
+    managedPrId: string,
+    offset?: number,
+  ) => ManagedPrWork;
   readonly readReviewBundlePublication?: (
     bundleId: string,
   ) => Promise<F23PublicationReadModel>;
@@ -551,6 +560,24 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "lifecycle-status",
             status: this.services.getLifecycleStatus(),
+          }),
+        );
+      }
+      if (request.type === "setup.read" || request.type === "setup.retry") {
+        const read =
+          request.type === "setup.retry"
+            ? this.services.retrySetupReadiness
+            : this.services.readSetupReadiness;
+        if (read === undefined)
+          return errorResponse(
+            request.requestId,
+            "NOT_READY",
+            "Setup readiness is unavailable.",
+          );
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "setup-readiness",
+            projection: await read(),
           }),
         );
       }
@@ -1374,6 +1401,19 @@ export class IpcRouter {
           }),
         );
       }
+      if (request.type === "managed-pr.work.read") {
+        if (this.services.readManagedPrWork === undefined)
+          throw Error("SAVED_WORK_NOT_READY");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "managed-pr-work",
+            work: this.services.readManagedPrWork(
+              request.payload.managedPrId,
+              request.payload.offset,
+            ),
+          }),
+        );
+      }
       if (request.type === "review-bundle.read") {
         if (this.services.readReviewBundle === undefined)
           throw new Error("PRMONITOR_F20_WORKSPACE_SERVICE_NOT_READY");
@@ -1744,6 +1784,31 @@ export class IpcRouter {
 
   public hasSession(senderId: number): boolean {
     return this.sessions.has(senderId);
+  }
+
+  public publishSetupReadiness(projection: SetupReadiness): number {
+    const event = {
+      schemaVersion: 1 as const,
+      type: "setup-readiness-updated" as const,
+      projection,
+    };
+    if (!parseIpcSetupReadinessUpdatedEvent(event)) return 0;
+    if (
+      new TextEncoder().encode(JSON.stringify(event)).byteLength >
+      IPC_MAX_RESPONSE_BYTES
+    )
+      return 0;
+    let delivered = 0;
+    for (const [senderId, session] of this.sessions) {
+      if (session.sender.isDestroyed?.()) continue;
+      try {
+        session.sender.send(IPC_CHANNELS.event, event);
+        delivered += 1;
+      } catch {
+        this.sessions.delete(senderId);
+      }
+    }
+    return delivered;
   }
 
   public publishInbox(snapshot: ManagedPrInboxReadModel): number {

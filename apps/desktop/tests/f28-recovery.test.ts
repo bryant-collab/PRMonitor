@@ -111,6 +111,123 @@ function outcome(
 }
 
 describe("F28 durable recovery", () => {
+  it("reconciles global owner state once per session while persisting every PR outcome and re-reading on wake", async () => {
+    const fixture = await createFixture();
+    const repositories = new F28RecoveryRepositories(fixture.store);
+    let scans = 0;
+    const recovered: string[] = [];
+    const coordinator = new F28RecoveryCoordinator({
+      persistence: repositories,
+      lifecycle: () => lifecycle("session-wide-scans"),
+      owners: [
+        {
+          owner: "global-local-work",
+          stage: "LOCAL_WORK",
+          listScopes: () =>
+            Array.from({ length: 20 }, (_, index) =>
+              scope(
+                "global-local-work",
+                "LOCAL_WORK",
+                "managed_pr",
+                `pr-${index}`,
+              ),
+            ),
+          reconcileSession: async (context) => {
+            scans++;
+            expect(context).not.toHaveProperty("scope");
+            expect(context.allowProviderInvocation).toBe(false);
+            expect(context.allowPublication).toBe(false);
+            expect(context.allowForcePush).toBe(false);
+            expect(context.allowArbitraryCommands).toBe(false);
+            expect(context.allowWorktreeReplacement).toBe(false);
+            await Promise.resolve();
+          },
+          recover: (context) => {
+            recovered.push(context.scope.id);
+            return outcome("COMPLETED");
+          },
+        },
+      ],
+    });
+    const first = await coordinator.startup("global-first");
+    expect(scans).toBe(1);
+    expect(first.projection.summary).toEqual({
+      scopes: 21,
+      completed: 21,
+      attention: 0,
+      retrying: 0,
+    });
+    expect(new Set(recovered).size).toBe(20);
+    const wake = await coordinator.wake("global-wake");
+    expect(scans).toBe(2);
+    expect(recovered).toHaveLength(40);
+    expect(
+      wake.projection.scopes.every(
+        (value) => value.classification === "COMPLETED",
+      ),
+    ).toBe(true);
+    expect(
+      fixture.store.readAll("SELECT * FROM f28_recovery_attempts"),
+    ).toHaveLength(42);
+  });
+
+  it.each(["failed", "offline"] as const)(
+    "keeps every scope conservative when session reconciliation is %s",
+    async (mode) => {
+      const fixture = await createFixture();
+      let scans = 0;
+      let recoveries = 0;
+      const coordinator = new F28RecoveryCoordinator({
+        persistence: new F28RecoveryRepositories(fixture.store),
+        lifecycle: () => lifecycle(`global-${mode}`, mode !== "offline"),
+        owners: [
+          {
+            owner: "global-network",
+            stage: "REVIEW_PUBLICATION",
+            requiresNetwork: true,
+            listScopes: () => [
+              scope(
+                "global-network",
+                "REVIEW_PUBLICATION",
+                "publication",
+                "one",
+              ),
+              scope(
+                "global-network",
+                "REVIEW_PUBLICATION",
+                "publication",
+                "two",
+              ),
+            ],
+            reconcileSession: () => {
+              scans++;
+              throw Error("fixture-only failure");
+            },
+            recover: () => {
+              recoveries++;
+              return outcome("COMPLETED");
+            },
+          },
+        ],
+      });
+      const result = await coordinator.startup(`global-${mode}`);
+      expect(scans).toBe(mode === "offline" ? 0 : 1);
+      expect(recoveries).toBe(0);
+      const affected = result.projection.scopes.filter(
+        (value) => value.scope.owner === "global-network",
+      );
+      expect(affected).toHaveLength(2);
+      expect(
+        affected.every(
+          (value) =>
+            value.classification ===
+            (mode === "offline" ? "WAITING_FOR_NETWORK" : "UNCERTAIN"),
+        ),
+      ).toBe(true);
+      expect(result.projection.status).toBe("PARTIAL");
+    },
+  );
+
   it("persists bounded session, scope, attempt, failure, and projection evidence across restart", async () => {
     const fixture = await createFixture();
     const repositories = new F28RecoveryRepositories(fixture.store, {

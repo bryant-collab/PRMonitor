@@ -1,4 +1,6 @@
 import { isSafeText } from "./domain/result";
+import { managedPrWorkSchema, type ManagedPrWork } from "./managed-pr-work";
+import { isSetupReadiness, type SetupReadiness } from "./setup-readiness";
 import { parseOpenTargetRecord, type OpenTarget } from "./routing";
 import {
   isManagedPrInboxReadModel,
@@ -167,6 +169,8 @@ export type IpcRequestType =
   | "lifecycle.status"
   | "lifecycle.shutdown"
   | "recovery.read"
+  | "setup.read"
+  | "setup.retry"
   | "recovery.request"
   | "support-diagnostics.export"
   | "scheduler.read"
@@ -230,6 +234,7 @@ export type IpcRequestType =
   | "activity.subscribe"
   | "activity.navigate"
   | "review-bundle.read"
+  | "managed-pr.work.read"
   | "review-bundle.f22.reconcile"
   | "review-bundle.diff.read"
   | "review-bundle.decision.record"
@@ -275,7 +280,8 @@ export type IpcRequest =
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
-      readonly type: "recovery.read" | "recovery.request";
+      readonly type:
+        "recovery.read" | "recovery.request" | "setup.read" | "setup.retry";
       readonly payload: Record<string, never>;
     })
   | (IpcRequestBase & {
@@ -509,6 +515,13 @@ export type IpcRequest =
       readonly payload: { readonly eventId: string };
     })
   | (IpcRequestBase & {
+      readonly type: "managed-pr.work.read";
+      readonly payload: {
+        readonly managedPrId: string;
+        readonly offset?: number;
+      };
+    })
+  | (IpcRequestBase & {
       readonly type: "review-bundle.read";
       readonly payload: { readonly bundleId: string };
     })
@@ -697,6 +710,7 @@ export type IpcResponseValue =
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
   | { readonly kind: "recovery"; readonly projection: F28RecoveryProjection }
+  | { readonly kind: "setup-readiness"; readonly projection: SetupReadiness }
   | {
       readonly kind: "support-diagnostics";
       readonly exported: true;
@@ -807,6 +821,7 @@ export type IpcResponseValue =
     }
   | { readonly kind: "activity-navigation"; readonly target: OpenTarget }
   | { readonly kind: "navigation-target"; readonly target: OpenTarget }
+  | { readonly kind: "managed-pr-work"; readonly work: ManagedPrWork }
   | {
       readonly kind: "review-bundle-workspace";
       readonly workspace: F20WorkspaceReadModel;
@@ -1090,6 +1105,11 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "status"]) &&
       parseLifecycleStatus(value.status)
     );
+  if (value.kind === "setup-readiness")
+    return (
+      hasExactKeys(value, ["kind", "projection"]) &&
+      isSetupReadiness(value.projection)
+    );
   if (value.kind === "recovery")
     return (
       hasExactKeys(value, ["kind", "projection"]) &&
@@ -1258,6 +1278,11 @@ function parseResponseValue(value: unknown): boolean {
       hasExactKeys(value, ["kind", "target"]) &&
       parseOpenTargetRecord(value.target).ok
     );
+  if (value.kind === "managed-pr-work")
+    return (
+      hasExactKeys(value, ["kind", "work"]) &&
+      managedPrWorkSchema.safeParse(value.work).success
+    );
   if (value.kind === "review-bundle-workspace")
     return (
       hasExactKeys(value, ["kind", "workspace"]) &&
@@ -1372,6 +1397,8 @@ export function parseIpcRequest(
     value.type === "app.read-current-state" ||
     value.type === "lifecycle.status" ||
     value.type === "recovery.read" ||
+    value.type === "setup.read" ||
+    value.type === "setup.retry" ||
     value.type === "recovery.request" ||
     value.type === "support-diagnostics.export"
   ) {
@@ -2229,6 +2256,31 @@ export function parseIpcRequest(
       },
     };
   }
+  if (value.type === "managed-pr.work.read") {
+    if (
+      !hasExactKeys(value.payload, ["managedPrId"], ["offset"]) ||
+      !safeGithubIdentifier(value.payload.managedPrId) ||
+      (value.payload.offset !== undefined &&
+        (typeof value.payload.offset !== "number" ||
+          !Number.isSafeInteger(value.payload.offset) ||
+          value.payload.offset < 0 ||
+          value.payload.offset > 50000))
+    )
+      return invalidRequest("The pull request identifier is invalid.");
+    return {
+      ok: true,
+      value: {
+        ...base,
+        type: value.type,
+        payload: {
+          managedPrId: value.payload.managedPrId,
+          ...(value.payload.offset === undefined
+            ? {}
+            : { offset: value.payload.offset as number }),
+        },
+      },
+    };
+  }
   if (value.type === "review-bundle.read") {
     if (
       !hasExactKeys(value.payload, ["bundleId"]) ||
@@ -2825,6 +2877,24 @@ export function parseIpcOpenTargetEvent(
   return parseOpenTargetRecord(value.target).ok;
 }
 
+export interface IpcSetupReadinessUpdatedEvent {
+  readonly schemaVersion: typeof IPC_SCHEMA_VERSION;
+  readonly type: "setup-readiness-updated";
+  readonly projection: SetupReadiness;
+}
+
+export function parseIpcSetupReadinessUpdatedEvent(
+  value: unknown,
+): value is IpcSetupReadinessUpdatedEvent {
+  return (
+    isPlainRecord(value) &&
+    hasExactKeys(value, ["schemaVersion", "type", "projection"]) &&
+    value.schemaVersion === IPC_SCHEMA_VERSION &&
+    value.type === "setup-readiness-updated" &&
+    isSetupReadiness(value.projection)
+  );
+}
+
 export function parseIpcInboxUpdateEvent(
   value: unknown,
 ): value is IpcInboxUpdateEvent {
@@ -2874,6 +2944,11 @@ export interface PrMonitorPreloadApi {
   readonly getLifecycleStatus: () => Promise<IpcResponse>;
   readonly requestShutdown: () => Promise<IpcResponse>;
   readonly readRecovery: () => Promise<IpcResponse>;
+  readonly readSetupReadiness: () => Promise<IpcResponse>;
+  readonly retrySetupReadiness: () => Promise<IpcResponse>;
+  readonly onSetupReadinessUpdated: (
+    listener: (projection: SetupReadiness) => void,
+  ) => () => void;
   readonly requestRecovery: () => Promise<IpcResponse>;
   readonly exportSupportDiagnostics: () => Promise<IpcResponse>;
   readonly readScheduler: () => Promise<IpcResponse>;
@@ -3012,6 +3087,10 @@ export interface PrMonitorPreloadApi {
     destination: "details" | "settings",
   ) => Promise<IpcResponse>;
   readonly readReviewBundle: (bundleId: string) => Promise<IpcResponse>;
+  readonly readManagedPrWork: (
+    managedPrId: string,
+    offset?: number,
+  ) => Promise<IpcResponse>;
   readonly readReviewBundlePublication: (
     bundleId: string,
   ) => Promise<IpcResponse>;

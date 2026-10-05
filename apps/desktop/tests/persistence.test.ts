@@ -990,4 +990,119 @@ describe("F03 SQLite persistence", () => {
       phase: "PREVIEW_READY",
     });
   });
+
+  it("retains the exact generated F22 observation reference across SQLite preview update and reopen", async () => {
+    const fixture = await createFixture();
+    const repository = new F22PersistenceRepositories(fixture.store);
+    const observationToken = `f22-observation-${"a".repeat(32)}`;
+    const action = f22ActionIntentSchema.parse({
+      schemaVersion: 1,
+      actionId: "f22-reevaluate-persistence",
+      idempotencyKey: "f22-reevaluate-persistence",
+      action: "REEVALUATE",
+      phase: "PREVIEW_READY",
+      status: "PENDING",
+      version: 0,
+      bundleId: "bundle-preview",
+      managedPrId: "managed-preview",
+      expectedBundleVersion: 1,
+      expectedGateRevision: 1,
+      confirmed: false,
+      originalEventVersionIds: ["event-preview"],
+      retainedEventVersionIds: [],
+      createdAt: FIXED_TIME,
+      updatedAt: FIXED_TIME,
+      result: {
+        preview: {
+          schemaVersion: 1,
+          kind: "F22_REEVALUATION_PREVIEW",
+          actionId: "f22-reevaluate-persistence",
+          bundleId: "bundle-preview",
+          managedPrId: "managed-preview",
+          remote: {
+            identity: {
+              serverId: "server-preview",
+              repositoryKey: "repository-preview",
+            },
+            expectedHeadSha: "b".repeat(40),
+            observedHeadSha: "c".repeat(40),
+            observationRevision: 1,
+            observedAt: FIXED_TIME,
+            observationToken,
+          },
+          originalEventVersionIds: ["event-preview"],
+          retainedCandidateEventVersionIds: [],
+          selectedRetainedEventVersionIds: [],
+          configuration: { commonInstructionIds: [] },
+          holdRemainsActive: true,
+          publicationAuthorized: false,
+          requiredChoice: "NO_CHANGES",
+          confirmationText: "Review the recorded preview.",
+          gateRevision: 1,
+          actionRevision: 1,
+        },
+      },
+    });
+    repository.persistActionIntent(action);
+    repository.updateAction({
+      action: {
+        ...action,
+        version: 1,
+        phase: "CANCELLED",
+        status: "CANCELLED",
+      },
+      expectedVersion: 0,
+    });
+    const payload = fixture.store.read(
+      "SELECT payload_json FROM f22_action_intents WHERE action_id = ?",
+      action.actionId,
+    )?.payload_json;
+    expect(payload).toContain('"observationRef"');
+    expect(payload).not.toContain('"observationToken"');
+    expect(action.result?.preview).toMatchObject({
+      remote: { observationToken },
+    });
+    fixture.store.close();
+    const reopened = await initializePersistence({
+      databasePath: fixture.databasePath,
+      backupRoot: fixture.backupRoot,
+    });
+    try {
+      const persisted = new F22PersistenceRepositories(
+        reopened,
+      ).getActionByIdempotency(action.idempotencyKey);
+      expect(persisted).toMatchObject({
+        version: 1,
+        status: "CANCELLED",
+        result: { preview: { remote: { observationToken } } },
+      });
+      const preview = action.result!.preview!;
+      if (preview.kind !== "F22_REEVALUATION_PREVIEW")
+        throw Error("EXPECTED_REEVALUATION_PREVIEW");
+      expect(() =>
+        new F22PersistenceRepositories(reopened).persistActionIntent({
+          ...action,
+          actionId: "invalid-preview",
+          idempotencyKey: "invalid-preview",
+          result: {
+            preview: {
+              ...preview,
+              remote: {
+                ...preview.remote,
+                observationToken: "credential-shaped-fixture",
+              },
+            },
+          },
+        }),
+      ).toThrow("F22_INVALID_OBSERVATION_REFERENCE");
+      expect(() => encodeSnapshot({ observationToken })).toThrow(
+        PersistenceError,
+      );
+      expect(() =>
+        encodeSnapshot({ access_token: "must-not-persist" }),
+      ).toThrow(PersistenceError);
+    } finally {
+      reopened.close();
+    }
+  });
 });

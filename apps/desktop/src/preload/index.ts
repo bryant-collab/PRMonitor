@@ -5,6 +5,8 @@ import {
   type IpcRequestType,
   parseIpcInboxUpdateEvent,
   parseIpcOpenTargetEvent,
+  parseIpcSetupReadinessUpdatedEvent,
+  parseIpcResponse,
   type F23ApprovalInput,
   type F23PublicationInput,
   type IpcResponse,
@@ -143,6 +145,27 @@ function invoke(
   }) as Promise<IpcResponse>;
 }
 
+async function invokeSetup(
+  type: "setup.read" | "setup.retry",
+): Promise<IpcResponse> {
+  const response = await invoke(type, {});
+  if (
+    parseIpcResponse(response) &&
+    (!response.ok || response.value.kind === "setup-readiness")
+  )
+    return response;
+  return {
+    schemaVersion: 1,
+    requestId: "setup-response-invalid",
+    ok: false,
+    error: {
+      code: "HANDLER_FAILED",
+      message: "Setup readiness response was invalid.",
+      correlationId: "setup-response-invalid",
+    },
+  };
+}
+
 const api: PrMonitorPreloadApi = {
   ready: () => invoke("renderer.ready", { sessionId }),
   readCurrentState: () => invoke("app.read-current-state", {}),
@@ -151,6 +174,16 @@ const api: PrMonitorPreloadApi = {
   requestShutdown: () =>
     invoke("lifecycle.shutdown", { command: "Shutdown PRMonitor" }),
   readRecovery: () => invoke("recovery.read", {}),
+  readSetupReadiness: () => invokeSetup("setup.read"),
+  retrySetupReadiness: () => invokeSetup("setup.retry"),
+  onSetupReadinessUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (!parseIpcSetupReadinessUpdatedEvent(payload)) return;
+      listener(payload.projection);
+    };
+    ipcRenderer.on(IPC_CHANNELS.event, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.event, handler);
+  },
   requestRecovery: () => invoke("recovery.request", {}),
   readScheduler: () => invoke("scheduler.read", {}),
   saveSchedulerConfiguration: (input) =>
@@ -272,6 +305,11 @@ const api: PrMonitorPreloadApi = {
   navigateManagedPr: (managedPrId, destination) =>
     invoke("inbox.navigate", { managedPrId, destination }),
   readReviewBundle: (bundleId) => invoke("review-bundle.read", { bundleId }),
+  readManagedPrWork: (managedPrId, offset) =>
+    invoke("managed-pr.work.read", {
+      managedPrId,
+      ...(offset === undefined ? {} : { offset }),
+    }),
   readReviewBundlePublication: (bundleId) =>
     invoke("review-bundle.publication.read", { bundleId }),
   approveReviewBundlePublication: (input) =>
