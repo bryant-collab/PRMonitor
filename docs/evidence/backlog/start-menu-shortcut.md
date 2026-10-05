@@ -88,7 +88,11 @@ is published and no production package version is changed.
 
 ## Verification still required
 
-Linux: all 20 release tests passed, including the real NSIS compile. Formatting
+Linux: all 21 release tests passed, including the real NSIS compile and a
+serialized saved-review/settings snapshot plus missing DB/profile rejection.
+The serialized regression caught an unseeded review slot's `undefined`/`null`
+representation mismatch; normalization preserves full seeded-record equality.
+Formatting
 and `git diff --check` passed. `npm run check` stopped at its runtime gate:
 this saved environment has Git `2.52.0` instead of required `2.55.0`; Node
 `24.19.0` and locally installed npm `11.17.0` match. No gate was bypassed.
@@ -96,6 +100,11 @@ The initial commit `dfe7f45` passed Windows shortcut execution on its push run
 and both Ubuntu repository checks. The strengthened default-path/preview.2/
 upgrade/SQLite test is a later commit and must have its own exact-head CI
 result before describing that broader acceptance as passed.
+The initial Windows runs later failed the existing 15-second startup-window
+wait in different scenarios; no startup assertions or timeouts were changed.
+CI keeps startup acceptance in its original position before the added installer
+I/O. The first expanded test run failed its new serialized-fixture comparison,
+which the additional Linux regression now covers.
 
 On an approved disposable Windows 11 account/VM, install the exact shipping
 candidate with its normal default path (no `/D`), verify the current user's
