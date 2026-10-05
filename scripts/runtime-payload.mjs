@@ -2,6 +2,7 @@
 export function forbiddenRuntimePayload(entry) {
   const name = entry.replaceAll("\\", "/").replace(/^\/+/, "");
   return (
+    /(?:^|\/)approved-reference\.html$/iu.test(name) ||
     /(?:^|\/)(?:\.env(?:\.|$)|\.prmonitor-(?:runtime|smoke)-owner\.json$|(?:userData|sessionData|runtime-fixtures|setup-e2e|\.cache)(?:\/|$))/iu.test(
       name,
     ) ||

@@ -12,6 +12,7 @@ test("packaged and archive paths reject runtime state, cache and fixtures", () =
     "backups/state.json",
     "out/.prmonitor-runtime-owner.json",
     "runtime-fixtures/review.json",
+    "tests/fixtures/approved-reference.html",
     "sessionData/network",
     "userData/preferences.json",
     "node_modules/.cache/index",

@@ -22,6 +22,14 @@ const require = createRequire(
   path.join(repository, "apps/desktop/package.json"),
 );
 const electron = require("electron");
+const approvedPreview = await readFile(
+  path.join(repository, "tests/fixtures/approved-reference.html"),
+);
+if (
+  createHash("sha256").update(approvedPreview).digest("hex") !==
+  "f7b3c0cd8ba6d0eed0c9ebe414187285daa7268dafc9dc7ee78f6afc6d4503a0"
+)
+  throw Error("E2E_REFERENCE_HASH_MISMATCH");
 const root = await mkdtemp(path.join(os.tmpdir(), "prmonitor-setup-e2e-"));
 await require("esbuild").build({
   entryPoints: [path.join(repository, "tests/setup-e2e-fixtures.ts")],
@@ -31,17 +39,7 @@ await require("esbuild").build({
   format: "esm",
 });
 const evidence = path.join(repository, "docs/evidence/setup-readiness");
-await writeFile(
-  path.join(root, "approved-preview.html"),
-  execFileSync(
-    "git",
-    [
-      "show",
-      "f76e39453121e40eb3c8ead9dcd52c3c102c6b23:docs/design/issue-3-inbox-and-detail/inbox-and-detail.html",
-    ],
-    { cwd: repository },
-  ),
-);
+await writeFile(path.join(root, "approved-preview.html"), approvedPreview);
 await mkdir(evidence, { recursive: true });
 await writeFile(
   path.join(root, ".setup-e2e-owner.json"),
