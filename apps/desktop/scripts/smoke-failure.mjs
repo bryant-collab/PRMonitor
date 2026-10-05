@@ -27,3 +27,10 @@ export function classifySandboxSubreason(stderr) {
   if (/No usable sandbox/iu.test(stderr)) return "NO_USABLE_SANDBOX";
   return "UNCLASSIFIED";
 }
+
+export function classifyApplicationSmokeReason(stderr) {
+  for (const reason of ["SMOKE_RUNTIME_PATHS_INVALID", "SMOKE_NONCE_MISSING", "READINESS_TIMEOUT", "WINDOW_MISSING_AFTER_OPEN", "ACCESSIBILITY_PROBE_FAILED", "APP_START_FAILED"]) {
+    if (stderr.includes(`PRMONITOR_SMOKE_ERROR:${reason}`)) return reason;
+  }
+  return "UNCLASSIFIED";
+}
