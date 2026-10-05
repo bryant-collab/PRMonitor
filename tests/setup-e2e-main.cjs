@@ -31,7 +31,7 @@ ipcMain.handle = (channel, handler) =>
   registerHandler(channel, async (event, request) => {
     const response = await handler(event, request);
     if (
-      stage === "conditional-review" &&
+      ["conditional-review", "conditional-provider"].includes(stage) &&
       request?.type?.startsWith("review-bundle.")
     )
       ipcAudit.push({
@@ -207,8 +207,11 @@ async function start() {
     } else callback({});
   });
   await import(
-    pathToFileURL(path.join(__dirname, "../apps/desktop/out/main/index.js"))
-      .href
+    pathToFileURL(
+      stage === "conditional-provider"
+        ? path.join(root, "controlled-app/main/index.cjs")
+        : path.join(__dirname, "../apps/desktop/out/main/index.js"),
+    ).href
   );
   let window = await waitFor(
     () => BrowserWindow.getAllWindows().find((item) => !item.isDestroyed()),
@@ -955,6 +958,60 @@ async function start() {
       () => visible("Guarded final review with complete saved changes"),
       "saved final review",
     );
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedConditionalGate(userData, "guarded-final-review");
+    await click("Activity");
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await waitFor(
+      () => visible("Guarded final review with complete saved changes"),
+      "historical registered final gate rehydrated",
+    );
+    const finalWorkspace = () =>
+      evaluate(
+        "window.prmonitor.readReviewBundle('guarded-final-review').then(r=>r.value.workspace)",
+      );
+    const beforeDraft = await finalWorkspace();
+    await waitFor(
+      () =>
+        evaluate(
+          "Boolean(document.querySelector('[aria-labelledby=\"review-response-heading\"] textarea'))",
+        ),
+      "final response editor",
+    );
+    const responseSelector =
+      '[aria-labelledby="review-response-heading"] textarea';
+    await setField(responseSelector, "");
+    await click("Save response draft");
+    await waitFor(
+      () => visible("A response draft cannot be empty."),
+      "empty final draft refused",
+    );
+    assert.equal((await finalWorkspace()).version, beforeDraft.version);
+    await setField(
+      responseSelector,
+      "Saved owned final-review reply. No response was posted.",
+    );
+    await click("Save response draft");
+    await waitFor(
+      async () =>
+        (await finalWorkspace()).items[0].responseDraft ===
+        "Saved owned final-review reply. No response was posted.",
+      "final draft saved through owning service",
+    );
+    assert.ok((await finalWorkspace()).version > beforeDraft.version);
+    await click("Activity");
+    openTarget("REVIEW_BUNDLE", "guarded-final-review");
+    await waitFor(
+      () =>
+        evaluate(
+          `document.querySelector(${JSON.stringify(responseSelector)})?.value==='Saved owned final-review reply. No response was posted.'`,
+        ),
+      "committed final draft rehydrated after navigation",
+    );
+    assertions.push(
+      "final-review empty draft guard preserves version; nonempty response draft persists through real IPC and rehydrates after navigation without posting",
+    );
     await click("Files and changes");
     await click("Refresh evidence");
     await waitFor(
@@ -1240,6 +1297,39 @@ async function start() {
       );
     }
     await capture("settings-independent-task-drafts");
+    await task(first.taskType);
+    const optionsSelector = ".preference-card .preferences-form textarea";
+    const beforeInvalidOptions = await preferences();
+    await setField(optionsSelector, "{");
+    await click("Save task profile");
+    await waitFor(
+      () =>
+        visible(
+          "Provider options must be valid JSON before they can be saved.",
+        ),
+      "invalid JSON options reported inline",
+    );
+    assert.deepEqual(await preferences(), beforeInvalidOptions);
+    await setField(optionsSelector, "[]");
+    await click("Save task profile");
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('[role=alert]')].some(e=>!e.closest('[hidden]')&&e.textContent.trim().length>0&&!e.textContent.includes('must be valid JSON'))",
+        ),
+      "typed options validation refusal reported",
+    );
+    assert.deepEqual(await preferences(), beforeInvalidOptions);
+    await click("Discard task draft");
+    assert.equal(
+      await evaluate(
+        `document.querySelector(${JSON.stringify(optionsSelector)}).value`,
+      ),
+      JSON.stringify(first.providerOptions, null, 2),
+    );
+    assertions.push(
+      "invalid JSON and structured invalid provider options render errors without changing any saved profile or revision; discarding restores the selected task draft",
+    );
     assertions.push(
       "all four task drafts survive category and destination navigation; discard/save affects only the selected task; other saved revisions remain unchanged; leaving GitHub settings clears the unsaved credential field",
     );
@@ -1580,6 +1670,102 @@ async function start() {
     await capture("conditional-proposal-decisions");
     assertions.push(
       "proposal empty-answer guard, saved entry instruction/answer through F21 persistence, Accept/Override through owning F18 versioned commands, immutable original recommendation, empty conversation guard and explicit revision mode exercised in production renderer/preload/main without provider contact",
+    );
+  }
+  if (stage === "conditional-provider") {
+    await (
+      await import(pathToFileURL(path.join(root, "fixtures.mjs")).href)
+    ).seedConditionalGate(userData);
+    openTarget("REVIEW_BUNDLE", "setup-saved-review");
+    await waitFor(
+      () => visible("Saved review acceptance fixture"),
+      "controlled provider question target",
+    );
+    await reviewPane("Review");
+    await evaluate(
+      "(()=>{const select=document.querySelector('.review-decision-controls select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'question');select.dispatchEvent(new Event('change',{bubbles:true}));})()",
+    );
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.review-decision-controls label')].some(e=>e.textContent.includes('Question answer')&&e.querySelector('textarea'))",
+        ),
+      "controlled question answer input",
+    );
+    await evaluate(
+      "(()=>{const e=[...document.querySelectorAll('.review-decision-controls label')].find(e=>e.textContent.includes('Question answer')).querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'Existing human answer for the controlled transfer fixture.');e.dispatchEvent(new Event('input',{bubbles:true}));})()",
+    );
+    await click("Override recommendation");
+    await waitFor(
+      () =>
+        evaluate(
+          "window.prmonitor.readReviewBundle('setup-saved-review').then(r=>r.value.workspace.items[0].decision.finalDisposition==='question')",
+        ),
+      "owned question disposition committed",
+    );
+    await waitFor(
+      () => evaluate("Boolean(document.querySelector('.workspace-panes'))"),
+      "controlled question workspace restored",
+    );
+    await reviewPane("Conversation and revisions");
+    await setField(
+      ".review-conversation-panel textarea",
+      "Use the controlled fixture to explain this saved question.",
+    );
+    await click("Ask read-only question");
+    const answer =
+      "Owned deterministic answer transferred from the controlled provider port.";
+    await waitFor(
+      () =>
+        evaluate(
+          "[...document.querySelectorAll('.review-bundle-workspace button')].some(e=>e.textContent.trim()==='Ask read-only question'&&!e.disabled)",
+        ),
+      "controlled provider command settled",
+    );
+    if (globalThis.__controlledConversationFailure)
+      throw Error(
+        `CONTROLLED_CONVERSATION_FAILURE:${JSON.stringify(globalThis.__controlledConversationFailure)}`,
+      );
+    if (ipcAudit.at(-1)?.ok === false)
+      throw Error(`CONTROLLED_IPC_REFUSAL:${JSON.stringify(ipcAudit)}`);
+    await waitFor(() => {
+      if (
+        globalThis.__controlledConversationResult &&
+        globalThis.__controlledConversationResult.status !== "COMPLETED"
+      )
+        throw Error(
+          `CONTROLLED_CONVERSATION_RESULT:${JSON.stringify(globalThis.__controlledConversationResult)}`,
+        );
+      if (globalThis.__controlledConversationFailure)
+        throw Error(
+          `CONTROLLED_CONVERSATION_FAILURE:${JSON.stringify(globalThis.__controlledConversationFailure)}`,
+        );
+      const refused = ipcAudit.find((item) => !item.ok);
+      if (refused)
+        throw Error(`CONTROLLED_IPC_REFUSAL:${JSON.stringify(refused)}`);
+      return visible(answer);
+    }, "controlled read-only answer reaches real renderer");
+    const before = await evaluate(
+      "window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation)",
+    );
+    assert.equal(before.turns.at(-1).answer, answer);
+    assert.equal(before.turns.at(-1).usage.totalTokens, 12);
+    assert.equal(before.turns.at(-1).usage.inputTokens, 5);
+    assert.equal(before.turns.at(-1).usage.outputTokens, 7);
+    await click("Use as answer");
+    await waitFor(
+      () =>
+        evaluate(
+          `window.prmonitor.readReviewBundleConversation('setup-saved-review').then(r=>r.value.conversation.proposalInputs.some(i=>i.kind==='APPLY_QUESTION_ANSWER'&&i.text===${JSON.stringify(answer)}))`,
+        ),
+      "latest answer saved through real F21 proposal input command",
+    );
+    assert.deepEqual(globalThis.__controlledProviderContracts, [
+      "READ_ONLY_CONVERSATION",
+    ]);
+    await capture("controlled-provider-answer-transfer");
+    assertions.push(
+      "test-owned production main sources with only deterministic F15 provider-port substitution: real renderer/preload/IPC/F16/F17/F21/persistence record the read-only answer, usage and explicit answer transfer; no actual Codex process, model contact, code mutation or publication",
     );
   }
   if (stage === "conditional-settings") {

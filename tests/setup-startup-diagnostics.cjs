@@ -29,6 +29,7 @@ exports.observeStartup = function ({ app, root, bootstrap }) {
   const git = {
     started: 0,
     completed: 0,
+    exited: 0,
     active: 0,
     peakActive: 0,
     longestMs: 0,
@@ -122,7 +123,8 @@ exports.observeStartup = function ({ app, root, bootstrap }) {
         git.longestMs = Math.max(git.longestMs, Date.now() - begin);
       };
       if (work?.once) {
-        work.once("exit", complete);
+        work.once("exit", () => git.exited++);
+        work.once("close", complete);
         work.once("error", complete);
       } else complete();
     },

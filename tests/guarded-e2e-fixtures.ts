@@ -24,14 +24,17 @@ import type {
 } from "../apps/desktop/src/shared/f25-synchronization";
 
 /** Fixed historical observation for a conditional UI fixture, not a live remote check. */
-export async function seedConditionalGate(userData: string) {
+export async function seedConditionalGate(
+  userData: string,
+  bundleId = "setup-saved-review",
+) {
   const store = await initializePersistence({
     databasePath: path.join(userData, "database/prmonitor.sqlite"),
     backupRoot: path.join(userData, "backups"),
   });
   try {
     const states = new F22PersistenceRepositories(store);
-    const current = states.getBundleState("setup-saved-review");
+    const current = states.getBundleState(bundleId);
     if (!current) throw Error("CONDITIONAL_REGISTERED_GATE_MISSING");
     const { reason, ...saved } = current;
     void reason;

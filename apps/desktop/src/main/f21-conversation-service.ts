@@ -162,7 +162,14 @@ function providerInput(
     ...(conversationId === undefined ? {} : { conversationId }),
     remoteEventVersionIds: bundle.input.remoteEventVersionIds,
     eventVersionIds: bundle.input.remoteEventVersionIds,
-    pullRequest: bundle.input.pullRequest,
+    pullRequest: {
+      baseRepository: bundle.input.pullRequest.baseRepository,
+      headRepository: bundle.input.pullRequest.headRepository,
+      baseBranch: bundle.input.pullRequest.baseBranch,
+      headBranch: bundle.input.pullRequest.headBranch,
+      baseSha: bundle.input.pullRequest.baseSha,
+      headSha: bundle.input.pullRequest.headSha,
+    },
     ...(bundle.input.contextText === undefined
       ? {}
       : { prIntentContext: bundle.input.contextText }),

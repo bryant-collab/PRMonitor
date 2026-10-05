@@ -10,10 +10,11 @@ import {
   realpath,
   readdir,
   rm,
+  cp,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { observeClosedProcessTree } from "./setup-process-diagnostics.mjs";
 
 const repository = path.resolve(
@@ -38,74 +39,122 @@ const temporaryRoot = await realpath(os.tmpdir());
 const root = await realpath(
   await mkdtemp(path.join(temporaryRoot, "prmonitor-setup-e2e-")),
 );
-await require("esbuild").build({
-  entryPoints: [path.join(repository, "tests/setup-e2e-fixtures.ts")],
-  outfile: path.join(root, "fixtures.mjs"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-});
-const evidence = path.join(repository, "docs/evidence/setup-readiness");
-await writeFile(path.join(root, "approved-preview.html"), approvedPreview);
-await mkdir(evidence, { recursive: true });
 await writeFile(
   path.join(root, ".setup-e2e-owner.json"),
   JSON.stringify({ owner: "prmonitor-setup-e2e", root: path.resolve(root) }),
 );
-await writeFile(
-  path.join(root, ".prmonitor-runtime-owner.json"),
-  JSON.stringify({
-    owner: "prmonitor-runtime-fixture",
-    root: path.resolve(root),
-  }),
-);
-for (const child of [
-  "user-data",
-  "session-data",
-  "home",
-  "app-data",
-  "local-app-data",
-  "bootstrap-user-data",
-  "cache",
-  "worktrees",
-])
-  await mkdir(path.join(root, child));
-await writeFile(
-  path.join(root, "bootstrap-user-data", "database"),
-  "setup-e2e-owned-path-obstruction",
-);
-
-// Only Windows bootstrap variables survive; authentication never inherits.
-const environment = {};
-for (const name of [
-  "PATH",
-  "Path",
-  "PATHEXT",
-  "COMSPEC",
-  "SystemRoot",
-  "SYSTEMROOT",
-  "WINDIR",
-  "TEMP",
-  "TMP",
-  "USERPROFILE",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "USERNAME",
-  "USERDOMAIN",
-]) {
-  if (process.env[name] !== undefined) environment[name] = process.env[name];
-}
-Object.assign(environment, {
-  TEMP: temporaryRoot,
-  TMP: temporaryRoot,
-  PRMONITOR_E2E_ROOT: root,
-  PRMONITOR_E2E_EVIDENCE: evidence,
-  HOME: path.join(root, "home"),
-});
+const evidence = path.join(repository, "docs/evidence/setup-readiness");
 const results = [];
 try {
+  await require("esbuild").build({
+    entryPoints: [path.join(repository, "tests/setup-e2e-fixtures.ts")],
+    outfile: path.join(root, "fixtures.mjs"),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+  });
+  // Build the same main sources with only the provider effect port substituted.
+  // All domain services, IPC validation, persistence and security guards remain real.
+  const controlledApp = path.join(root, "controlled-app");
+  await mkdir(path.join(controlledApp, "main"), { recursive: true });
+  await writeFile(
+    path.join(controlledApp, "package.json"),
+    '{"type":"module"}\n',
+  );
+  await require("esbuild").build({
+    entryPoints: [path.join(repository, "apps/desktop/src/main/index.ts")],
+    outfile: path.join(controlledApp, "main/index.cjs"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    define: {
+      "import.meta.url": JSON.stringify(
+        pathToFileURL(path.join(controlledApp, "main/index.cjs")).href,
+      ),
+    },
+    external: ["electron"],
+    plugins: [
+      {
+        name: "owned-controlled-provider",
+        setup(build) {
+          build.onResolve({ filter: /(?:^|\/)codex-adapter$/ }, () => ({
+            path: path.join(repository, "tests/controlled-provider-fixture.ts"),
+          }));
+          const observer = path.join(
+            repository,
+            "tests/controlled-conversation-observer.ts",
+          );
+          build.onResolve({ filter: /(?:^|\/)f21-ai-work-adapter$/ }, (args) =>
+            args.importer === observer ? undefined : { path: observer },
+          );
+        },
+      },
+    ],
+  });
+  await cp(
+    path.join(repository, "apps/desktop/out/renderer"),
+    path.join(controlledApp, "renderer"),
+    { recursive: true },
+  );
+  await cp(
+    path.join(repository, "apps/desktop/out/preload"),
+    path.join(controlledApp, "preload"),
+    { recursive: true },
+  );
+  await writeFile(path.join(root, "approved-preview.html"), approvedPreview);
+  await mkdir(evidence, { recursive: true });
+  await writeFile(
+    path.join(root, ".prmonitor-runtime-owner.json"),
+    JSON.stringify({
+      owner: "prmonitor-runtime-fixture",
+      root: path.resolve(root),
+    }),
+  );
+  for (const child of [
+    "user-data",
+    "session-data",
+    "home",
+    "app-data",
+    "local-app-data",
+    "bootstrap-user-data",
+    "cache",
+    "worktrees",
+  ])
+    await mkdir(path.join(root, child));
+  await writeFile(
+    path.join(root, "bootstrap-user-data", "database"),
+    "setup-e2e-owned-path-obstruction",
+  );
+
+  // Only Windows bootstrap variables survive; authentication never inherits.
+  const environment = {};
+  for (const name of [
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "COMSPEC",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERNAME",
+    "USERDOMAIN",
+  ]) {
+    if (process.env[name] !== undefined) environment[name] = process.env[name];
+  }
+  Object.assign(environment, {
+    TEMP: temporaryRoot,
+    TMP: temporaryRoot,
+    PRMONITOR_E2E_ROOT: root,
+    PRMONITOR_E2E_EVIDENCE: evidence,
+    HOME: path.join(root, "home"),
+  });
   for (const stage of [
     "fresh",
     "partial",
@@ -122,6 +171,7 @@ try {
     "add-success",
     "conditional-review",
     "conditional-settings",
+    "conditional-provider",
   ]) {
     if (stage === "bootstrap-fixed")
       await rm(path.join(root, "bootstrap-user-data", "database"));

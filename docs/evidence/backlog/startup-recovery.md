@@ -26,6 +26,22 @@ offline refusal. Aggregate: 430 desktop, 43 contract, 17 spec-linter and 16
 release tests pass, along with types, lint, format, artifact build and the
 separate sandboxed production startup/accessibility smoke.
 
+At `85d6697282c28308f49ac15dbbaea3b18c8e2a14`, both the
+[PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37269333527/job/111632779119)
+and [push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37269330282/job/111632769367)
+pass aggregate and all fifteen native stages. Retained-restart/settings first
+windows appear at 5,548/6,400 ms in PR CI and 4,773/6,043 ms in push CI; each uses
+16 Git probes and completes its unchanged 121/133 scopes. Every stage closes
+with zero observed owned descendants.
+
+The preceding `656b518` failures remain evidence: push CI reached recovery
+LOCAL_WORK with 41 of 121 scopes complete and no window at 22,203 ms; PR CI
+completed 133 scopes but created the settings window at 27,670 ms, after its
+existing wait expired. Its settings process ran 161 Git probes. Memory was
+available and preceding children left no observed descendants. The new head's
+two passing jobs support the bounded repeated-work fix without identifying a
+sole cause for all earlier failures.
+
 CI logs emit closed event/status labels, numeric timings/counts and aggregate
 memory/process observations. The process audit collects only PID ancestry,
 creation time, name and working set, publishes only aggregate kinds, and does

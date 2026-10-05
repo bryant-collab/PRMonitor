@@ -12,6 +12,7 @@ import {
 } from "../src/shared/ai-work";
 import {
   aiProviderOutputContractSchema,
+  aiProviderInputSnapshotSchema,
   aiProviderTurnResultSchema,
   outputContractForTask,
   type AIProviderRequest,
@@ -779,6 +780,17 @@ describe("F21 read-only conversation and Review Revision", () => {
       "READ_ONLY_CONVERSATION",
     );
     expect(harness.runInputs[0]?.worktree).toBeUndefined();
+    const providerInput = aiProviderInputSnapshotSchema.parse(
+      harness.runInputs[0]?.input,
+    );
+    expect(providerInput.pullRequest).toEqual({
+      baseRepository: bundle().input.pullRequest.baseRepository,
+      headRepository: bundle().input.pullRequest.headRepository,
+      baseBranch: bundle().input.pullRequest.baseBranch,
+      headBranch: bundle().input.pullRequest.headBranch,
+      baseSha: bundle().input.pullRequest.baseSha,
+      headSha: bundle().input.pullRequest.headSha,
+    });
     expect(readModel.turns.at(-1)?.status).toBe("COMPLETED");
     expect(readModel.turns.at(-1)?.answer).toContain("read-only");
     expect(

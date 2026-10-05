@@ -31,6 +31,16 @@ as a blanket equivalence certification.
 
 ## Exact-head Windows CI observations
 
+At `85d6697282c28308f49ac15dbbaea3b18c8e2a14`, both the
+[PR Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37269333527/job/111632779119)
+and [push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37269330282/job/111632769367)
+pass aggregate and all fifteen native stages. The session reconciliation fix
+reduces settings startup from 161 repeated Git probes in failed CI to 16,
+preserving 133 individual recovery outcomes and every deadline/security gate.
+See [bounded startup observations](startup-recovery.md) for timings and the
+preceding failed jobs. This records the observed passes without erasing history
+or claiming that all original controls have been exercised.
+
 At `60520d5ec7771238e5b168b63fc15fb2eed4df1a`, the [push Windows job](https://github.com/bryant-collab/PRMonitor/actions/runs/37265645328/job/111621787195)
 passes aggregate and all fifteen native stages. The [PR first attempt](https://github.com/bryant-collab/PRMonitor/actions/runs/37265647986/attempts/1)
 passes aggregate but times out waiting for the retained-restart window after
