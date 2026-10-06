@@ -5,8 +5,11 @@ preview, not a supported or release-certified build. Windows SmartScreen and
 workplace security policy may block it. Follow your organization's approval
 process; do not disable security controls to install it.
 
-## Changes in preview.2
+## Changes in preview.3
 
+- Windows installers repair a missing PRMonitor Start menu shortcut during
+  reinstall or upgrade, preserving existing shortcuts and desktop-shortcut
+  deletion preferences.
 - Resumable startup setup checks Git, storage, connection and all four task
   profiles, preserves committed progress across restart, and keeps explicit
   saved-work targets available with setup attention.
@@ -51,8 +54,15 @@ F29 static security gate, the production dependency audit at the high severity
 threshold, installer packaging, payload scan, and exact-file SHA-256 checks.
 Its Actions run records their results for the source commit below.
 
+Hosted Windows [CI for the shortcut fix](https://github.com/bryant-collab/PRMonitor/actions/runs/37363499549)
+verified shipping-identity default-path fresh install, preview.2 missing-link
+reinstall and repair, a test-only version upgrade, shortcut target and application
+identity, desktop deletion preferences, and SQLite saved-review/settings retention
+through ordinary uninstall. These are hosted-runner file/registry checks; they do
+not verify Start menu visibility or launching through the link on Windows 11.
+
 A GitHub-hosted Windows build is not clean-machine Windows 11 acceptance.
-Shipping-identity clean install/upgrade/uninstall and shortcuts, physical
+Physical clean-machine install/upgrade/uninstall and shortcut use, physical
 125/150/200% display DPI and independent Windows text scaling, spoken
 Narrator/NVDA interaction, actual taskbar/tray and folder/file/export dialogs,
 Windows 11 virtual desktops, credentialed GitHub/GHES workflows, and performance
