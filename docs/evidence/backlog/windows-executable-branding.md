@@ -33,3 +33,9 @@ are not established by these Linux checks. Existing Windows PR CI must pass on
 the final pushed commit; it installs the pinned tools, runs aggregate checks,
 packages the unsigned shipping installer and tests only a disposable hosted
 account. No release is published and no user's installation is changed.
+
+The first pushed commit's Windows and Ubuntu jobs reached desktop tests after
+successful build/package/smoke. Their only desktop test failure was the old
+foundation assertion that resource editing must be disabled. That contract now
+requires editing enabled and executable signing disabled. Windows installed
+acceptance was skipped after that failure and still needs a passing final run.
