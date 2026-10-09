@@ -3514,7 +3514,7 @@ async function start() {
     ]) {
       if ((await preferences()).policy.preset === preset) continue;
       await setField(`${policySection} select`, preset);
-      await click("Save execution policy");
+      await click("Save permissions");
       await waitFor(
         async () => (await preferences()).policy.preset === preset,
         "explicit policy save",
