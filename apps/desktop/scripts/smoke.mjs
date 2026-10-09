@@ -271,12 +271,18 @@ async function launchSmoke(executable, environment) {
   const stdout = { bytes: Buffer.alloc(0), overflow: false };
   const stderr = { bytes: Buffer.alloc(0), overflow: false };
   const readyLines = [];
-  const child = spawn(executable, [], {
-    cwd: repositoryRoot,
-    env: environment,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
+  // Native Electron startup can resolve/create its default profile before JS
+  // applies app.setPath. Route that first lookup to this marked fixture too.
+  const child = spawn(
+    executable,
+    [`--user-data-dir=${environment.PRMONITOR_USER_DATA_DIR}`],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
+  );
 
   child.stdout.on("data", (chunk) => {
     boundedAppend(stdout, chunk);

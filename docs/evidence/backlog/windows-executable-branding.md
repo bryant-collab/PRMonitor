@@ -39,3 +39,26 @@ successful build/package/smoke. Their only desktop test failure was the old
 foundation assertion that resource editing must be disabled. That contract now
 requires editing enabled and executable signing disabled. Windows installed
 acceptance was skipped after that failure and still needs a passing final run.
+
+On commit e20485cf2724110df7ad6009105d5546094291a0, Ubuntu aggregate checks passed.
+Windows aggregate checks, setup startup/restart acceptance, shipping installer
+packaging and upgrade fixture packaging passed. Installed shortcut/metadata
+acceptance refused pre-existing state at its safety preflight, before installing
+a fixture; the log did not identify the conflicting surface. No installed
+acceptance is claimed for that commit.
+
+The newly branded executable can make native Electron resolve its default
+PRMonitor profile before application JavaScript redirects app paths. Pinned
+Electron v44.4.3 PreSandboxStartup honors --user-data-dir before browser/main JS
+loads. Smoke now passes its already-owned fixture path at native launch, as well
+as retaining the existing JS overrides, sandbox and nonce protocol. The shipping
+installer preflight retains every refusal and reports only a closed category,
+such as USER_DATA or INSTALL_PREFIX, if another conflict exists. This is a
+source-supported cause to test, not proof of the unidentified CI conflict.
+
+Source: https://raw.githubusercontent.com/electron/electron/v44.4.3/shell/app/electron_main_delegate.cc
+
+Workspace-local npm 11.17.0 and upstream Git v2.55.0 now satisfy the unchanged
+runtime gate. Xvfb was extracted from Debian packages verified by APT's signed
+metadata into the workspace. Aggregate validation is being rerun; dependencies
+and cache paths remain environment artifacts, not repository changes.

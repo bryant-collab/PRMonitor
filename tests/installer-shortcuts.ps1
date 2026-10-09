@@ -36,14 +36,20 @@ public static class PRMonitorKnownFolder {
 }
 '@
 $prefix = Join-Path ([PRMonitorKnownFolder]::UserPrograms()) '@prmonitordesktop'
-foreach ($existing in @(
-  $registration, $uninstallRegistration, "HKLM:\Software\$guid",
-  "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$guid",
-  $startLink, $desktopLink, $userData, $prefix,
-  (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'PRMonitor.lnk'),
-  (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'PRMonitor.lnk')
-)) {
-  if (Test-Path -LiteralPath $existing) { throw 'Existing PRMonitor state: refusing shipping-identity test.' }
+$preflight = [ordered]@{
+  HKCU_INSTALL = $registration
+  HKCU_UNINSTALL = $uninstallRegistration
+  HKLM_INSTALL = "HKLM:\Software\$guid"
+  HKLM_UNINSTALL = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$guid"
+  USER_START_LINK = $startLink
+  USER_DESKTOP_LINK = $desktopLink
+  USER_DATA = $userData
+  INSTALL_PREFIX = $prefix
+  COMMON_START_LINK = (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'PRMonitor.lnk')
+  COMMON_DESKTOP_LINK = (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'PRMonitor.lnk')
+}
+foreach ($existing in $preflight.GetEnumerator()) {
+  if (Test-Path -LiteralPath $existing.Value) { throw "Existing PRMonitor state ($($existing.Key)): refusing shipping-identity test." }
 }
 $root = Join-Path $env:RUNNER_TEMP ('prmonitor-shortcut-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root | Out-Null
