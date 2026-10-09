@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -333,7 +334,9 @@ describe("Codex public app-server contract", () => {
     expect(f.close).toHaveBeenCalledTimes(1);
   });
   it("requires an absent execution-environment file without changing the existing store", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-environment-"));
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "prmonitor-environment-"),
+    );
     roots.push(root);
     await expect(
       assertCodexFileEnvironment({ CODEX_HOME: root }),
@@ -443,7 +446,9 @@ describe("Codex public app-server contract", () => {
     },
   );
   it("executes only the current host-file callback and replays identical call IDs without repeating edits", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-codex-files-"));
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "prmonitor-codex-files-"),
+    );
     roots.push(root);
     await writeFile(path.join(root, "file.txt"), "hello");
     const opt = {
@@ -529,7 +534,7 @@ describe("Codex public app-server contract", () => {
 describe("provider-owned connection storage and refresh serialization", () => {
   it("reuses the existing CLI directory without reading or modifying credentials or creating ownership files", async () => {
     const root = await mkdtemp(
-      path.join(tmpdir(), "prmonitor-existing-store-"),
+      path.join(await realpath(tmpdir()), "prmonitor-existing-store-"),
     );
     roots.push(root);
     const store = path.join(root, "terminal");
@@ -577,7 +582,9 @@ describe("provider-owned connection storage and refresh serialization", () => {
     await expect(auth.signIn(existing)).rejects.toThrow("Browser sign-in");
   });
   it("creates case-safe named stores with nonsecret ownership metadata and never copies existing credentials", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-auth-fixture-"));
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "prmonitor-auth-fixture-"),
+    );
     roots.push(root);
     const source = path.join(root, "terminal-store");
     await writeFile(source, "fixture sentinel");
@@ -594,7 +601,9 @@ describe("provider-owned connection storage and refresh serialization", () => {
     await expect(auth.home(connection)).rejects.toThrow("different connection");
   });
   it("rejects an existing linked storage root before authorizing a provider store", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-auth-link-"));
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "prmonitor-auth-link-"),
+    );
     roots.push(root);
     const link = path.join(root, "linked");
     await symlink(
@@ -652,7 +661,9 @@ describe("provider-owned connection storage and refresh serialization", () => {
 
 describe("owned provider process cleanup", () => {
   it("coalesces sign-in and releases a connection only after its cancelled process closes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-login-process-"));
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "prmonitor-login-process-"),
+    );
     roots.push(root);
     const ready = path.join(root, "ready");
     let child: ChildProcess | undefined;
@@ -713,7 +724,9 @@ describe("owned provider process cleanup", () => {
     auth.dispose();
   });
   it("times out provider sign-in without accepting a late success or exposing child diagnostics", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-login-timeout-"));
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "prmonitor-login-timeout-"),
+    );
     roots.push(root);
     const launch = ((
       _program: string,
@@ -750,7 +763,7 @@ describe("owned provider process cleanup", () => {
     "matches bounded stdio responses and rejects ungranted server approval requests",
     async () => {
       const root = await mkdtemp(
-        path.join(tmpdir(), "prmonitor-server-process-"),
+        path.join(await realpath(tmpdir()), "prmonitor-server-process-"),
       );
       roots.push(root);
       const source =

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +29,9 @@ const answer = {
   answer: "Fixture answer.",
 };
 async function fixture(tool: "claude" | "copilot") {
-  const root = await mkdtemp(path.join(tmpdir(), "prmonitor-provider-"));
+  const root = await mkdtemp(
+    path.join(await realpath(tmpdir()), "prmonitor-provider-"),
+  );
   roots.push(root);
   const connection = {
     id: "fixture",

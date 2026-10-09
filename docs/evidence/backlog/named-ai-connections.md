@@ -145,6 +145,12 @@ member/block getters and assignments after a permitted getter. No vendor file
 is excluded from inspection. This is credential-shaped content detection, not
 a proof that every arbitrary secret encoding can be recognized.
 
+Shipping packaging fixtures retain builder diagnostics on stderr so the pinned
+logger cannot interleave raw stdout with Node's serialized test results. Provider
+fixtures create their roots beneath realpath(Temp), including on Windows where
+Temp may use a short-name alias. Canonical-worktree, link-denial and cancellation
+assertions remain intact; the application still rejects noncanonical roots.
+
 Native smoke stopped at
 SANDBOX_SETUP_FAILED / HELPER_OWNERSHIP_OR_MODE in this cloud environment. No
 sandbox assertion was disabled and no ownership or security setting was changed.

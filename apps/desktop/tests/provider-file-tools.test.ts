@@ -6,6 +6,7 @@ import {
   link,
   readFile,
   rm,
+  realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,7 +26,9 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), "prmonitor-files-"));
+  const root = await mkdtemp(
+    path.join(await realpath(tmpdir()), "prmonitor-files-"),
+  );
   roots.push(root);
   const owned = path.join(root, "owned");
   await mkdir(owned);
