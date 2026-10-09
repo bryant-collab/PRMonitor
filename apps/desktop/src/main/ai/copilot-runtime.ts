@@ -68,7 +68,10 @@ export function copilotClientOptions(
     connection: RuntimeConnection.forStdio({
       path: connection.executable,
       env,
-      args: ["--disable-builtin-mcps"],
+      args: [
+        "--disable-builtin-mcps",
+        ...(connection.extraArgs.includes("--no-color") ? ["--no-color"] : []),
+      ],
     }),
     mode: "copilot-cli",
     useLoggedInUser: true,
@@ -92,7 +95,7 @@ export function copilotSubscription(value: {
 export function copilotBareModel(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,255}$/u.test(value) && value !== "auto";
 }
-/** Never leave a timed-out SDK stop holding connection ownership. */
+/** Bounds SDK shutdown; its force-stop API provides no child-close receipt. */
 export async function closeCopilotClient(
   client: CopilotClientPort,
 ): Promise<void> {

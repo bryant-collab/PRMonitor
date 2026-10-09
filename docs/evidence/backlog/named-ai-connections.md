@@ -91,9 +91,17 @@ Config discovery, MCP/custom tools, skills, memory, scheduling, host Git operati
 and remote sessions are disabled. Resumes reapply the complete restrictions and
 disable pending work; the returned session/model must match. No public JSON schema
 option is invented: final JSON is validated by the existing strict host contract.
-Cancellation bounds pending SDK promises, abort/disconnect and stop; normal stop
-awaits the child. The pinned SDK force-stop fallback sends SIGKILL but does not
-await process close; actual fallback reaping remains a native acceptance item.
+Cancellation bounds pending SDK promises, abort/disconnect and stop. Source review
+of SDK 1.0.13 confirms that normal stop clears its child handle before attempting
+a bounded wait for process exit, and can time out and return errors. PRMonitor's
+two-second stop deadline can expire during that wait: force-stop then has no
+child handle to kill. When a handle remains, force-stop sends SIGKILL and clears
+it without awaiting exit/close; the public stdio API exposes neither
+a spawn callback nor a child-close receipt. A resolved mocked force-stop call
+does not prove native reaping. This correction does not access private SDK fields,
+change transports, open TCP listeners or change provider versions. Actual forced
+fallback cleanup remains unverified. A robust closure needs a supported public
+process-owner/await-close contract or a separately reviewed process-owner design.
 
 Both pinned SDKs use the explicitly supplied environment without merging parent
 environment values. Their types and dependencies are isolated in a private
@@ -181,3 +189,57 @@ file tasks; outside/link/read-only/Git-denial sentinels; cancellation and forced
 cleanup; and absence of setup/elevation/ACL changes. Confirm the PC runtime is
 reachable with a fresh harmless command before attempting any of these. An
 earlier runtime-ownership failure does not establish its current availability.
+
+## Detected-only correction and launch-option review
+
+The primary AI tool dropdown now contains only filesystem-detected programs.
+Loading and no-program states disable that dropdown while leaving manual Browse
+available. A separate Program type for Browse control selects the provider for a
+custom executable. Saved missing/custom connections remain visible in the Saved
+connection list and keep their paths, arguments and history until explicitly
+edited. Reopening the AI panel refreshes detection; late replies from a hidden
+panel cannot restore stale results. Discovery still performs no CLI/auth/model
+probe. Browse continues through explicit compatibility validation.
+
+The exact per-provider optional argument allowlist is Codex --no-daemon,
+Claude --no-chrome and Copilot --no-color. The Claude option disables browser
+integration; Copilot's option changes color output. None changes billing, roots,
+approvals, sandbox permissions, hooks, models or session persistence. Unknown,
+duplicate and cross-provider flags remain rejected. When an option is selected,
+the selected executable must advertise the exact flag in bounded --help output
+before any authentication check. Literal SDK forwarding retains every mandatory
+safety option. Model, directory, config, logging, token, prompt, plugin, permission,
+resume and no-session-persistence overrides remain excluded. In particular,
+Claude's no-session-persistence option conflicts with cold-resume behavior;
+Copilot no-auto-update is already owned and enforced by the SDK.
+
+Primary references used for this review:
+
+- https://code.claude.com/docs/en/cli-reference
+- https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+- https://github.com/github/copilot-sdk/blob/v1.0.13/nodejs/src/client.ts
+
+The full desktop suite passed 539/539 in 54 files and the SDK/security gates passed.
+Focused renderer/connection/provider tests passed 60/60; all five typecheck
+stages passed. Tests exercise detected-only choices, missing saved connections,
+loading/empty Browse fallback, manual custom-program validation/save, exact help
+support, duplicate/cross-provider rejection, and SDK forwarding with safety
+settings intact. Final aggregate and exact-head CI results follow the final source
+boundary. No live provider authentication or user-PC acceptance is claimed.
+
+The prior review installer is an incomplete candidate from head
+74f98e7205e7b50847308d9be12271934f2a96d7: it lacks this dropdown correction.
+Artifact 11594584077 expires 2026-10-10T04:25:13Z. Its uploaded ZIP digest is
+38bef41f4cf9dfb3b5c35ed194f61d9a0d418f433f72df232f0f396d1970fe5c.
+Connector download succeeded, but transfer into the task workspace returned a
+proxy 403; the ZIP and installer checksum were not verified or cached locally.
+This does not block rebuilding from source. On a disposable Windows build runner
+with pinned Git 2.55.0, Node 24.19.0 and npm 11.17.0, check out that exact commit,
+run npm ci, npm run check:runtime, npm run build:validation-contract and
+npm run build:desktop, set CSC_IDENTITY_AUTO_DISCOVERY=false, then run
+npm --workspace @prmonitor/desktop run package:installer. The script uses
+--publish never and produces release/PRMonitor-0.1.0-x64.exe. Generate a fresh
+SHA-256 using Get-FileHash; rebuilt bytes may differ, so do not reuse the old
+artifact checksum. For the corrected candidate, use the final PR head instead.
+The existing CI workflow builds, accepts and retains a new unsigned installer
+plus its checksum for one day without publishing a release.

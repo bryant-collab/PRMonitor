@@ -79,6 +79,82 @@ const command: ToolCommand = async (_executable, args) => ({
 });
 
 describe("machine-local AI connections", () => {
+  it.each([
+    { tool: "codex" as const, option: "--no-daemon", version: "0.156.0" },
+    { tool: "claude" as const, option: "--no-chrome", version: "2.1.259" },
+    { tool: "copilot" as const, option: "--no-color", version: "1.0.83" },
+  ])(
+    "accepts only the documented $tool option and requires exact help support",
+    async ({ tool, option, version }) => {
+      const configured = { ...connection, tool, extraArgs: [option] };
+      expect(aiConnectionSchema.safeParse(configured).success).toBe(true);
+      expect(
+        aiConnectionSchema.safeParse({
+          ...configured,
+          extraArgs: [option, option],
+        }).success,
+      ).toBe(false);
+      for (const other of ["--no-daemon", "--no-chrome", "--no-color"].filter(
+        (arg) => arg !== option,
+      ))
+        expect(
+          aiConnectionSchema.safeParse({ ...configured, extraArgs: [other] })
+            .success,
+        ).toBe(false);
+      const run = vi.fn<ToolCommand>(async (_exe, args) => ({
+        exitCode: 0,
+        stderr: "",
+        stdout:
+          args[0] === "--version"
+            ? version
+            : args[0] === "app-server"
+              ? "--strict-config"
+              : option,
+      }));
+      expect(
+        await checkAITool(
+          {
+            tool,
+            executable: process.execPath,
+            extraArgs: [option],
+            authMode: "subscription",
+          },
+          run,
+          {},
+        ),
+      ).toMatchObject({
+        detected: true,
+        compatible: true,
+        authentication: "missing",
+      });
+      expect(run.mock.calls.map((call) => call[1]).slice(0, 2)).toEqual([
+        ["--version"],
+        ["--help"],
+      ]);
+      run.mockImplementation(async (_exe, args) => ({
+        exitCode: 0,
+        stderr: "",
+        stdout: args[0] === "--version" ? version : `${option}-unrelated`,
+      }));
+      run.mockClear();
+      expect(
+        await checkAITool(
+          {
+            tool,
+            executable: process.execPath,
+            extraArgs: [option],
+            authMode: "subscription",
+          },
+          run,
+          {},
+        ),
+      ).toMatchObject({ compatible: false, authentication: "unknown" });
+      expect(run.mock.calls.map((call) => call[1])).toEqual([
+        ["--version"],
+        ["--help"],
+      ]);
+    },
+  );
   it("does not enforce subscription login against a shared or absent CLI store", async () => {
     const options = {
       model: "gpt-5-codex",
@@ -258,8 +334,8 @@ describe("machine-local AI connections", () => {
     });
     expect(run.mock.calls.map((call) => call[1])).toEqual([
       ["--version"],
-      ["app-server", "--help"],
       ["--help"],
+      ["app-server", "--help"],
       ["login", "status"],
     ]);
   });
@@ -283,7 +359,10 @@ describe("machine-local AI connections", () => {
       undefined,
       process.cwd(),
     );
-    expect(result).toMatchObject({ compatible: false, authentication: "api" });
+    expect(result).toMatchObject({
+      compatible: false,
+      authentication: "unknown",
+    });
     const authOnly = await checkAITool(
       {
         tool: "codex",
@@ -297,6 +376,7 @@ describe("machine-local AI connections", () => {
       process.cwd(),
     );
     expect(authOnly.message).toContain("will not switch billing methods");
+    expect(authOnly).toMatchObject({ compatible: true, authentication: "api" });
   });
 
   it("does not execute a missing path, relative command or shell shim", async () => {

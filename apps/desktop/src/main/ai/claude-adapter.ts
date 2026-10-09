@@ -80,6 +80,9 @@ export function claudeQueryOptions(
       restricted: null,
       "safe-mode": null,
       "disable-slash-commands": null,
+      ...(connection.extraArgs.includes("--no-chrome")
+        ? { "no-chrome": null }
+        : {}),
     },
     tools: claudeTools(write),
     allowedTools: claudeTools(write),

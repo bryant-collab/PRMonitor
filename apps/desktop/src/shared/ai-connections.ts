@@ -9,6 +9,11 @@ export const AI_TOOL_NAMES: Record<AITool, string> = {
   claude: "Claude Code",
   copilot: "GitHub Copilot",
 };
+export const AI_TOOL_EXTRA_OPTIONS: Record<AITool, readonly string[]> = {
+  codex: ["--no-daemon"],
+  claude: ["--no-chrome"],
+  copilot: ["--no-color"],
+};
 
 // Only nonsecret launch choices belong in settings or operation snapshots.
 // Credentials stay in provider-managed storage and never enter these settings.
@@ -31,7 +36,7 @@ export const aiConnectionSchema = z
   .superRefine((value, ctx) => {
     // No arbitrary configuration, directory, approval, shell, plugin or environment
     // overrides. Extend this table only with a documented compatibility contract.
-    const allowed = value.tool === "codex" ? ["--no-daemon"] : [];
+    const allowed = AI_TOOL_EXTRA_OPTIONS[value.tool];
     if (
       new Set(value.extraArgs).size !== value.extraArgs.length ||
       value.extraArgs.some((arg) => !allowed.includes(arg))

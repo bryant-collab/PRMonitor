@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Query, query } from "@prmonitor/provider-runtimes";
 import { ConnectionAuthentication } from "../src/main/ai/connection-authentication";
 import { createClaudeProvider } from "../src/main/ai/claude-adapter";
+import { claudeQueryOptions } from "../src/main/ai/claude-adapter";
 import { createCopilotProvider } from "../src/main/ai/copilot-adapter";
 import {
   checkCopilotSignIn,
+  copilotClientOptions,
   type CopilotClientPort,
   type CopilotFactory,
   type CopilotSessionPort,
@@ -189,6 +191,53 @@ function copilotFixture(overrides: Partial<CopilotClientPort> = {}) {
   };
 }
 describe("actual subscription adapter contracts", () => {
+  it("forwards only the selected cosmetic or capability-reducing option without replacing safety settings", async () => {
+    const f = await fixture("claude");
+    const claude = claudeQueryOptions(
+      { ...f.connection, extraArgs: ["--no-chrome"] },
+      { HOME: f.root },
+      {
+        model: "sonnet",
+        workingDirectory: f.root,
+        sandboxMode: "read-only",
+        approvalPolicy: "never",
+        networkAccessEnabled: false,
+      },
+      new AbortController(),
+    );
+    expect(claude.extraArgs).toMatchObject({
+      restricted: null,
+      "safe-mode": null,
+      "disable-slash-commands": null,
+      "no-chrome": null,
+    });
+    expect(claude).toMatchObject({
+      settingSources: [],
+      permissionMode: "dontAsk",
+      strictMcpConfig: true,
+      plugins: [],
+    });
+    const c = await fixture("copilot");
+    const options = copilotClientOptions(
+      { ...c.connection, extraArgs: ["--no-color"] },
+      { HOME: c.root },
+      c.root,
+      c.root,
+    );
+    expect(options).toMatchObject({
+      mode: "copilot-cli",
+      useLoggedInUser: true,
+      logLevel: "none",
+      builtinPluginDirectories: [],
+      connection: {
+        kind: "stdio",
+        args: ["--disable-builtin-mcps", "--no-color"],
+      },
+    });
+    expect(
+      copilotClientOptions(c.connection, {}, c.root, c.root).connection,
+    ).toMatchObject({ args: ["--disable-builtin-mcps"] });
+  });
   it("initializes Claude subscription, guard and model before releasing prompt; normalizes strict output and closes", async () => {
     const f = await fixture("claude");
     const close = vi.fn();

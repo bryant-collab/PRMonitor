@@ -246,6 +246,22 @@ export async function checkAITool(
       authentication: "unknown",
       message: "The program could not report its version.",
     };
+  if (input.extraArgs.length) {
+    const globalHelp = await command(executable, ["--help"], env);
+    const advertised = new Set(globalHelp.stdout.match(/--[a-z][a-z0-9-]*/gu));
+    if (
+      globalHelp.exitCode !== 0 ||
+      input.extraArgs.some((arg) => !advertised.has(arg))
+    )
+      return {
+        ...base,
+        version,
+        compatible: false,
+        authentication: "unknown",
+        message:
+          "The selected version does not report the requested launch option. Remove it or choose a compatible program.",
+      };
+  }
   if (input.tool === "claude") {
     const [major, minor, patch] = version.split(".").map(Number);
     const compatible =
@@ -331,18 +347,13 @@ export async function checkAITool(
     };
   }
   const help = await command(executable, ["app-server", "--help"], env);
-  const globalHelp = input.extraArgs.length
-    ? await command(executable, ["--help"], env)
-    : undefined;
   const compatible =
     help.exitCode === 0 &&
     help.stdout.includes("--strict-config") &&
     (() => {
       const numbers = version.split(".").map(Number);
       return (numbers[0] ?? 0) > 0 || (numbers[1] ?? 0) >= 156;
-    })() &&
-    (!input.extraArgs.includes("--no-daemon") ||
-      globalHelp?.stdout.includes("--no-daemon") === true);
+    })();
   if (!ownedHome)
     return {
       ...base,

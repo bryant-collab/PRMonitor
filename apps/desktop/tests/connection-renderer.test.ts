@@ -432,8 +432,26 @@ describe("provider-managed connection sign-in", () => {
     await click(button("Check program and sign-in"));
     expect(check.mock.calls.at(-1)?.[0]).not.toHaveProperty("connectionId");
   });
-  it("keeps unavailable tools selectable for Browse and displays their concrete work blocker", async () => {
-    bridge({ checkAITools: async (input: AIToolCheckInput) => checked(input) });
+  it("lists only detected programs and keeps manual Browse separate", async () => {
+    bridge({
+      checkAITools: async (input: AIToolCheckInput) =>
+        input.connectionId || input.tool === "codex"
+          ? checked(input)
+          : reply({
+              kind: "ai-tools",
+              view: {
+                tools: [
+                  {
+                    tool: input.tool,
+                    detected: false,
+                    compatible: false,
+                    authentication: "unknown",
+                    message: "Program not found.",
+                  },
+                ],
+              },
+            }),
+    });
     await mount(
       createElement(AIConnections, {
         preferences: preferences(),
@@ -441,17 +459,171 @@ describe("provider-managed connection sign-in", () => {
       }),
     );
     const choice = field("AI tool") as HTMLSelectElement;
-    expect(
-      [...choice.options].find((option) => option.value === "claude")?.disabled,
-    ).toBe(false);
-    await change(choice, "claude");
-    expect(choice.value).toBe("claude");
+    expect([...choice.options].map((option) => option.value)).toEqual([
+      "",
+      "codex",
+    ]);
+    await change(choice, "codex");
+    expect(field("Program").value).toBe("/fixture/path-codex");
+    await change(field("Program type for Browse"), "claude");
+    expect(choice.value).toBe("");
+    expect(field("Program").value).toBe("");
     expect(button("Browse for program").disabled).toBe(false);
     expect(
       [...host.querySelectorAll("button")].some(
         (value) => value.textContent === "Sign in for PRMonitor",
       ),
     ).toBe(false);
+  });
+  it("retains a missing saved connection without adding it to detected programs", async () => {
+    bridge({
+      checkAITools: async (input: AIToolCheckInput) =>
+        reply({
+          kind: "ai-tools",
+          view: {
+            tools: [
+              {
+                tool: input.tool,
+                detected: false,
+                compatible: false,
+                authentication: "unknown",
+                message: "Program not found.",
+              },
+            ],
+          },
+        }),
+    });
+    await mount(
+      createElement(AIConnections, {
+        preferences: preferences(),
+        onSaved: vi.fn(),
+      }),
+    );
+    const choice = field("AI tool") as HTMLSelectElement;
+    expect(choice.disabled).toBe(true);
+    expect([...choice.options].map((option) => option.value)).toEqual([""]);
+    expect(host.textContent).toContain("No programs detected");
+    expect(host.textContent).toContain("Its settings are retained");
+    expect(field("Connection name").value).toBe(connection.name);
+    expect(field("Program").value).toBe(connection.executable);
+    expect(button("Save connection").disabled).toBe(true);
+    await change(field("Saved connection"), "personal");
+    expect(field("Connection name").value).toBe("Personal");
+    expect(field("Program").value).toBe("/fixture/personal-codex");
+    expect(button("Browse for program").disabled).toBe(false);
+  });
+  it("keeps discovery loading until every scan settles when another scan rejects", async () => {
+    const pending = deferred<IpcResponse>();
+    bridge({
+      checkAITools: async (input: AIToolCheckInput) => {
+        if (input.connectionId) return checked(input);
+        if (input.tool === "codex") throw Error("synthetic discovery failure");
+        if (input.tool === "claude") return pending.promise;
+        return checked(input);
+      },
+    });
+    await mount(
+      createElement(AIConnections, {
+        preferences: preferences(),
+        onSaved: vi.fn(),
+      }),
+    );
+    expect(host.textContent).toContain("Looking for installed programs");
+    expect(host.textContent).not.toContain("No programs detected");
+    expect((field("AI tool") as HTMLSelectElement).disabled).toBe(true);
+    expect(button("Browse for program").disabled).toBe(false);
+    await act(async () =>
+      pending.resolve(
+        checked({
+          tool: "claude",
+          extraArgs: [],
+          authMode: "subscription",
+          detectOnly: true,
+        }),
+      ),
+    );
+    expect((field("AI tool") as HTMLSelectElement).disabled).toBe(false);
+    expect(host.textContent).toContain("Programs could not be checked");
+    expect(
+      [...(field("AI tool") as HTMLSelectElement).options].map(
+        (option) => option.value,
+      ),
+    ).toEqual(["", "claude", "copilot"]);
+  });
+  it("removes old detected choices when reopening fails without losing an unsaved program draft", async () => {
+    let fail = false;
+    bridge({
+      checkAITools: async (input: AIToolCheckInput) => {
+        if (fail) throw Error("synthetic unavailable discovery");
+        return checked(input);
+      },
+    });
+    const props = { preferences: preferences(), onSaved: vi.fn() };
+    await mount(createElement(AIConnections, props));
+    expect((field("AI tool") as HTMLSelectElement).options.length).toBe(4);
+    await change(field("Program"), "/fixture/unsaved-codex");
+    await mount(createElement(AIConnections, { ...props, active: false }));
+    fail = true;
+    await mount(createElement(AIConnections, { ...props, active: true }));
+    const choice = field("AI tool") as HTMLSelectElement;
+    expect(choice.disabled).toBe(true);
+    expect([...choice.options].map((option) => option.value)).toEqual([""]);
+    expect(field("Program").value).toBe("/fixture/unsaved-codex");
+    expect(button("Browse for program").disabled).toBe(false);
+  });
+  it("offers manual Browse while discovery is pending and when no program is detected", async () => {
+    const discovery = deferred<IpcResponse>();
+    let loading = true;
+    const check = vi.fn(async (input: AIToolCheckInput) => {
+      if (input.detectOnly && loading) return discovery.promise;
+      return checked(input);
+    });
+    const save = vi.fn(async () =>
+      reply({ kind: "preferences", preferences: preferences() }),
+    );
+    bridge({
+      checkAITools: check,
+      saveAIConnection: save,
+      pickAIProgram: async () =>
+        reply({ kind: "ai-program", path: "/fixture/browsed-claude" }),
+    });
+    const empty = {
+      ...preferences(),
+      aiConnections: [],
+      defaultConnectionId: undefined,
+    };
+    await mount(
+      createElement(AIConnections, { preferences: empty, onSaved: vi.fn() }),
+    );
+    expect(host.textContent).toContain("Looking for installed programs");
+    expect((field("AI tool") as HTMLSelectElement).disabled).toBe(true);
+    expect(button("Browse for program").disabled).toBe(false);
+    loading = false;
+    await act(async () =>
+      discovery.resolve(reply({ kind: "ai-tools", view: { tools: [] } })),
+    );
+    expect(host.textContent).toContain("No programs detected");
+    await change(field("Program type for Browse"), "claude");
+    await click(button("Browse for program"));
+    expect(field("Program").value).toBe("/fixture/browsed-claude");
+    expect(check).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        tool: "claude",
+        executable: "/fixture/browsed-claude",
+        extraArgs: [],
+        authMode: "subscription",
+      }),
+    );
+    expect(check.mock.calls.at(-1)?.[0]).not.toHaveProperty("detectOnly");
+    await click(button("Save connection"));
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connection: expect.objectContaining({
+          tool: "claude",
+          executable: "/fixture/browsed-claude",
+        }),
+      }),
+    );
   });
 });
 

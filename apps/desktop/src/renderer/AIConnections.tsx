@@ -3,11 +3,13 @@ import { HelpButton, HelpInput, HelpSelect, HelpSummary } from "./HelpControls";
 import { useEffect, useRef, useState } from "react";
 import {
   AI_TOOL_NAMES,
+  AI_TOOL_EXTRA_OPTIONS,
   type AIConnection,
   type AITool,
   type AIToolStatus,
 } from "../shared/ai-connections";
 import type { F16PreferencesReadModel } from "../shared/f16-preferences";
+const AI_TOOLS = ["codex", "claude", "copilot"] as const;
 
 export function AIConnections({
   preferences,
@@ -50,6 +52,7 @@ export function AIConnections({
     Partial<Record<AITool, AIToolStatus>>
   >({});
   const [checkedStatus, setCheckedStatus] = useState<AIToolStatus>();
+  const [detecting, setDetecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [message, setMessage] = useState("");
@@ -127,9 +130,11 @@ export function AIConnections({
       });
     }
     const discoveryGeneration = generation.current;
-    if (active)
-      void Promise.all(
-        (["codex", "claude", "copilot"] as const).map(async (tool) => {
+    if (active) {
+      setStatuses({});
+      setDetecting(true);
+      void Promise.allSettled(
+        AI_TOOLS.map(async (tool) => {
           const response = await window.prmonitor?.checkAITools({
             tool,
             extraArgs: [],
@@ -146,18 +151,27 @@ export function AIConnections({
             if (status)
               setStatuses((current) => ({
                 ...current,
-                [tool]: current[tool] ?? status,
+                [tool]: status,
               }));
           }
+          return response?.ok === true && response.value.kind === "ai-tools";
         }),
-      ).catch(() => {
-        if (
-          !disposed &&
-          alive.current &&
-          generation.current === discoveryGeneration
-        )
-          setError("Programs could not be checked. Use Browse for program.");
-      });
+      )
+        .then((results) => {
+          if (
+            !disposed &&
+            alive.current &&
+            generation.current === discoveryGeneration &&
+            results.some(
+              (result) => result.status === "rejected" || !result.value,
+            )
+          )
+            setError("Programs could not be checked. Use Browse for program.");
+        })
+        .finally(() => {
+          if (!disposed && alive.current) setDetecting(false);
+        });
+    }
     return () => {
       disposed = true;
       alive.current = false;
@@ -184,6 +198,14 @@ export function AIConnections({
   }
 
   const status = checkedStatus;
+  const detectedTools = AI_TOOLS.map((tool) => statuses[tool]).filter(
+    (value): value is AIToolStatus => value?.detected === true,
+  );
+  const detectedSelection =
+    detectedTools.find(
+      (value) =>
+        value.tool === draft.tool && value.executable === draft.executable,
+    )?.tool ?? "";
   return (
     <section aria-labelledby="ai-connections-heading" aria-busy={busy}>
       <h3 id="ai-connections-heading">AI connections on this computer</h3>
@@ -244,8 +266,8 @@ export function AIConnections({
         <label>
           AI tool
           <HelpSelect
-            value={draft.tool}
-            disabled={busy}
+            value={detectedSelection}
+            disabled={busy || detecting || detectedTools.length === 0}
             onChange={(event) => {
               const tool = event.target.value as AITool;
               editLaunch({
@@ -262,14 +284,16 @@ export function AIConnections({
               );
             }}
           >
-            {Object.entries(AI_TOOL_NAMES).map(([tool, name]) => (
-              <option key={tool} value={tool}>
-                {name}
-                {statuses[tool as AITool]?.detected
-                  ? statuses[tool as AITool]?.compatible
-                    ? " — found"
-                    : " — needs compatibility check"
-                  : " — not found"}
+            <option value="" disabled>
+              {detecting
+                ? "Looking for installed programs..."
+                : detectedTools.length
+                  ? "Choose a detected program"
+                  : "No programs detected"}
+            </option>
+            {detectedTools.map((value) => (
+              <option key={value.tool} value={value.tool}>
+                {AI_TOOL_NAMES[value.tool]} — found
               </option>
             ))}
           </HelpSelect>
@@ -289,6 +313,44 @@ export function AIConnections({
         <p id="ai-program-help">
           Choose the program installed on this computer. On Windows, choose its
           .exe file.
+        </p>
+        {saved &&
+        JSON.stringify(draft) === JSON.stringify(saved) &&
+        status?.detected === false ? (
+          <p>
+            The saved {AI_TOOL_NAMES[saved.tool]} program was not found. Its
+            settings are retained. Choose a detected program or use Browse to
+            replace it.
+          </p>
+        ) : null}
+        <label>
+          Program type for Browse
+          <HelpSelect
+            value={draft.tool}
+            disabled={busy}
+            onChange={(event) => {
+              const tool = event.target.value as AITool;
+              if (tool !== draft.tool)
+                editLaunch({
+                  ...draft,
+                  tool,
+                  executable: "",
+                  extraArgs: [],
+                  authMode: "subscription",
+                  signInSource: "existing",
+                });
+            }}
+          >
+            {Object.entries(AI_TOOL_NAMES).map(([tool, name]) => (
+              <option key={tool} value={tool}>
+                {name}
+              </option>
+            ))}
+          </HelpSelect>
+        </label>
+        <p>
+          If your program is not detected, choose its type above and use Browse
+          for program to locate it.
         </p>
         <HelpButton
           type="button"
@@ -446,7 +508,9 @@ export function AIConnections({
           <HelpSummary>Extra launch options</HelpSummary>
           <p>
             One option per row. PRMonitor sets workspace and safety options.
-            Codex supports --no-daemon when the selected version supports it.
+            {AI_TOOL_NAMES[draft.tool]} supports{" "}
+            {AI_TOOL_EXTRA_OPTIONS[draft.tool].join(", ")} when the selected
+            version reports that option in its help.
           </p>
           {draft.extraArgs.map((arg, index) => (
             <div key={index}>
