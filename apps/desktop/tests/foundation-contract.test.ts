@@ -114,7 +114,8 @@ describe("F01 workspace contract", () => {
     const smoke = await source("scripts/smoke.mjs");
     expect(builder).toContain("output: ../../release");
     expect(builder).toContain("target: dir");
-    expect(builder).toContain("signAndEditExecutable: false");
+    expect(builder).toContain("signAndEditExecutable: true");
+    expect(builder).toContain("signExecutable: false");
     expect(builder).toContain("forceCodeSigning: false");
     expect(smoke).toContain("PRMONITOR_SMOKE");
     expect(smoke).toContain("PRMONITOR_SMOKE_NONCE");

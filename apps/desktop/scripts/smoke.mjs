@@ -22,6 +22,7 @@ import {
 } from "./smoke-failure.mjs";
 import { listPackage } from "@electron/asar";
 import { forbiddenRuntimePayload } from "../../../scripts/runtime-payload.mjs";
+import { assertWindowsBranding } from "../../../scripts/windows-branding.mjs";
 
 const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -179,6 +180,15 @@ async function findArtifact() {
 }
 
 async function assertArtifactShape(executable) {
+  if (process.platform === "win32") {
+    const { version } = JSON.parse(
+      await readFile(path.join(appRoot, "package.json"), "utf8"),
+    );
+    await assertWindowsBranding(executable, {
+      fileVersion: version,
+      productVersion: `${version}.0`,
+    });
+  }
   const artifactDirectory =
     process.platform === "darwin"
       ? path
@@ -261,12 +271,18 @@ async function launchSmoke(executable, environment) {
   const stdout = { bytes: Buffer.alloc(0), overflow: false };
   const stderr = { bytes: Buffer.alloc(0), overflow: false };
   const readyLines = [];
-  const child = spawn(executable, [], {
-    cwd: repositoryRoot,
-    env: environment,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
+  // Native Electron startup can resolve/create its default profile before JS
+  // applies app.setPath. Route that first lookup to this marked fixture too.
+  const child = spawn(
+    executable,
+    [`--user-data-dir=${environment.PRMONITOR_USER_DATA_DIR}`],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
+  );
 
   child.stdout.on("data", (chunk) => {
     boundedAppend(stdout, chunk);

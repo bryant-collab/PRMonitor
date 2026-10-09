@@ -23,6 +23,23 @@ jobs:
       - run: npm run check
       - name: Setup startup and restart acceptance
         run: npm run test:setup
+  windows-installer:
+    name: Windows shipping installer acceptance
+    # A clean account is required: Electron notification initialization creates
+    # a Start menu link even during read-only Notification.isSupported().
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-git
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm install --global npm@11.17.0
+      - run: npm ci
+      - run: npm run check:runtime
+      - run: npm run build:validation-contract
+      - run: npm run build:desktop
       - name: Build shipping NSIS installer (no release)
         run: npm --workspace @prmonitor/desktop run package:installer
         env:
