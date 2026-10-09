@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  assertCodexNativeBoundary,
+  assertCodexFileEnvironment,
+  codexApplicationConfig,
   openCodexProtocol,
   createCodexAppServerClient,
   type CodexProtocol,
@@ -60,40 +61,42 @@ const configuration = {
   },
 };
 function fixture(overrides: Record<string, unknown> = {}) {
-  const request = vi.fn(async (method: string) => {
-    if (method in overrides) return overrides[method];
-    if (method === "getAuthStatus")
-      return {
-        authMethod: "chatgpt",
-        authToken: null,
-        requiresOpenaiAuth: true,
-      };
-    if (method === "account/read") return { account: { type: "chatgpt" } };
-    if (method === "configRequirements/read") return { requirements: null };
-    if (method === "config/read") return configuration;
-    if (method === "model/list")
-      return {
-        data: [
-          {
-            id: "gpt-5-codex",
-            model: "gpt-5-codex",
-            supportedReasoningEfforts: [{ reasoningEffort: "high" }],
-          },
-        ],
-      };
-    if (method === "thread/start" || method === "thread/resume")
-      return {
-        thread: { id },
-        cwd: options.workingDirectory,
-        model: options.model,
-        modelProvider: "openai",
-        approvalPolicy: "never",
-        approvalsReviewer: "user",
-        sandbox: { type: "readOnly", networkAccess: false },
-      };
-    if (method === "turn/start") return { turn: { id: "turn-1" } };
-    throw Error("Unexpected fixture request");
-  });
+  const request = vi.fn(
+    async (method: string, _params?: Record<string, unknown> | null) => {
+      if (method in overrides) return overrides[method];
+      if (method === "getAuthStatus")
+        return {
+          authMethod: "chatgpt",
+          authToken: null,
+          requiresOpenaiAuth: true,
+        };
+      if (method === "account/read") return { account: { type: "chatgpt" } };
+      if (method === "configRequirements/read") return { requirements: null };
+      if (method === "config/read") return configuration;
+      if (method === "model/list")
+        return {
+          data: [
+            {
+              id: "gpt-5-codex",
+              model: "gpt-5-codex",
+              supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+            },
+          ],
+        };
+      if (method === "thread/start" || method === "thread/resume")
+        return {
+          thread: { id },
+          cwd: options.workingDirectory,
+          model: options.model,
+          modelProvider: "openai",
+          approvalPolicy: "never",
+          approvalsReviewer: "user",
+          sandbox: { type: "readOnly", networkAccess: false },
+        };
+      if (method === "turn/start") return { turn: { id: "turn-1" } };
+      throw Error("Unexpected fixture request");
+    },
+  );
   const close = vi.fn(async () => {});
   const protocol: CodexProtocol = {
     request,
@@ -329,11 +332,198 @@ describe("Codex public app-server contract", () => {
     ).toBe(false);
     expect(f.close).toHaveBeenCalledTimes(1);
   });
-  it("does not equate a Windows policy response with native sandbox enforcement", () => {
-    expect(() => assertCodexNativeBoundary("win32")).toThrow(
-      "without changing security settings",
+  it("requires an absent execution-environment file without changing the existing store", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-environment-"));
+    roots.push(root);
+    await expect(
+      assertCodexFileEnvironment({ CODEX_HOME: root }),
+    ).resolves.toBeUndefined();
+    const file = path.join(root, "environments.toml");
+    await writeFile(file, "fixture environment sentinel");
+    await expect(
+      assertCodexFileEnvironment({ CODEX_HOME: root }),
+    ).rejects.toThrow("configures execution environments");
+    expect(await readFile(file, "utf8")).toBe("fixture environment sentinel");
+  });
+  it("attests empty environments on new and cold-resumed file-only threads", async () => {
+    for (const resume of [false, true]) {
+      const fileConfig = codexApplicationConfig(options, true);
+      const features = Object.fromEntries(
+        Object.entries(fileConfig)
+          .filter(([key]) => key.startsWith("features."))
+          .map(([key, value]) => [key.slice(9), value]),
+      );
+      const f = fixture({
+        "config/read": { config: { ...configuration.config, features } },
+        "thread/start": {
+          thread: { id, environments: [] },
+          cwd: options.workingDirectory,
+          model: options.model,
+          modelProvider: "openai",
+          approvalPolicy: "never",
+          approvalsReviewer: "user",
+          sandbox: { type: "readOnly", networkAccess: false },
+        },
+        "thread/resume": {
+          thread: { id, environments: [] },
+          cwd: options.workingDirectory,
+          model: options.model,
+          modelProvider: "openai",
+          approvalPolicy: "never",
+          approvalsReviewer: "user",
+          sandbox: { type: "readOnly", networkAccess: false },
+        },
+      });
+      f.protocol.setFileToolHandler = vi.fn();
+      const client = createCodexAppServerClient(
+        connection,
+        async () => f.protocol,
+        true,
+      );
+      const thread = resume
+        ? client.resumeThread(id, options)
+        : client.startThread(options);
+      const events = await thread.runStreamed("fixture", { outputSchema: {} });
+      for await (const _event of events.events) {
+        /* Completion remains bound to fixture thread/turn. */
+      }
+      const call = f.request.mock.calls.find(
+        ([method]) => method === (resume ? "thread/resume" : "thread/start"),
+      );
+      const params = call?.[1] as Record<string, unknown>;
+      if (resume) {
+        expect(params).not.toHaveProperty("environments");
+        expect(params).not.toHaveProperty("dynamicTools");
+      } else {
+        expect(params.environments).toEqual([]);
+        expect(params.dynamicTools).toHaveLength(1);
+      }
+      expect(f.request).toHaveBeenCalledWith(
+        "turn/start",
+        expect.objectContaining({ environments: [], approvalPolicy: "never" }),
+      );
+    }
+  });
+  it.each([undefined, null, [{ id: "native" }]])(
+    "rejects a missing or broadened environment attestation before sending input: %j",
+    async (environments) => {
+      const fileConfig = codexApplicationConfig(options, true);
+      const features = Object.fromEntries(
+        Object.entries(fileConfig)
+          .filter(([key]) => key.startsWith("features."))
+          .map(([key, value]) => [key.slice(9), value]),
+      );
+      const initial = fixture();
+      const response = await initial.request("thread/start");
+      const f = fixture({
+        "config/read": { config: { ...configuration.config, features } },
+        "thread/start": {
+          ...(response as Record<string, unknown>),
+          thread: { id, environments },
+        },
+      });
+      f.protocol.setFileToolHandler = vi.fn();
+      const stream = await createCodexAppServerClient(
+        connection,
+        async () => f.protocol,
+        true,
+      )
+        .startThread(options)
+        .runStreamed("fixture", { outputSchema: {} });
+      await expect(
+        (async () => {
+          for await (const _ of stream.events) {
+            /* Must fail before prompt. */
+          }
+        })(),
+      ).rejects.toThrow("execution environment");
+      expect(
+        f.request.mock.calls.some(([method]) => method === "turn/start"),
+      ).toBe(false);
+    },
+  );
+  it("executes only the current host-file callback and replays identical call IDs without repeating edits", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prmonitor-codex-files-"));
+    roots.push(root);
+    await writeFile(path.join(root, "file.txt"), "hello");
+    const opt = {
+      ...options,
+      workingDirectory: root,
+      sandboxMode: "workspace-write" as const,
+    };
+    const fileConfig = codexApplicationConfig(opt, true);
+    const features = Object.fromEntries(
+      Object.entries(fileConfig)
+        .filter(([key]) => key.startsWith("features."))
+        .map(([key, value]) => [key.slice(9), value]),
     );
-    expect(() => assertCodexNativeBoundary("linux")).not.toThrow();
+    const f = fixture({
+      "config/read": { config: { ...configuration.config, features } },
+      "thread/start": {
+        thread: { id, environments: [] },
+        cwd: root,
+        model: opt.model,
+        modelProvider: "openai",
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        sandbox: {
+          type: "workspaceWrite",
+          networkAccess: false,
+          writableRoots: [root],
+          excludeSlashTmp: true,
+          excludeTmpdirEnvVar: true,
+        },
+      },
+    });
+    let handler: NonNullable<CodexProtocol["setFileToolHandler"]> extends (
+      value: infer H,
+    ) => void
+      ? H
+      : never;
+    f.protocol.setFileToolHandler = (value) => {
+      handler = value;
+    };
+    f.protocol.notifications = async function* () {
+      const params = {
+        threadId: id,
+        turnId: "turn-1",
+        callId: "file-call",
+        namespace: "prmonitor_files",
+        tool: "edit_file",
+        arguments: { path: "file.txt", old: "hello", replacement: "world" },
+      };
+      expect((await handler({ ...params, turnId: "other" })).success).toBe(
+        false,
+      );
+      expect((await handler(params)).success).toBe(true);
+      expect((await handler(params)).success).toBe(true);
+      await expect(
+        handler({
+          ...params,
+          arguments: { path: "file.txt", old: "world", replacement: "bad" },
+        }),
+      ).rejects.toThrow("changed arguments");
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: id,
+          turnId: "turn-1",
+          turn: { id: "turn-1", status: "completed" },
+        },
+      };
+    };
+    const stream = await createCodexAppServerClient(
+      connection,
+      async () => f.protocol,
+      true,
+    )
+      .startThread(opt)
+      .runStreamed("fixture", { outputSchema: {} });
+    for await (const _ of stream.events) {
+      /* Drain normalized completion. */
+    }
+    expect(await readFile(path.join(root, "file.txt"), "utf8")).toBe("world");
+    expect(f.close).toHaveBeenCalledOnce();
   });
 });
 describe("provider-owned connection storage and refresh serialization", () => {
@@ -417,7 +607,7 @@ describe("provider-owned connection storage and refresh serialization", () => {
       "unsupported path or link",
     );
   });
-  it("admits standard Linux sandbox work and keeps unverified Windows sandbox work blocked", async () => {
+  it("reports configured runtime separately from per-task permissions", async () => {
     const auth = new ConnectionAuthentication(process.cwd());
     const status = vi.spyOn(auth, "check").mockResolvedValue({
       tool: "codex",
@@ -429,11 +619,8 @@ describe("provider-owned connection storage and refresh serialization", () => {
     });
     const provider = new CodexAdapter({ connectionAuthentication: auth });
     expect(await provider.readLocalReadiness(connection)).toEqual({
-      runtimeAvailable: process.platform !== "win32",
+      runtimeAvailable: true,
       authenticationAvailable: true,
-      ...(process.platform === "win32"
-        ? { executionBlocker: "WINDOWS_SANDBOX_SECURITY_CHANGES" }
-        : {}),
     });
     expect(status).toHaveBeenCalledTimes(1);
   });

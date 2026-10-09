@@ -335,7 +335,11 @@ describe("provider-managed connection sign-in", () => {
     await change(choice, "claude");
     expect(choice.value).toBe("claude");
     expect(button("Browse for program").disabled).toBe(false);
-    expect(button("Sign in for PRMonitor").disabled).toBe(true);
+    expect(
+      [...host.querySelectorAll("button")].some(
+        (value) => value.textContent === "Sign in for PRMonitor",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -568,6 +572,69 @@ describe("connection renderer interactions", () => {
       pending.resolve(reply({ kind: "preferences", preferences: after })),
     );
     expect(field("Model").value).toBe("task-draft-model");
+  });
+
+  it("keeps a newer saved task when an older connection check returns model metadata", async () => {
+    const before = preferences();
+    const pending = deferred<IpcResponse>();
+    const save = vi.fn(async (_input: unknown) =>
+      reply({
+        kind: "preferences",
+        preferences: {
+          ...before,
+          settingsRevision: 1,
+          taskProfiles: before.taskProfiles.map((profile) =>
+            profile.taskType === "AUTOMATIC_REVIEW_REEVALUATION"
+              ? {
+                  ...profile,
+                  modelId: "task-draft-model",
+                  revision: profile.revision + 1,
+                }
+              : profile,
+          ),
+        },
+      }),
+    );
+    bridge({
+      readPreferences: async () =>
+        reply({ kind: "preferences", preferences: before }),
+      checkAITools: (input: AIToolCheckInput) =>
+        input.connectionId === "work"
+          ? pending.promise
+          : Promise.resolve(checked(input)),
+      saveTaskProfile: save,
+    });
+    await mount(
+      createElement(Preferences, {
+        enabled: true,
+        visible: true,
+        category: "tasks",
+      }),
+    );
+    await change(field("AI task"), "AUTOMATIC_REVIEW_REEVALUATION");
+    await change(field("Model"), "task-draft-model");
+    await click(button("Save task profile"));
+    expect(save).toHaveBeenCalledOnce();
+    const response = checked({
+      tool: "codex",
+      executable: connection.executable,
+      extraArgs: [],
+      authMode: "subscription",
+    });
+    if (!response.ok || response.value.kind !== "ai-tools")
+      throw Error("Fixture mismatch");
+    response.value.view.tools[0]!.models = [
+      { modelId: "gpt-5-codex", reasoningEfforts: ["medium"] },
+      { modelId: "task-draft-model", reasoningEfforts: ["medium"] },
+    ];
+    await act(async () => pending.resolve(response));
+    expect(field("Model").value).toBe("task-draft-model");
+    expect(button("Save task profile").disabled).toBe(true);
+    await change(field("Model"), "gpt-5-codex");
+    await click(button("Save task profile"));
+    expect(save.mock.calls[1]?.[0]).toMatchObject({
+      expectedSettingsRevision: 1,
+    });
   });
 
   it("shows keyboard/hover help, supports Escape, and keeps disabled actions disabled", async () => {

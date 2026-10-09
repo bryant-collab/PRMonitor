@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { lstat } from "node:fs/promises";
+import {
+  scopedFileTools,
+  invokeScopedFileTool,
+  type FileToolReply,
+} from "./scoped-file-tools";
 import type { AIConnection } from "../../shared/ai-connections";
 import type {
   CodexClientPort,
@@ -15,6 +22,9 @@ export interface CodexProtocol {
   ): Promise<unknown>;
   notifications(): AsyncIterable<unknown>;
   close(): Promise<void>;
+  setFileToolHandler?(
+    handler: (params: unknown) => Promise<FileToolReply>,
+  ): void;
 }
 export type CodexProtocolFactory = (
   options: CodexThreadOptions,
@@ -40,10 +50,46 @@ const safeThreadId = (value: unknown): string => {
   return value;
 };
 
+const isolatedFeatures = [
+  "apps",
+  "code_mode",
+  "code_mode_only",
+  "context_management",
+  "current_time_reminder",
+  "deferred_executor",
+  "enable_fanout",
+  "goals",
+  "hooks",
+  "image_generation",
+  "memories",
+  "multi_agent",
+  "multi_agent_v2",
+  "plugins",
+  "request_permissions_tool",
+  "shell_snapshot",
+  "shell_tool",
+  "standalone_web_search",
+  "token_budget",
+  "tool_suggest",
+  "unified_exec",
+  "view_image",
+];
 export function codexApplicationConfig(
   options: CodexThreadOptions,
+  fileTools = false,
 ): Record<string, unknown> {
   return {
+    ...(fileTools
+      ? {
+          ...Object.fromEntries(
+            isolatedFeatures.map((key) => [`features.${key}`, false]),
+          ),
+          "orchestrator.skills.enabled": false,
+          "skills.include_instructions": false,
+          "tools.experimental_request_user_input.enabled": false,
+          "tools.update_plan.enabled": false,
+        }
+      : {}),
     approval_policy: "never",
     approvals_reviewer: "user",
     model_provider: "openai",
@@ -70,10 +116,15 @@ export function codexApplicationConfig(
 }
 
 /** Verify the effective layered result; empty table overrides cannot clear inherited MCP/hooks. */
-export function assertCodexConfiguration(value: unknown): void {
+export function assertCodexConfiguration(
+  value: unknown,
+  fileTools = false,
+): void {
   const config = record(record(value).config);
   const features = record(config.features);
   const environment = record(config.shell_environment_policy);
+  if (fileTools && isolatedFeatures.some((key) => features[key] !== false))
+    throw new Error("Codex did not retain file-only tool restrictions.");
   if (
     config.approval_policy !== "never" ||
     config.approvals_reviewer !== "user" ||
@@ -113,6 +164,7 @@ export function assertCodexConfiguration(value: unknown): void {
 export function assertCodexRequirements(
   value: unknown,
   connection: AIConnection,
+  fileTools = false,
 ): void {
   const response = record(value);
   if (!("requirements" in response))
@@ -122,9 +174,10 @@ export function assertCodexRequirements(
   if (requirements.featureRequirements != null) {
     const features = record(requirements.featureRequirements);
     if (
-      ["hooks", "plugins", "apps", "shell_snapshot"].some(
-        (key) => features[key] === true,
-      )
+      (fileTools
+        ? isolatedFeatures
+        : ["hooks", "plugins", "apps", "shell_snapshot"]
+      ).some((key) => features[key] === true)
     )
       throw new Error(
         "Managed Codex requirements enable additional tools or hooks. PRMonitor cannot start this work.",
@@ -149,6 +202,7 @@ export function assertCodexRequirements(
 export function assertCodexThreadBoundary(
   value: unknown,
   options: CodexThreadOptions,
+  fileTools = false,
 ): { id: string; sandbox: Record<string, unknown> } {
   const response = record(value);
   const sandbox = record(response.sandbox);
@@ -183,12 +237,20 @@ export function assertCodexThreadBoundary(
     )
       throw new Error("Codex broadened writable worktree permissions.");
   }
-  return { id: safeThreadId(record(response.thread).id), sandbox };
+  const returnedThread = record(response.thread);
+  if (
+    fileTools &&
+    (!Array.isArray(returnedThread.environments) ||
+      returnedThread.environments.length !== 0)
+  )
+    throw new Error("Codex selected an ungranted execution environment.");
+  return { id: safeThreadId(returnedThread.id), sandbox };
 }
 
 export function createCodexAppServerClient(
   connection: AIConnection,
   factory: CodexProtocolFactory,
+  fileTools = false,
 ): CodexClientPort {
   function thread(
     options: CodexThreadOptions,
@@ -204,6 +266,61 @@ export function createCodexAppServerClient(
         runOptions.signal?.throwIfAborted();
         async function* events(): AsyncIterable<unknown> {
           const protocol = await factory(options, runOptions.signal);
+          let activeTurn: string | undefined;
+          const fileCalls = new Map<
+            string,
+            { fingerprint: string; result: FileToolReply }
+          >();
+          if (fileTools) {
+            if (!protocol.setFileToolHandler) {
+              await protocol.close();
+              throw new Error("Codex file-tool transport is unavailable.");
+            }
+            protocol.setFileToolHandler(async (raw) => {
+              const params = record(raw);
+              if (
+                !id ||
+                !activeTurn ||
+                params.threadId !== id ||
+                params.turnId !== activeTurn ||
+                params.namespace !== "prmonitor_files" ||
+                typeof params.callId !== "string" ||
+                !params.callId ||
+                params.callId.length > 128 ||
+                typeof params.tool !== "string"
+              )
+                return {
+                  success: false,
+                  contentItems: [
+                    {
+                      type: "inputText",
+                      text: "File request denied: conversation, turn, or tool identity does not match.",
+                    },
+                  ],
+                };
+              const fingerprint = createHash("sha256")
+                .update(JSON.stringify([params.tool, params.arguments]))
+                .digest("hex");
+              const prior = fileCalls.get(params.callId);
+              if (prior) {
+                if (prior.fingerprint !== fingerprint)
+                  throw new Error(
+                    "Codex reused a file-call identity with changed arguments.",
+                  );
+                return prior.result;
+              }
+              if (fileCalls.size >= 64)
+                throw new Error("Codex exceeded the per-turn file-call limit.");
+              const result = await invokeScopedFileTool(
+                options,
+                params.tool,
+                params.arguments,
+                runOptions.signal,
+              );
+              fileCalls.set(params.callId, { fingerprint, result });
+              return result;
+            });
+          }
           try {
             const auth = record(
               await protocol.request("getAuthStatus", {
@@ -234,6 +351,7 @@ export function createCodexAppServerClient(
             assertCodexRequirements(
               await protocol.request("configRequirements/read", null),
               connection,
+              fileTools,
             );
             assertCodexConfiguration(
               await protocol.request("config/read", {
@@ -242,6 +360,7 @@ export function createCodexAppServerClient(
                   ? { cwd: options.workingDirectory }
                   : {}),
               }),
+              fileTools,
             );
             let selected: Record<string, unknown> | undefined;
             let cursor: string | undefined;
@@ -295,10 +414,20 @@ export function createCodexAppServerClient(
                   ...(options.workingDirectory
                     ? { cwd: options.workingDirectory }
                     : {}),
-                  config: codexApplicationConfig(options),
+                  config: codexApplicationConfig(options, fileTools),
                   ...(resumeId
                     ? {}
                     : {
+                        ...(fileTools
+                          ? {
+                              environments: [],
+                              runtimeWorkspaceRoots: [],
+                              selectedCapabilityRoots: [],
+                              dynamicTools: scopedFileTools(
+                                options.sandboxMode === "workspace-write",
+                              ),
+                            }
+                          : {}),
                         ephemeral: false,
                         experimentalRawEvents: false,
                         persistExtendedHistory: false,
@@ -306,6 +435,7 @@ export function createCodexAppServerClient(
                 },
               ),
               options,
+              fileTools,
             );
             id = boundary.id;
             if (resumeId && id !== resumeId)
@@ -320,6 +450,9 @@ export function createCodexAppServerClient(
                 approvalsReviewer: "user",
                 sandboxPolicy: boundary.sandbox,
                 outputSchema: runOptions.outputSchema,
+                ...(fileTools
+                  ? { environments: [], runtimeWorkspaceRoots: [] }
+                  : {}),
                 ...(options.modelReasoningEffort
                   ? { effort: options.modelReasoningEffort }
                   : {}),
@@ -328,6 +461,7 @@ export function createCodexAppServerClient(
             const turnId = record(started.turn).id;
             if (typeof turnId !== "string" || !turnId || turnId.length > 128)
               throw new Error("Codex returned an unsupported turn identity.");
+            activeTurn = turnId;
             yield { type: "turn.started" };
             for await (const message of protocol.notifications()) {
               runOptions.signal?.throwIfAborted();
@@ -378,6 +512,7 @@ export function createCodexAppServerClient(
 export function codexServerArguments(
   connection: AIConnection,
   options: CodexThreadOptions,
+  fileTools = false,
 ): string[] {
   const args = [...connection.extraArgs];
   // Never impose a login restriction on the terminal's shared sign-in store.
@@ -386,17 +521,38 @@ export function codexServerArguments(
       "--config",
       `forced_login_method=${JSON.stringify(connection.authMode === "subscription" ? "chatgpt" : "api")}`,
     );
-  for (const [key, value] of Object.entries(codexApplicationConfig(options)))
+  for (const [key, value] of Object.entries(
+    codexApplicationConfig(options, fileTools),
+  ))
     args.push("--config", `${key}=${JSON.stringify(value)}`);
   args.push("app-server", "--strict-config");
   return args;
 }
 
-export function assertCodexNativeBoundary(platform: NodeJS.Platform): void {
-  if (platform === "win32")
+/** Empty environments are the supported file-only path, never native setup. */
+export async function assertCodexFileEnvironment(
+  environment: Record<string, string>,
+): Promise<void> {
+  if (!environment.CODEX_HOME || !path.isAbsolute(environment.CODEX_HOME))
+    throw new Error("Codex sign-in storage is unavailable.");
+  try {
+    await lstat(path.join(environment.CODEX_HOME, "environments.toml"));
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    )
+      return;
     throw new Error(
-      "Codex work needs an already configured Windows sandbox. Its readiness cannot yet be verified without changing security settings.",
+      "Codex execution-environment configuration cannot be verified. Use a separate PRMonitor connection.",
+      { cause: error },
     );
+  }
+  throw new Error(
+    "This Codex store configures execution environments. Choose a separate PRMonitor connection for file-only work.",
+  );
 }
 
 /** Own one bounded stdio server. Requests never contain login credentials. */
@@ -406,15 +562,19 @@ export async function openCodexProtocol(
   options: CodexThreadOptions,
   signal?: AbortSignal,
   start: typeof spawn = spawn,
+  fileTools = false,
 ): Promise<CodexProtocol> {
   signal?.throwIfAborted();
   if (!environment.CODEX_HOME || !path.isAbsolute(environment.CODEX_HOME))
     throw new Error("Connect this connection's PRMonitor sign-in first.");
-  const args = codexServerArguments(connection, options);
+  if (fileTools) await assertCodexFileEnvironment(environment);
+  const args = codexServerArguments(connection, options, fileTools);
   const child = start(connection.executable, args, {
     shell: false,
     windowsHide: true,
-    env: environment,
+    env: fileTools
+      ? { ...environment, CODEX_EXEC_SERVER_URL: "none" }
+      : environment,
     cwd: environment.CODEX_HOME,
     detached: process.platform !== "win32",
     stdio: ["pipe", "pipe", "pipe"],
@@ -432,6 +592,7 @@ export async function openCodexProtocol(
   >();
   const queue: unknown[] = [];
   let wake: (() => void) | undefined;
+  let fileHandler: ((params: unknown) => Promise<FileToolReply>) | undefined;
   const fail = (error: Error) => {
     failure ??= error;
     for (const waiter of pending.values()) waiter.reject(failure);
@@ -456,7 +617,7 @@ export async function openCodexProtocol(
       }
     } else child.kill();
     force ??= setTimeout(() => {
-      if (!closed && child.pid) {
+      if (child.pid) {
         try {
           if (process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
           else child.kill("SIGKILL");
@@ -510,6 +671,23 @@ export async function openCodexProtocol(
               (connection.authMode === "subscription" ? "chatgpt" : "apikey")
           )
             throw new Error("Codex changed this connection's billing method.");
+          if (
+            message.id !== undefined &&
+            fileTools &&
+            message.method === "item/tool/call" &&
+            fileHandler
+          ) {
+            if (
+              (typeof message.id !== "number" &&
+                typeof message.id !== "string") ||
+              (typeof message.id === "string" && message.id.length > 128)
+            )
+              throw new Error("Invalid tool request identity.");
+            const result = await fileHandler(message.params);
+            signal?.throwIfAborted();
+            send({ id: message.id, result });
+            continue;
+          }
           if (message.id !== undefined)
             throw new Error(
               "Codex requested approval or an external tool; this operation does not grant that authority.",
@@ -530,6 +708,15 @@ export async function openCodexProtocol(
     }
   })();
   const protocol: CodexProtocol = {
+    ...(fileTools
+      ? {
+          setFileToolHandler: (
+            handler: (params: unknown) => Promise<FileToolReply>,
+          ) => {
+            fileHandler = handler;
+          },
+        }
+      : {}),
     request(method, params) {
       if (signal?.aborted || failure || closed)
         return Promise.reject(failure ?? new Error("AI work was cancelled."));
@@ -568,6 +755,8 @@ export async function openCodexProtocol(
         await ended;
         await consuming;
       } finally {
+        if (force && process.platform !== "win32")
+          await new Promise<void>((resolve) => setTimeout(resolve, 1050));
         if (force) clearTimeout(force);
       }
     },
@@ -575,7 +764,7 @@ export async function openCodexProtocol(
   try {
     await protocol.request("initialize", {
       clientInfo: { name: "prmonitor", version: "0.1.0" },
-      capabilities: { experimentalApi: false },
+      capabilities: { experimentalApi: fileTools },
     });
     send({ method: "initialized", params: {} });
     return protocol;

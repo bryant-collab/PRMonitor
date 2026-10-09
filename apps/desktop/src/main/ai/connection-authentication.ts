@@ -48,8 +48,21 @@ export class ConnectionAuthentication {
     if (connection.signInSource !== "prmonitor") {
       const userHome = this.source.USERPROFILE ?? this.source.HOME;
       const existingHome =
-        this.source.CODEX_HOME ??
-        (userHome ? path.join(userHome, ".codex") : undefined);
+        (connection.tool === "claude"
+          ? this.source.CLAUDE_CONFIG_DIR
+          : connection.tool === "copilot"
+            ? this.source.COPILOT_HOME
+            : this.source.CODEX_HOME) ??
+        (userHome
+          ? path.join(
+              userHome,
+              connection.tool === "claude"
+                ? ".claude"
+                : connection.tool === "copilot"
+                  ? ".copilot"
+                  : ".codex",
+            )
+          : undefined);
       if (!existingHome || !path.isAbsolute(existingHome)) return undefined;
       try {
         const info = await lstat(existingHome);
@@ -187,14 +200,14 @@ export class ConnectionAuthentication {
     home: string,
     source: NodeJS.ProcessEnv = this.source,
   ): Record<string, string> {
-    if (connection.tool !== "codex")
-      throw new Error(
-        "This tool's sign-in and permission contract is not yet supported.",
-      );
     return {
       ...toolEnvironment(connection.tool, connection.authMode, this.source),
       ...toolEnvironment(connection.tool, connection.authMode, source),
-      CODEX_HOME: home,
+      [connection.tool === "claude"
+        ? "CLAUDE_CONFIG_DIR"
+        : connection.tool === "copilot"
+          ? "COPILOT_HOME"
+          : "CODEX_HOME"]: home,
     };
   }
   public async check(connection: AIConnection, signal?: AbortSignal) {
@@ -291,9 +304,10 @@ export class ConnectionAuthentication {
       );
       let timedOut = false;
       let force: ReturnType<typeof setTimeout> | undefined;
+      let reaping: Promise<void> | undefined;
       let closed = false;
       const kill = (forceful = false) => {
-        if (closed) return;
+        if (closed && process.platform === "win32") return;
         if (process.platform !== "win32" && child.pid) {
           try {
             process.kill(-child.pid, forceful ? "SIGKILL" : "SIGTERM");
@@ -304,7 +318,12 @@ export class ConnectionAuthentication {
       };
       const terminate = () => {
         kill();
-        force ??= setTimeout(() => kill(true), 1000);
+        reaping ??= new Promise<void>((resolve) => {
+          force = setTimeout(() => {
+            kill(true);
+            resolve();
+          }, 1000);
+        });
       };
       const timer = setTimeout(() => {
         timedOut = true;
@@ -317,9 +336,10 @@ export class ConnectionAuthentication {
       child.once("error", () => {
         failed = true;
       });
-      child.once("close", (code) => {
+      child.once("close", async (code) => {
         closed = true;
         clearTimeout(timer);
+        if (reaping) await reaping;
         if (force) clearTimeout(force);
         signal.removeEventListener("abort", abort);
         if (failed || code !== 0 || signal.aborted || timedOut)

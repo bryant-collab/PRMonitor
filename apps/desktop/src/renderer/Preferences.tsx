@@ -377,6 +377,19 @@ export function Preferences({
         </p>
         <AIConnections
           preferences={preferences}
+          onModels={(tool, models) =>
+            setPreferences((current) =>
+              current
+                ? {
+                    ...current,
+                    providerModels: {
+                      ...current.providerModels,
+                      [tool]: models,
+                    },
+                  }
+                : current,
+            )
+          }
           onSaved={(value) => {
             setPreferences(value);
             setDrafts((current) => {

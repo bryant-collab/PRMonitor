@@ -101,7 +101,12 @@ import type {
   F16ValidationSummary,
 } from "../shared/f16-preferences";
 import { resolveValidationProfile } from "@prmonitor/validation-contract";
-import { AIProviderRegistry, createCodexProvider } from "./ai";
+import {
+  AIProviderRegistry,
+  createCodexProvider,
+  createClaudeProvider,
+  createCopilotProvider,
+} from "./ai";
 import { ConnectionAuthentication } from "./ai/connection-authentication";
 import { F13WorktreeService } from "./f13-service";
 import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
@@ -345,15 +350,18 @@ function configureRuntimePaths(): void {
 const accessibilityProbe = `(() => {
   const visible = (element) => {
     const style = window.getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden" && element.getAttribute("aria-hidden") !== "true";
+    return element.getClientRects().length > 0 && style.display !== "none" && style.visibility !== "hidden" && element.getAttribute("aria-hidden") !== "true";
   };
   const focusable = [...document.querySelectorAll("a[href], button, input, select, textarea, [tabindex]:not([tabindex=\\"-1\\"])" )]
     .filter((element) => visible(element) && !element.hasAttribute("disabled"));
   const skipLink = document.querySelector(".skip-link");
   const status = document.querySelector("#${STARTUP_STATUS_ID}");
   const heading = document.querySelectorAll("h1");
-  const managedPrForm = document.querySelector('form[aria-label="Add a pull request"]');
-  const managedPrHeading = document.querySelector("#managed-pr-heading");
+  const addForm = document.querySelector('form[aria-label="Add a pull request"]');
+  const githubForm = document.querySelector('form[aria-label="Add or update GitHub server"]');
+  const isAdd = addForm !== null && visible(addForm);
+  const managedPrForm = isAdd ? addForm : githubForm;
+  const managedPrHeading = document.querySelector(isAdd ? "#managed-pr-heading" : "#server-settings-heading");
   const managedPrControls = managedPrForm === null
     ? []
     : [...managedPrForm.querySelectorAll("input, textarea, select, button")];
@@ -370,9 +378,10 @@ const accessibilityProbe = `(() => {
       status.getAttribute("role") === "status" &&
       status.getAttribute("aria-live") === "polite" &&
       status.getAttribute("data-prmonitor-ready") === "true" &&
-      managedPrForm.getAttribute("aria-label") === "Add a pull request" &&
-      managedPrHeading.textContent?.trim() === "Add PR" &&
-      managedPrControls.length >= 7 &&
+      visible(managedPrForm) && visible(managedPrHeading) &&
+      managedPrForm.getAttribute("aria-label") === (isAdd ? "Add a pull request" : "Add or update GitHub server") &&
+      managedPrHeading.textContent?.trim() === (isAdd ? "Add PR" : "GitHub servers") &&
+      managedPrControls.length >= (isAdd ? 7 : 4) &&
       managedPrControls.every((element) => element.tagName === "BUTTON" || element.labels?.length > 0 || element.getAttribute("aria-label") !== null) &&
       skipIndex >= 0 && statusIndex > skipIndex && skipFocused && enterMovesFocus,
     forcedColors: window.matchMedia("(forced-colors: active)").matches,
@@ -405,12 +414,15 @@ function smokeFailure(reason: string, error?: unknown): void {
 async function runAccessibilityProbe(
   window: BrowserWindow,
 ): Promise<{ ok: boolean; forcedColors: boolean; reason?: string }> {
-  // Exercise the real focused Add PR route; settings and forms are absent from unrelated views.
+  // Fresh profiles start at GitHub setup. Probe its real visible form; ready
+  // profiles exercise the focused Add PR route. Keep native keyboard/semantics checks.
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     const opened = await window.webContents.executeJavaScript(
       `(() => {
-      const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === 'Add PR' && !item.disabled);
+      const setupForm = document.querySelector('form[aria-label="Add or update GitHub server"]');
+      if (setupForm?.getClientRects().length) return true;
+      const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === 'Add PR' && !item.disabled && item.getClientRects().length);
       if (!button) return false; button.click(); return true;
     })()`,
       true,
@@ -424,9 +436,12 @@ async function runAccessibilityProbe(
   while (Date.now() < deadline) {
     formReady = await window.webContents.executeJavaScript(
       `(() => {
-        const form = document.querySelector('form[aria-label="Add a pull request"]');
-        return Boolean(form && document.querySelector('#managed-pr-heading') &&
-          form.querySelectorAll('input, textarea, select, button').length >= 7);
+        const add = document.querySelector('form[aria-label="Add a pull request"]');
+        const github = document.querySelector('form[aria-label="Add or update GitHub server"]');
+        const isAdd = Boolean(add?.getClientRects().length);
+        const form = isAdd ? add : github;
+        return Boolean(form?.getClientRects().length && document.querySelector(isAdd ? '#managed-pr-heading' : '#server-settings-heading') &&
+          form.querySelectorAll('input, textarea, select, button').length >= (isAdd ? 7 : 4));
       })()`,
       true,
     );
@@ -785,6 +800,12 @@ async function initializeMainProcessPersistence(): Promise<void> {
   );
   f15ProviderRegistry.register(
     createCodexProvider({ connectionAuthentication }),
+  );
+  f15ProviderRegistry.register(
+    createClaudeProvider({ authentication: connectionAuthentication }),
+  );
+  f15ProviderRegistry.register(
+    createCopilotProvider({ authentication: connectionAuthentication }),
   );
   f16PreferencesService = new F16PreferencesService({
     repositories: createF16PreferencesRepository(f03Repositories),

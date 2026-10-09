@@ -81,9 +81,15 @@ try {
       {
         name: "owned-controlled-provider",
         setup(build) {
-          build.onResolve({ filter: /(?:^|\/)codex-adapter$/ }, () => ({
-            path: path.join(repository, "tests/controlled-provider-fixture.ts"),
-          }));
+          build.onResolve(
+            { filter: /(?:^|\/)(?:codex|claude|copilot)-adapter$/ },
+            () => ({
+              path: path.join(
+                repository,
+                "tests/controlled-provider-fixture.ts",
+              ),
+            }),
+          );
           const observer = path.join(
             repository,
             "tests/controlled-conversation-observer.ts",

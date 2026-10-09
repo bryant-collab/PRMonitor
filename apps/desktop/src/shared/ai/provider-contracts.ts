@@ -1,3 +1,11 @@
+import {
+  aiProviderReasoningEffortSchema,
+  type AIProviderReasoningEffort,
+} from "./reasoning";
+export {
+  aiProviderReasoningEffortSchema,
+  type AIProviderReasoningEffort,
+} from "./reasoning";
 import { aiConnectionSchema } from "../ai-connections";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -43,20 +51,6 @@ export const aiProviderInteractionModeSchema = z.enum([
 ]);
 export type AIProviderInteractionMode = z.infer<
   typeof aiProviderInteractionModeSchema
->;
-
-export const aiProviderReasoningEffortSchema = z.enum([
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-  "persistent",
-]);
-export type AIProviderReasoningEffort = z.infer<
-  typeof aiProviderReasoningEffortSchema
 >;
 
 export const aiProviderSandboxModeSchema = z.enum([

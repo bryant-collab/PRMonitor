@@ -9,7 +9,8 @@
   "workspaces": [
     "apps/desktop",
     "tools/spec-linter",
-    "packages/validation-contract"
+    "packages/validation-contract",
+    "packages/provider-runtimes"
   ],
   "scripts": {
     "check:runtime": "node scripts/check-runtime.mjs",

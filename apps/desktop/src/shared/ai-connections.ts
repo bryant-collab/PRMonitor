@@ -1,3 +1,4 @@
+import { aiProviderReasoningEffortSchema } from "./ai/reasoning";
 import { f29HasControlCharacter } from "./f29-security";
 import { z } from "zod";
 
@@ -40,6 +41,13 @@ export const aiConnectionSchema = z
         path: ["extraArgs"],
         message:
           "This option is not supported. Workspace and safety options are set by PRMonitor.",
+      });
+    }
+    if (value.tool !== "codex" && value.signInSource === "prmonitor") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["signInSource"],
+        message: "Use this tool's existing sign-in.",
       });
     }
     if (value.tool !== "codex" && value.authMode !== "subscription") {
@@ -89,6 +97,17 @@ export const aiToolStatusSchema = z
     executable: z.string().max(4096).optional(),
     detected: z.boolean(),
     version: z.string().max(80).optional(),
+    models: z
+      .array(
+        z
+          .object({
+            modelId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,255}$/u),
+            reasoningEfforts: z.array(aiProviderReasoningEffortSchema).max(16),
+          })
+          .strict(),
+      )
+      .max(64)
+      .optional(),
     compatible: z.boolean(),
     authentication: z.enum(["subscription", "api", "missing", "unknown"]),
     workReadiness: z.enum(["blocked", "not_checked"]).optional(),

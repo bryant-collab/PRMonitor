@@ -50,22 +50,67 @@ and does not promise absolute OS isolation. Synthetic tests verify required
 account, environment, policy and writable-root contracts. They do not establish
 absolute exclusion of every credential file from filesystem reads.
 
-Native Windows remains blocked under the prohibition on security changes:
-windowsSandbox/readiness can refresh Registered Core before returning; elevated
-execution provisions/refreshes, and unelevated execution also changes ACLs.
-No supported no-setup/no-elevation launch flag was established. No readiness,
-provisioning, elevation, ACL change or user-machine mutation was attempted.
+Windows Codex now uses the supported empty-environment, host-file-tool path.
+The provider's native sandbox readiness/setup APIs can change security settings,
+so they are never called. The filtered child environment sets
+CODEX_EXEC_SERVER_URL=none, and launch rejects any environments.toml in the
+existing store (it takes precedence over that setting). Thread start selects no
+environments, runtime roots or capability roots. New and cold-resumed thread
+responses must report environments:[]; null or a native/remote selection fails
+before input. Resume uses only supported resume fields. Every turn explicitly
+selects no environments. Native command, patch, image, permission, extension,
+search and agent tools remain disabled. Upstream v0.156 tests establish that
+empty environments remove native environment-backed registrations.
 
-Claude Code and GitHub Copilot integration remains in progress, not complete.
-Their detected installations are not represented as ready while effective
-permissions/authentication are unverified. Claude's supported restricted file-tool
-path and SDK settings resolution are being investigated; managed hooks cannot be
-claimed disabled by ordinary CLI overrides. Copilot needs an actual supported
-adapter rather than detection alone.
+Only operation-owned, conversation/turn-bound PRMonitor file callbacks execute.
+They validate exact arguments, canonical paths, single-linked files, Git
+administration exclusions, byte limits and cancellation. Read-only tasks cannot
+write; edits require one literal match; writes handle partial OS writes and
+remove only an exclusively created file on precommit failure. Bounded call-ID
+caching prevents duplicate mutations and rejects changed replay arguments.
+Native approval requests stay rejected. This is a file-tool restriction, not
+disabling sandbox assertions or proving absolute OS isolation. Windows-native
+provider acceptance has not run.
+
+Claude Code now uses the pinned official Agent SDK with the selected native
+program and existing subscription store. Its isolated policy helper returns
+only bounded nonsecret decisions from provider-owned managed settings resolution.
+Managed hooks/launch commands/billing overrides block invocation; no configured
+hook is bypassed. Restricted/safe mode, explicit file tools, disabled permission
+prompts, empty MCP/plugins and scoped PreToolUse callbacks constrain each task.
+The prompt remains held until subscription identity, model/effort and
+hooks_applied:true are confirmed. Registration metadata does not prove live hook
+execution. A captured owned child bounds bytes before SDK decoding and awaits
+TERM/KILL cleanup before releasing connection ownership.
+
+GitHub Copilot now uses the pinned official SDK with the selected CLI, existing
+user OAuth on github.com, explicit service model and source-qualified file tools.
+API keys, gh CLI credentials, provider-qualified/BYOK models and auto-selection
+are rejected. Managed hook discovery must be complete and have no enabled hooks.
+Config discovery, MCP/custom tools, skills, memory, scheduling, host Git operations
+and remote sessions are disabled. Resumes reapply the complete restrictions and
+disable pending work; the returned session/model must match. No public JSON schema
+option is invented: final JSON is validated by the existing strict host contract.
+Cancellation bounds pending SDK promises, abort/disconnect and stop; normal stop
+awaits the child. The pinned SDK force-stop fallback sends SIGKILL but does not
+await process close; actual fallback reaping remains a native acceptance item.
+
+Both pinned SDKs use the explicitly supplied environment without merging parent
+environment values. Their types and dependencies are isolated in a private
+workspace with Zod 4; application contracts retain Zod 3. No renderer/shared
+SDK import, credential copy, CLI auto-download, real sign-in or live provider call
+was introduced. Search callbacks reject linked or excessively large/deep
+subtrees; use an explicitly scoped file/directory when broader search is denied.
+Provider settings/hook discovery are snapshots, not proof against later
+administrator-policy changes; F29 residual local-process and filesystem-race
+limits continue to apply.
 
 Sources used for the permission findings:
 
 - https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/protocol/src/protocol.rs#L1222
+- https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/exec-server/src/environment.rs#L178
+- https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/core/src/tools/spec_plan_tests.rs#L1298
+- https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/tui/src/temporary_structured_request.rs
 - https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/core/src/config/permissions.rs
 - https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/core/src/config/managed_features.rs
 - https://github.com/openai/codex/blob/rust-v0.156.0/codex-rs/app-server/src/request_processors/windows_sandbox_processor.rs
@@ -84,9 +129,12 @@ billing mismatch, permission escalation, model pagination/identity and process
 cleanup. Child-process fixtures use only Node and synthetic nonsecret data;
 provider/model fixtures perform no real authentication or model contact.
 
-The latest full desktop run passed 504 tests in 50 files. Final exact-head CI
-must establish the aggregate result after remaining provider changes. All desktop typechecks, ESLint, formatting, build and Linux packaging
-passed on the completed local aggregate attempt. Native smoke stopped at
+The final desktop suite passed 527 tests in 54 files, including the last
+adapter/path/replay/helper and late-metadata state regressions. Final aggregate
+and exact-commit CI results are recorded after the final source boundary. Desktop
+typechecks, ESLint, production build, isolated built helper and the production
+dependency audit passed; the audit reported zero vulnerabilities. SDK import
+isolation and nested dependency inventory remain enforced. Native smoke stopped at
 SANDBOX_SETUP_FAILED / HELPER_OWNERSHIP_OR_MODE in this cloud environment. No
 sandbox assertion was disabled and no ownership or security setting was changed.
 
@@ -97,5 +145,9 @@ establish that journey. Physical Windows DPI, screen-reader interaction, real
 subscription access and user-machine runtime readiness remain unverified.
 
 No merge, release, deployment, paid service, real-user app-data change or security
-mutation is authorized by this draft. There is no checklist.md item to close; the
-additional provider and Windows execution acceptance is explicitly incomplete.
+mutation is authorized by this draft. There is no checklist.md item to close. Required native user-PC acceptance:
+read-only version/auth metadata; subscription model access; fresh and cold-resumed
+file tasks; outside/link/read-only/Git-denial sentinels; cancellation and forced
+cleanup; and absence of setup/elevation/ACL changes. Confirm the PC runtime is
+reachable with a fresh harmless command before attempting any of these. An
+earlier runtime-ownership failure does not establish its current availability.

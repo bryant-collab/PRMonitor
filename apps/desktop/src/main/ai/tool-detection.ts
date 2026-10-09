@@ -1,3 +1,8 @@
+import { checkCopilotSignIn } from "./copilot-runtime";
+import {
+  checkClaudePolicy,
+  type ClaudePolicyProbe,
+} from "./claude-policy-probe";
 import { f29HasControlCharacter } from "../../shared/f29-security";
 import { execFile } from "node:child_process";
 import { access, realpath, stat } from "node:fs/promises";
@@ -30,7 +35,9 @@ export const runToolCommand: ToolCommand = (executable, args, env, signal) =>
         shell: false,
         windowsHide: true,
         env,
-        ...(env.CODEX_HOME ? { cwd: env.CODEX_HOME } : {}),
+        ...((env.CODEX_HOME ?? env.CLAUDE_CONFIG_DIR ?? env.COPILOT_HOME)
+          ? { cwd: env.CODEX_HOME ?? env.CLAUDE_CONFIG_DIR ?? env.COPILOT_HOME }
+          : {}),
         timeout: 5000,
         maxBuffer: 16384,
         encoding: "utf8",
@@ -166,6 +173,7 @@ export async function checkAITool(
   source: NodeJS.ProcessEnv = process.env,
   signal?: AbortSignal,
   ownedHome?: string,
+  claudePolicy: ClaudePolicyProbe = checkClaudePolicy,
 ): Promise<AIToolStatus> {
   signal?.throwIfAborted();
   const executable = await resolveToolExecutable(
@@ -201,7 +209,15 @@ export async function checkAITool(
     };
   const env = {
     ...toolEnvironment(input.tool, input.authMode, source),
-    ...(ownedHome ? { CODEX_HOME: ownedHome } : {}),
+    ...(ownedHome
+      ? {
+          [input.tool === "claude"
+            ? "CLAUDE_CONFIG_DIR"
+            : input.tool === "copilot"
+              ? "COPILOT_HOME"
+              : "CODEX_HOME"]: ownedHome,
+        }
+      : {}),
   };
   const command: ToolCommand = async (program, args, environment) => {
     signal?.throwIfAborted();
@@ -222,17 +238,90 @@ export async function checkAITool(
       authentication: "unknown",
       message: "The program could not report its version.",
     };
-  if (input.tool !== "codex")
+  if (input.tool === "claude") {
+    const [major, minor, patch] = version.split(".").map(Number);
+    const compatible =
+      (major ?? 0) > 2 ||
+      (major === 2 &&
+        ((minor ?? 0) > 1 || (minor === 1 && (patch ?? 0) >= 259)));
+    if (!compatible || !ownedHome)
+      return {
+        ...base,
+        version,
+        compatible,
+        authentication: "missing",
+        message: compatible
+          ? "Save a connection using the existing Claude Code sign-in, then check again."
+          : "Claude Code 2.1.259 or newer is required for restricted file tools and disabled permission prompts.",
+      };
+    const policy = await claudePolicy(ownedHome, env, signal);
+    if (!policy.supported)
+      return {
+        ...base,
+        version,
+        compatible: false,
+        authentication: "unknown",
+        workReadiness: "blocked",
+        message:
+          "Claude Code has managed hooks, launch commands or billing overrides that this connection cannot use. Check the administrator policy.",
+      };
+    const auth = await command(executable, ["auth", "status", "--json"], env);
+    let authenticated = false;
+    try {
+      const value: unknown = JSON.parse(auth.stdout);
+      authenticated =
+        auth.exitCode === 0 &&
+        typeof value === "object" &&
+        value !== null &&
+        "loggedIn" in value &&
+        value.loggedIn === true &&
+        "authMethod" in value &&
+        value.authMethod === "claude.ai" &&
+        "apiProvider" in value &&
+        value.apiProvider === "firstParty";
+    } catch {
+      /* No raw provider output enters readiness or diagnostics. */
+    }
     return {
       ...base,
       version,
-      compatible: false,
-      authentication: "unknown",
-      message:
-        input.tool === "claude"
-          ? "Claude Code is detected. Work is blocked because managed hooks cannot be verified before a session starts."
-          : "GitHub Copilot is detected. Work is blocked until existing native sandbox enforcement and effective permissions can be verified.",
+      compatible,
+      authentication: authenticated ? "subscription" : "missing",
+      workReadiness: "not_checked",
+      message: authenticated
+        ? "Claude Code subscription sign-in is configured. Restricted file-tool permissions are verified before each task."
+        : "Sign in to Claude Code with a claude.ai subscription, then check again. API billing is not selected.",
     };
+  }
+  if (input.tool === "copilot") {
+    const [major, minor, patch] = version.split(".").map(Number);
+    const compatible =
+      (major ?? 0) > 1 ||
+      (major === 1 && ((minor ?? 0) > 0 || (patch ?? 0) >= 83));
+    if (!compatible || !ownedHome)
+      return {
+        ...base,
+        version,
+        compatible,
+        authentication: "missing",
+        message: compatible
+          ? "Save a connection using the existing Copilot CLI sign-in, then check again."
+          : "Copilot CLI 1.0.83 or newer is required for scoped file tools and managed-policy metadata.",
+      };
+    const signIn = await checkCopilotSignIn(
+      parsed.data,
+      env,
+      ownedHome,
+      signal,
+    );
+    return {
+      ...base,
+      version,
+      compatible,
+      workReadiness: "not_checked",
+      ...signIn,
+    };
+  }
   const help = await command(executable, ["app-server", "--help"], env);
   const globalHelp = input.extraArgs.length
     ? await command(executable, ["--help"], env)
@@ -274,13 +363,11 @@ export async function checkAITool(
     version,
     compatible,
     authentication: selectedAuth,
-    workReadiness: process.platform === "win32" ? "blocked" : "not_checked",
+    workReadiness: "not_checked",
     message: !compatible
       ? "This version does not support the required options. Choose a compatible program or remove extra options."
       : selectedAuth !== input.authMode
         ? "Sign in with the selected method in this program, then check again. PRMonitor will not switch billing methods."
-        : process.platform === "win32"
-          ? "Program and sign-in are configured. Work is blocked until native Windows sandbox enforcement can be verified without changing security settings."
-          : "Program and sign-in are configured. Work permissions are verified before each task.",
+        : "Program and sign-in are configured. Work permissions are verified before each task.",
   };
 }

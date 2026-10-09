@@ -12,9 +12,14 @@ import type { F16PreferencesReadModel } from "../shared/f16-preferences";
 export function AIConnections({
   preferences,
   onSaved,
+  onModels,
 }: {
   readonly preferences: F16PreferencesReadModel;
   readonly onSaved: (value: F16PreferencesReadModel) => void;
+  readonly onModels?: (
+    tool: AITool,
+    models: NonNullable<AIToolStatus["models"]>,
+  ) => void;
 }) {
   const connections = preferences.aiConnections ?? [];
   const initial =
@@ -91,6 +96,7 @@ export function AIConnections({
       if (status) {
         setCheckedStatus(status);
         setMessage(status.message);
+        if (status.models?.length) onModels?.(value.tool, status.models);
         if (!value.executable && status.executable)
           setDraft((current) =>
             current.tool === value.tool
@@ -228,6 +234,7 @@ export function AIConnections({
                 executable: statuses[tool]?.executable ?? "",
                 extraArgs: [],
                 authMode: "subscription",
+                signInSource: "existing",
               });
               setMessage(
                 statuses[tool]?.message ??
@@ -335,60 +342,68 @@ export function AIConnections({
               })
             }
           >
-            <option value="existing">Existing Codex sign-in</option>
-            <option value="prmonitor">Separate sign-in for PRMonitor</option>
+            <option value="existing">
+              Existing {AI_TOOL_NAMES[draft.tool]} sign-in
+            </option>
+            {draft.tool === "codex" ? (
+              <option value="prmonitor">Separate sign-in for PRMonitor</option>
+            ) : null}
           </HelpSelect>
         </label>
         <p>
           Subscription mode will not switch to API billing. Existing sign-in
-          uses Codex's own storage without copying credentials. For a separate
-          sign-in, save this connection and use the browser button below.
+          uses the selected tool's own storage without copying credentials.{" "}
+          {draft.tool === "codex"
+            ? "For a separate sign-in, save this connection and use the browser button below."
+            : "Sign in through the selected CLI, then check this connection."}
         </p>
-        <HelpButton
-          type="button"
-          disabled={
-            busy ||
-            dirty ||
-            !saved ||
-            draft.tool !== "codex" ||
-            draft.authMode !== "subscription" ||
-            draft.signInSource !== "prmonitor"
-          }
-          help="Save this connection first, then sign in through Codex's browser flow for PRMonitor."
-          onClick={() =>
-            void action(async () => {
-              if (!saved) return;
-              const request = ++generation.current;
-              setSigningIn(true);
-              setMessage(
-                "Complete Codex sign-in in your browser. You can cancel here.",
-              );
-              try {
-                const response = await window.prmonitor?.signInAIConnection({
-                  connectionId: saved.id,
-                  expectedSettingsRevision: preferences.settingsRevision,
-                });
-                if (!alive.current || request !== generation.current) return;
-                if (response?.ok && response.value.kind === "ai-tools") {
-                  const checked = response.value.view.tools[0];
-                  setCheckedStatus(checked);
-                  setMessage(
-                    checked?.message ?? "Check this connection's sign-in.",
-                  );
-                } else
-                  setError(
-                    response?.ok === false
-                      ? response.error.message
-                      : "Sign-in could not finish.",
-                  );
-              } finally {
-                if (alive.current) setSigningIn(false);
-              }
-            })
-          }
-        >
-          Sign in for PRMonitor
-        </HelpButton>
+        {draft.tool === "codex" ? (
+          <HelpButton
+            type="button"
+            disabled={
+              busy ||
+              dirty ||
+              !saved ||
+              draft.tool !== "codex" ||
+              draft.authMode !== "subscription" ||
+              draft.signInSource !== "prmonitor"
+            }
+            help="Save this connection first, then sign in through Codex's browser flow for PRMonitor."
+            onClick={() =>
+              void action(async () => {
+                if (!saved) return;
+                const request = ++generation.current;
+                setSigningIn(true);
+                setMessage(
+                  "Complete Codex sign-in in your browser. You can cancel here.",
+                );
+                try {
+                  const response = await window.prmonitor?.signInAIConnection({
+                    connectionId: saved.id,
+                    expectedSettingsRevision: preferences.settingsRevision,
+                  });
+                  if (!alive.current || request !== generation.current) return;
+                  if (response?.ok && response.value.kind === "ai-tools") {
+                    const checked = response.value.view.tools[0];
+                    setCheckedStatus(checked);
+                    setMessage(
+                      checked?.message ?? "Check this connection's sign-in.",
+                    );
+                  } else
+                    setError(
+                      response?.ok === false
+                        ? response.error.message
+                        : "Sign-in could not finish.",
+                    );
+                } finally {
+                  if (alive.current) setSigningIn(false);
+                }
+              })
+            }
+          >
+            Sign in for PRMonitor
+          </HelpButton>
+        ) : null}
         {signingIn ? (
           <HelpButton
             type="button"
@@ -497,7 +512,10 @@ export function AIConnections({
                     ? DEFAULT_CODEX_CONNECTION_MODEL
                     : draft.tool === "claude"
                       ? "sonnet"
-                      : "gpt-5",
+                      : checkedStatus?.tool === "copilot" &&
+                          checkedStatus.models?.[0]
+                        ? checkedStatus.models[0].modelId
+                        : "gpt-5",
               });
               if (!alive.current || request !== generation.current) return;
               if (response?.ok && response.value.kind === "preferences") {

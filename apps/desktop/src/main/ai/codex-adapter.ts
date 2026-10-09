@@ -1,7 +1,7 @@
 import { CODEX_MODEL_CHOICES } from "../../shared/ai/codex-models";
 import type { AIConnection } from "../../shared/ai-connections";
 import {
-  assertCodexNativeBoundary,
+  assertCodexFileEnvironment,
   createCodexAppServerClient,
   openCodexProtocol,
 } from "./codex-app-server";
@@ -165,11 +165,8 @@ function defaultRuntime(
         return { runtimeAvailable: false, authenticationAvailable: false };
       const status = await authentication.check(connection);
       return {
-        runtimeAvailable: status.compatible && process.platform !== "win32",
+        runtimeAvailable: status.compatible,
         authenticationAvailable: status.authentication === connection.authMode,
-        ...(process.platform === "win32"
-          ? { executionBlocker: "WINDOWS_SANDBOX_SECURITY_CHANGES" as const }
-          : {}),
       };
     },
     // The SDK constructor resolves its installed native executable without
@@ -190,7 +187,6 @@ function defaultRuntime(
         return createCodexAppServerClient(
           connection,
           async (threadOptions, signal) => {
-            assertCodexNativeBoundary(process.platform);
             const release = await authentication.acquire(connection.id, signal);
             try {
               signal?.throwIfAborted();
@@ -206,13 +202,28 @@ function defaultRuntime(
                 !status.executable
               )
                 throw new Error(status.message);
+              const fileTools = process.platform === "win32";
+              const env = authentication.environment(
+                connection,
+                home,
+                options.env,
+              );
+              if (fileTools) await assertCodexFileEnvironment(env);
               const protocol = await openCodexProtocol(
                 { ...connection, executable: status.executable },
-                authentication.environment(connection, home, options.env),
+                env,
                 threadOptions,
                 signal,
+                undefined,
+                fileTools,
               );
               return {
+                ...(protocol.setFileToolHandler
+                  ? {
+                      setFileToolHandler:
+                        protocol.setFileToolHandler.bind(protocol),
+                    }
+                  : {}),
                 request: protocol.request.bind(protocol),
                 notifications: protocol.notifications.bind(protocol),
                 close: async () => {
@@ -228,6 +239,7 @@ function defaultRuntime(
               throw error;
             }
           },
+          process.platform === "win32",
         );
       }
       const client = new Codex(options as CodexOptions);
@@ -655,7 +667,7 @@ export class CodexAIProvider implements AIProvider {
             : "CANCELLED",
           "CANCELLATION",
           "RETRY_EXPLICITLY",
-          "The Codex turn was stopped before the provider started.",
+          "The AI turn was stopped before the provider started.",
         ),
       );
     }
@@ -679,7 +691,7 @@ export class CodexAIProvider implements AIProvider {
           "POLICY_UNSUPPORTED",
           "POLICY",
           "REVIEW_POLICY",
-          "The direct Codex adapter cannot provide the requested approval or sandbox boundary.",
+          "The selected AI tool cannot provide the requested approval or sandbox boundary.",
         ),
       );
     }
@@ -697,7 +709,7 @@ export class CodexAIProvider implements AIProvider {
           "POLICY_BOUNDARY_VIOLATION",
           "AUTHORITY",
           "REVIEW_WORKTREE",
-          "Publication capability is never passed to Codex.",
+          "Publication capability is never passed to the AI tool.",
         ),
       );
     }
@@ -757,7 +769,9 @@ export class CodexAIProvider implements AIProvider {
           "PROVIDER_START_FAILURE",
           "PROCESS",
           "RETRY_EXPLICITLY",
-          reason instanceof Error ? reason.message : "Codex could not start.",
+          reason instanceof Error
+            ? reason.message
+            : "The AI program could not start.",
           true,
         ),
       );
@@ -798,7 +812,7 @@ export class CodexAIProvider implements AIProvider {
             "MALFORMED_PROVIDER_EVENT",
             "PROVIDER",
             "RETRY_EXPLICITLY",
-            "Codex emitted a non-object event.",
+            "The AI program returned an invalid event.",
           );
           append("failure", { code: providerFailure.code });
           break;
@@ -828,7 +842,8 @@ export class CodexAIProvider implements AIProvider {
             "PROVIDER_TURN_FAILED",
             "SERVICE",
             "RETRY_EXPLICITLY",
-            asString(providerError?.message) ?? "Codex reported a failed turn.",
+            asString(providerError?.message) ??
+              "The AI program reported a failed turn.",
             true,
           );
           append("failure", { code: providerFailure.code });
@@ -837,7 +852,8 @@ export class CodexAIProvider implements AIProvider {
             "PROVIDER_STREAM_FAILURE",
             "PROCESS",
             "RETRY_EXPLICITLY",
-            asString(record.message) ?? "Codex emitted a stream error.",
+            asString(record.message) ??
+              "The AI program returned a stream error.",
             true,
           );
           append("failure", { code: providerFailure.code });
@@ -886,7 +902,7 @@ export class CodexAIProvider implements AIProvider {
             status === "timed_out" ? "TIMEOUT" : "CANCELLED",
             "CANCELLATION",
             "RETRY_EXPLICITLY",
-            "The Codex turn was stopped by the owning workflow.",
+            "The AI turn was stopped by the owning workflow.",
           ),
         );
       }
@@ -896,7 +912,7 @@ export class CodexAIProvider implements AIProvider {
         "RETRY_EXPLICITLY",
         reason instanceof Error
           ? reason.message
-          : "Codex did not complete the stream.",
+          : "The AI program stopped before completing the task.",
         true,
       );
       append("failure", { code: providerFailure.code });
@@ -924,7 +940,7 @@ export class CodexAIProvider implements AIProvider {
           status === "timed_out" ? "TIMEOUT" : "CANCELLED",
           "CANCELLATION",
           "RETRY_EXPLICITLY",
-          "The Codex turn was stopped by the owning workflow.",
+          "The AI turn was stopped by the owning workflow.",
         ),
       );
     }
@@ -970,7 +986,7 @@ export class CodexAIProvider implements AIProvider {
           "PROVIDER_TURN_INCOMPLETE",
           "PROCESS",
           "RECONCILE",
-          "Codex ended without a terminal turn.completed event.",
+          "The AI program stopped without completing the task.",
           true,
         ),
       );

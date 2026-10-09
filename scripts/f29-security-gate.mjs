@@ -69,7 +69,10 @@ async function sourceFiles(directory) {
   return result;
 }
 
-const files = await sourceFiles(path.join(root, "apps"));
+const files = [
+  ...(await sourceFiles(path.join(root, "apps"))),
+  ...(await sourceFiles(path.join(root, "packages"))),
+];
 const contents = new Map();
 for (const file of files) contents.set(file, await readFile(file, "utf8"));
 
@@ -88,12 +91,33 @@ const rendererOrSharedLeaks = [...contents.entries()]
       relative.startsWith("apps/desktop/src/shared/");
     return (
       rendererSafe &&
-      /from\s+["'](?:electron|node:(?:child_process|fs|process|module)|@openai\/codex-sdk)["']/u.test(
+      /from\s+["'](?:electron|node:(?:child_process|fs|process|module)|@openai\/codex-sdk|@prmonitor\/provider-runtimes|@anthropic-ai\/(?:claude-agent-sdk|sdk)|@github\/copilot-sdk)["']/u.test(
         content,
       )
     );
   })
   .map(([file]) => path.relative(root, file).replaceAll("\\", "/"));
+const additionalSdkImports = [...contents.entries()]
+  .filter(([, content]) =>
+    /(?:from\s+["'](?:@anthropic-ai\/(?:claude-agent-sdk|sdk)|@github\/copilot-sdk)["']|require\(["'](?:@anthropic-ai\/(?:claude-agent-sdk|sdk)|@github\/copilot-sdk)["']\))/u.test(
+      content,
+    ),
+  )
+  .map(([file]) => path.relative(root, file).replaceAll("\\", "/"));
+const hostRuntimeImports = [...contents.entries()]
+  .filter(([, content]) =>
+    /from\s+["']@prmonitor\/provider-runtimes["']/u.test(content),
+  )
+  .map(([file]) => path.relative(root, file).replaceAll("\\", "/"));
+const allowedHostRuntimes = new Set(
+  [
+    "claude-adapter.ts",
+    "claude-policy-helper.ts",
+    "claude-process.ts",
+    "copilot-adapter.ts",
+    "copilot-runtime.ts",
+  ].map((name) => `apps/desktop/src/main/ai/${name}`),
+);
 const dynamicLoading = [...contents.entries()]
   .filter(([, content]) =>
     /(?:npm\s+(?:install|i)|pnpm\s+add|yarn\s+add|fetch\s*\([^)]*https?:|import\s*\([^)]*repository|require\s*\([^)]*repository)/iu.test(
@@ -103,9 +127,9 @@ const dynamicLoading = [...contents.entries()]
   .map(([file]) => path.relative(root, file).replaceAll("\\", "/"));
 
 const lockPackages = Object.entries(lockfile.packages ?? {})
-  .filter(([key, value]) => key.startsWith("node_modules/") && value?.version)
+  .filter(([key, value]) => key.includes("node_modules/") && value?.version)
   .map(([key, value]) => ({
-    name: key.slice("node_modules/".length),
+    name: key.slice(key.lastIndexOf("node_modules/") + "node_modules/".length),
     version: value.version,
     production: value.dev !== true && value.optional !== true,
   }))
@@ -124,6 +148,18 @@ const checks = {
   providerImportIsolation:
     providerImports.length === 1 &&
     providerImports[0] === "apps/desktop/src/main/ai/codex-adapter.ts",
+  additionalProviderImportIsolation:
+    additionalSdkImports.length === 2 &&
+    additionalSdkImports.every((file) =>
+      [
+        "packages/provider-runtimes/index.mjs",
+        "packages/provider-runtimes/index.d.ts",
+      ].includes(file),
+    ) &&
+    hostRuntimeImports.every(
+      (file) =>
+        allowedHostRuntimes.has(file) || file.startsWith("apps/desktop/tests/"),
+    ),
   rendererSharedImportIsolation: rendererOrSharedLeaks.length === 0,
   noDynamicInstallOrLoad: dynamicLoading.length === 0,
   threatModelBoundaryCount: expectedBoundaries.length === 10,
@@ -160,6 +196,8 @@ const report = {
     riskAcceptanceValid: !nonDefaultQualityPolicy || riskAcceptanceDateValid,
   },
   providerImports,
+  additionalSdkImports,
+  hostRuntimeImports,
   rendererOrSharedLeaks,
   dynamicLoading,
   boundaries: expectedBoundaries,
@@ -178,6 +216,7 @@ if (
   !checks.lockfilePresent ||
   !checks.runtimeIdentityRecorded ||
   !checks.providerImportIsolation ||
+  !checks.additionalProviderImportIsolation ||
   !checks.rendererSharedImportIsolation ||
   !checks.noDynamicInstallOrLoad ||
   !checks.qualityGateConfiguration

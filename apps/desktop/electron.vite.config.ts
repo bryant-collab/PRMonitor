@@ -7,7 +7,17 @@ export default defineConfig({
     build: {
       outDir: "out/main",
       rollupOptions: {
-        input: "src/main/index.ts",
+        input: {
+          index: "src/main/index.ts",
+          "claude-policy-helper": "src/main/ai/claude-policy-helper.ts",
+        },
+        output: {
+          chunkFileNames: "chunks/[name]-[hash].js",
+          entryFileNames: (chunk) =>
+            chunk.name === "claude-policy-helper"
+              ? "claude-policy-helper.js"
+              : "[name].js",
+        },
       },
     },
   },
