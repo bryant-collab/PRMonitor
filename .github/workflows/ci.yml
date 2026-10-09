@@ -70,6 +70,22 @@ jobs:
         run: |
           $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
           ./tests/installer-shortcuts.ps1 -Installer "release/PRMonitor-$version-x64.exe" -CandidateVersion $version -PreviewInstaller "$env:PRMONITOR_SHORTCUT_PACKAGES/preview.2.exe" -UpgradeInstaller "$env:PRMONITOR_SHORTCUT_PACKAGES/PRMonitor-$env:PRMONITOR_UPGRADE_VERSION-x64.exe" -UpgradeVersion $env:PRMONITOR_UPGRADE_VERSION
+      - name: Checksum review installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $name = "PRMonitor-$version-x64.exe"
+          $hash = (Get-FileHash "release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content "release/$name.sha256" -Encoding ascii
+      - name: Retain unsigned review installer (no release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-review-installer-${{ github.sha }}
+          path: |
+            release/PRMonitor-*-x64.exe
+            release/PRMonitor-*-x64.exe.sha256
+          if-no-files-found: error
+          retention-days: 1
   ubuntu:
     name: Ubuntu Xvfb foundation check
     # Approved temporary compatibility pin; retire before 2027-04-17.
