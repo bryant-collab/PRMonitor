@@ -134,7 +134,18 @@ adapter/path/replay/helper and late-metadata state regressions. Final aggregate
 and exact-commit CI results are recorded after the final source boundary. Desktop
 typechecks, ESLint, production build, isolated built helper and the production
 dependency audit passed; the audit reported zero vulnerabilities. SDK import
-isolation and nested dependency inventory remain enforced. Native smoke stopped at
+isolation and nested dependency inventory remain enforced. Artifact inspection verifies the packaged private runtime and nested Zod 4
+files, and the extracted production policy helper returns the same bounded
+nonsecret decision. The original content regex falsely classified the pinned
+SDK's compiled GITHUB_TOKEN schema export getter as a credential value. The
+checker now distinguishes only simple zero-argument property getters; original
+assignment checks remain, quoted keys are covered, and recognizable token
+literals are detected independently. Tests deny literals, calls, expressions,
+member/block getters and assignments after a permitted getter. No vendor file
+is excluded from inspection. This is credential-shaped content detection, not
+a proof that every arbitrary secret encoding can be recognized.
+
+Native smoke stopped at
 SANDBOX_SETUP_FAILED / HELPER_OWNERSHIP_OR_MODE in this cloud environment. No
 sandbox assertion was disabled and no ownership or security setting was changed.
 
