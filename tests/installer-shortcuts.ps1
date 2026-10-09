@@ -70,12 +70,20 @@ function Assert-RetainedData {
   & node "$PSScriptRoot/installer-shortcut-data.mjs" assert $userData $root
   if ($LASTEXITCODE -ne 0) { throw 'Installed saved review/settings readback failed.' }
 }
-function Install-Candidate([string]$Executable, [string]$ExpectedVersion, [bool]$ExpectStartLink = $true) {
+function Install-Candidate([string]$Executable, [string]$ExpectedVersion, [bool]$ExpectStartLink = $true, [bool]$ExpectBranding = $false) {
   # No /D: exercise the shipping default path on the owned disposable account.
   Run-InstallerProcess $Executable @('/S')
   if (-not (Test-Path -LiteralPath $exe)) { throw 'Installed executable missing.' }
   if ((Get-ItemProperty -LiteralPath $registration).InstallLocation -ne $prefix) { throw 'Install registration mismatch.' }
   if ((Get-ItemProperty -LiteralPath $uninstallRegistration).DisplayVersion -ne $ExpectedVersion) { throw 'Installed version mismatch.' }
+  if ($ExpectBranding) {
+    $metadata = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+    if ($metadata.ProductName -ne 'PRMonitor' -or $metadata.FileDescription -ne 'PRMonitor' -or $metadata.InternalName -ne 'PRMonitor' -or $metadata.OriginalFilename -ne '') { throw 'Installed executable branding mismatch.' }
+    if ($metadata.FileVersion -ne $ExpectedVersion -or $metadata.ProductVersion -ne "$ExpectedVersion.0") { throw 'Installed executable version-resource mismatch.' }
+    $parts = $ExpectedVersion.Split('.') | ForEach-Object { [int]$_ }
+    if ($metadata.FileMajorPart -ne $parts[0] -or $metadata.FileMinorPart -ne $parts[1] -or $metadata.FileBuildPart -ne $parts[2] -or $metadata.FilePrivatePart -ne 0 -or $metadata.ProductMajorPart -ne $parts[0] -or $metadata.ProductMinorPart -ne $parts[1] -or $metadata.ProductBuildPart -ne $parts[2] -or $metadata.ProductPrivatePart -ne 0) { throw 'Installed executable numeric version mismatch.' }
+    if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -ne 'NotSigned') { throw 'Installed executable must remain unsigned.' }
+  }
   if ($ownsUserData) { Assert-RetainedData }
   if (-not $ExpectStartLink) {
     if (Test-Path -LiteralPath $startLink) { throw 'Preview.2 did not reproduce missing-link preservation.' }
@@ -111,18 +119,18 @@ try {
   if ((Get-FileHash -LiteralPath $startLink -Algorithm SHA256).Hash -ne $startHash) { throw 'Existing Start menu link was replaced.' }
   Remove-Item -LiteralPath $startLink, $desktopLink
   Install-Candidate $PreviewInstaller '0.1.0' $false
-  Install-Candidate $Installer $CandidateVersion
+  Install-Candidate $Installer $CandidateVersion $true $true
   if (Test-Path -LiteralPath $desktopLink) { throw 'Repair reset desktop shortcut preference.' }
   $startHash = (Get-FileHash -LiteralPath $startLink -Algorithm SHA256).Hash
-  Install-Candidate $Installer $CandidateVersion
+  Install-Candidate $Installer $CandidateVersion $true $true
   if ((Get-FileHash -LiteralPath $startLink -Algorithm SHA256).Hash -ne $startHash) { throw 'Candidate replaced an existing Start menu link.' }
   Remove-Item -LiteralPath $startLink
-  Install-Candidate $UpgradeInstaller $UpgradeVersion
+  Install-Candidate $UpgradeInstaller $UpgradeVersion $true $true
   if (Test-Path -LiteralPath $desktopLink) { throw 'Reinstall reset desktop shortcut preference.' }
   Uninstall-Candidate
   Remove-Item -LiteralPath $userData -Recurse
   $ownsUserData = $false
-  Install-Candidate $Installer $CandidateVersion
+  Install-Candidate $Installer $CandidateVersion $true $true
   if (-not (Test-Path -LiteralPath $desktopLink)) { throw 'Fresh candidate desktop shortcut missing.' }
   Write-Output 'Shipping identity: default-path preview.2 install/reinstall reproduction, candidate repair/fresh install, version upgrade, existing-link preservation, desktop deletion preference and retained SQLite data passed.'
 } finally {

@@ -22,6 +22,7 @@ import {
 } from "./smoke-failure.mjs";
 import { listPackage } from "@electron/asar";
 import { forbiddenRuntimePayload } from "../../../scripts/runtime-payload.mjs";
+import { assertWindowsBranding } from "../../../scripts/windows-branding.mjs";
 
 const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -179,6 +180,15 @@ async function findArtifact() {
 }
 
 async function assertArtifactShape(executable) {
+  if (process.platform === "win32") {
+    const { version } = JSON.parse(
+      await readFile(path.join(appRoot, "package.json"), "utf8"),
+    );
+    await assertWindowsBranding(executable, {
+      fileVersion: version,
+      productVersion: `${version}.0`,
+    });
+  }
   const artifactDirectory =
     process.platform === "darwin"
       ? path

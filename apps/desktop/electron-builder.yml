@@ -14,7 +14,7 @@ extraResources:
     to: prmonitor.png
 win:
   icon: build/prmonitor.png
-  signAndEditExecutable: false
+  signAndEditExecutable: true
   signExecutable: false
   forceCodeSigning: false
   target:
