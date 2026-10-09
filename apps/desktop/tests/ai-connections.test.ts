@@ -29,6 +29,31 @@ import {
 import { CodexAdapter } from "../src/main/ai/codex-adapter";
 
 const roots: string[] = [];
+it("automatic discovery finds native executables without starting a CLI, checking auth or claiming compatibility", async () => {
+  const run = vi.fn<ToolCommand>();
+  for (const tool of ["codex", "claude", "copilot"] as const) {
+    const status = await checkAITool(
+      {
+        tool,
+        executable: process.execPath,
+        extraArgs: [],
+        authMode: "subscription",
+        detectOnly: true,
+      },
+      run,
+      {},
+    );
+    expect(status).toMatchObject({
+      tool,
+      detected: true,
+      compatible: false,
+      authentication: "unknown",
+    });
+    expect(status).not.toHaveProperty("version");
+    expect(status).not.toHaveProperty("models");
+  }
+  expect(run).not.toHaveBeenCalled();
+});
 afterEach(async () => {
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });

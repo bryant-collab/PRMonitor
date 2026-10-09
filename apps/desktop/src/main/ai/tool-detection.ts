@@ -190,6 +190,14 @@ export async function checkAITool(
       message: "Program not found. Choose Browse for program.",
     };
   const base = { tool: input.tool, executable, detected: true };
+  if (input.detectOnly)
+    return {
+      ...base,
+      compatible: false,
+      authentication: "unknown",
+      message:
+        "Program found. Use Check program and sign-in to verify compatibility and subscription access.",
+    };
   const parsed = aiConnectionSchema.safeParse({
     id: "check",
     name: "Check",

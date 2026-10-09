@@ -57,9 +57,8 @@ try {
     platform: "node",
     format: "esm",
   });
-  // Build the same main sources with controlled provider metadata/invocation
-  // and remote-read ports. Domain services, IPC, persistence and operation
-  // guards remain real; real CLI contracts have separate provider tests.
+  // Build the same main sources with controlled provider and remote-read ports.
+  // All domain services, IPC validation, persistence and security guards remain real.
   const controlledApp = path.join(root, "controlled-app");
   await mkdir(path.join(controlledApp, "main"), { recursive: true });
   await writeFile(
@@ -82,13 +81,6 @@ try {
       {
         name: "owned-controlled-provider",
         setup(build) {
-          const toolFixture = path.join(
-            repository,
-            "tests/controlled-tool-fixture.ts",
-          );
-          build.onResolve({ filter: /(?:^|\/)tool-detection$/ }, (args) =>
-            args.importer === toolFixture ? undefined : { path: toolFixture },
-          );
           build.onResolve(
             { filter: /(?:^|\/)(?:codex|claude|copilot)-adapter$/ },
             () => ({

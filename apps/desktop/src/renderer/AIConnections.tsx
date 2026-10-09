@@ -79,7 +79,7 @@ export function AIConnections({
     setDraft(next);
   }
 
-  async function check(value: AIConnection) {
+  async function check(value: AIConnection, detectOnly = false) {
     const request = ++generation.current;
     const response = await window.prmonitor?.checkAITools({
       ...(saved &&
@@ -91,6 +91,7 @@ export function AIConnections({
       ...(value.executable ? { executable: value.executable } : {}),
       extraArgs: value.extraArgs,
       authMode: value.authMode,
+      ...(detectOnly ? { detectOnly: true } : {}),
     });
     if (!alive.current || generation.current !== request) return;
     if (response?.ok && response.value.kind === "ai-tools") {
@@ -118,7 +119,7 @@ export function AIConnections({
     alive.current = true;
     let disposed = false;
     if (active && saved && JSON.stringify(draft) === JSON.stringify(saved)) {
-      const savedCheck = check(saved);
+      const savedCheck = check(saved, true);
       const request = generation.current;
       void savedCheck.catch(() => {
         if (!disposed && alive.current && generation.current === request)
@@ -133,6 +134,7 @@ export function AIConnections({
             tool,
             extraArgs: [],
             authMode: "subscription",
+            detectOnly: true,
           });
           if (
             !disposed &&
@@ -207,7 +209,14 @@ export function AIConnections({
             setUseForAll(scope);
             setInitialScope(scope);
             setSaved(selected);
-            if (selected) void check(selected);
+            if (selected) {
+              const detection = check(selected, true);
+              const request = generation.current;
+              void detection.catch(() => {
+                if (alive.current && generation.current === request)
+                  setError("The saved program could not be found.");
+              });
+            }
             setMessage("");
             setError("");
           }}

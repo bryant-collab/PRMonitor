@@ -129,7 +129,8 @@ billing mismatch, permission escalation, model pagination/identity and process
 cleanup. Child-process fixtures use only Node and synthetic nonsecret data;
 provider/model fixtures perform no real authentication or model contact.
 
-The desktop suite passed 530 tests in 54 files, including the three hidden-panel
+The desktop suite passed 530 tests in 54 files before the discovery-mode regression,
+which adds one test for 531 total, including the three hidden-panel
 regressions. Final verification includes the last
 adapter/path/replay/helper and late-metadata state regressions. Final aggregate
 and exact-commit CI results are recorded after the final source boundary. Desktop
@@ -153,13 +154,14 @@ Temp may use a short-name alias. Canonical-worktree, link-denial and cancellatio
 assertions remain intact; the application still rejects noncanonical roots.
 
 Hidden Settings and unrelated settings categories do not launch AI program
-checks. Opening the AI category starts metadata checks without overwriting an
+checks. Opening the AI category discovers executables through filesystem reads,
+without CLI execution, auth/model contact, or a compatibility claim. The explicit
+Check program and sign-in action performs version/auth checks. Discovery does not overwrite an
 unsaved program draft or displaying a saved-program result for that draft. The
 effect rejection guards also ignore old failures after hiding, reopening or
-editing a launch draft. The
-native controlled journey uses an explicit version/auth metadata port alongside
-its existing controlled providers; forbidden real subprocess/network assertions
-remain in force. Production version/auth and provider contracts are exercised
+editing a launch draft. The native journey retains its production-main setup
+stages and existing controlled-provider stages; no extra metadata port is substituted.
+Forbidden real subprocess/network assertions remain in force. Production version/auth and provider contracts are exercised
 separately by the adapter tests.
 
 Native smoke stopped at

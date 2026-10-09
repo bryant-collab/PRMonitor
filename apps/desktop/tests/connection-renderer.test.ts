@@ -83,9 +83,9 @@ function checked(input: AIToolCheckInput, version = "0.156.0"): IpcResponse {
           tool: input.tool,
           executable: input.executable ?? "/fixture/path-codex",
           detected: true,
-          compatible: true,
-          authentication: "subscription",
-          version,
+          compatible: !input.detectOnly,
+          authentication: input.detectOnly ? "unknown" : "subscription",
+          ...(input.detectOnly ? {} : { version }),
           message: `Checked ${input.executable ?? "detected program"}`,
         },
       ],
@@ -304,7 +304,8 @@ describe("provider-managed connection sign-in", () => {
       saved.reject(Error("synthetic saved failure"));
       discovery.reject(Error("synthetic discovery failure"));
     });
-    expect(host.textContent).toContain("Version: 0.156.0");
+    expect(host.textContent).toContain("Version: unknown");
+    expect(host.textContent).toContain("Sign-in: unknown");
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.textContent).not.toContain("could not be checked");
   });
@@ -339,7 +340,10 @@ describe("provider-managed connection sign-in", () => {
       }),
     );
     expect(check).toHaveBeenCalledWith(
-      expect.objectContaining({ connectionId: connection.id }),
+      expect.objectContaining({
+        connectionId: connection.id,
+        detectOnly: true,
+      }),
     );
     await change(field("Program"), "/fixture/unsaved-codex");
     const calls = check.mock.calls.length;
@@ -546,8 +550,11 @@ describe("connection renderer interactions", () => {
         onSaved: vi.fn(),
       }),
     );
+    expect(host.textContent).toContain("Version: unknown");
+    await click(button("Check program and sign-in"));
     expect(host.textContent).toContain("Version: 0.156.0");
     await change(field("Saved connection"), "personal");
+    expect(run.mock.calls.at(-1)?.[0]).toMatchObject({ detectOnly: true });
     expect(host.textContent).not.toContain("Version: 0.156.0");
     await change(field("Program"), "/fixture/another-codex");
     await act(async () =>
@@ -707,7 +714,7 @@ describe("connection renderer interactions", () => {
       readPreferences: async () =>
         reply({ kind: "preferences", preferences: before }),
       checkAITools: (input: AIToolCheckInput) =>
-        input.connectionId === "work"
+        input.connectionId === "work" && !input.detectOnly
           ? pending.promise
           : Promise.resolve(checked(input)),
       saveTaskProfile: save,
@@ -719,6 +726,7 @@ describe("connection renderer interactions", () => {
         category: "tasks",
       }),
     );
+    await click(button("Check program and sign-in"));
     await change(field("AI task"), "AUTOMATIC_REVIEW_REEVALUATION");
     await change(field("Model"), "task-draft-model");
     await click(button("Save task profile"));

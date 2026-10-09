@@ -2505,7 +2505,8 @@ async function startMainProcess(): Promise<void> {
       return reviewScheduler.resumeWatching(input);
     },
     checkAITools: async (input) => {
-      if (!input.connectionId) return { tools: [await checkAITool(input)] };
+      if (!input.connectionId || input.detectOnly)
+        return { tools: [await checkAITool(input)] };
       const connection = f16PreferencesService
         ?.readPreferences()
         .aiConnections?.find((value) => value.id === input.connectionId);

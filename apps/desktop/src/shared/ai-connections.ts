@@ -80,6 +80,7 @@ export const aiToolCheckInputSchema = z
     executable: z.string().max(4096).optional(),
     extraArgs: z.array(z.string().max(256)).max(16).default([]),
     authMode: z.enum(["subscription", "api"]).default("subscription"),
+    detectOnly: z.boolean().optional(),
   })
   .strict();
 export type AIToolCheckInput = z.infer<typeof aiToolCheckInputSchema>;
