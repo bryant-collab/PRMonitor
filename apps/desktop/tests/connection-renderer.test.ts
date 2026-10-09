@@ -94,10 +94,12 @@ function checked(input: AIToolCheckInput, version = "0.156.0"): IpcResponse {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 let root: Root;
 let host: HTMLDivElement;
@@ -258,6 +260,112 @@ describe("default connection scope", () => {
 });
 
 describe("provider-managed connection sign-in", () => {
+  it("ignores a saved-program failure after the launch draft changes", async () => {
+    const pending = deferred<IpcResponse>();
+    bridge({
+      checkAITools: (input: AIToolCheckInput) =>
+        input.connectionId ? pending.promise : Promise.resolve(checked(input)),
+    });
+    await mount(
+      createElement(AIConnections, {
+        preferences: preferences(),
+        onSaved: vi.fn(),
+      }),
+    );
+    await change(field("Program"), "/fixture/unsaved-codex");
+    await act(async () => pending.reject(Error("synthetic saved failure")));
+    expect(field("Program").value).toBe("/fixture/unsaved-codex");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.textContent).not.toContain("could not be checked");
+  });
+  it("ignores rejected saved-check and program-discovery replies from a hidden previous AI view", async () => {
+    const saved = deferred<IpcResponse>();
+    const discovery = deferred<IpcResponse>();
+    let firstSaved = true;
+    let firstDiscovery = true;
+    bridge({
+      checkAITools: (input: AIToolCheckInput) => {
+        if (input.connectionId && firstSaved) {
+          firstSaved = false;
+          return saved.promise;
+        }
+        if (!input.connectionId && input.tool === "claude" && firstDiscovery) {
+          firstDiscovery = false;
+          return discovery.promise;
+        }
+        return Promise.resolve(checked(input));
+      },
+    });
+    const props = { preferences: preferences(), onSaved: vi.fn() };
+    await mount(createElement(AIConnections, { ...props, active: true }));
+    await mount(createElement(AIConnections, { ...props, active: false }));
+    await mount(createElement(AIConnections, { ...props, active: true }));
+    await act(async () => {
+      saved.reject(Error("synthetic saved failure"));
+      discovery.reject(Error("synthetic discovery failure"));
+    });
+    expect(host.textContent).toContain("Version: 0.156.0");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.textContent).not.toContain("could not be checked");
+  });
+  it("does not check programs while settings are hidden or another category is open, and retains unsaved launch choices", async () => {
+    const check = vi.fn(async (input: AIToolCheckInput) => checked(input));
+    bridge({
+      readPreferences: async () =>
+        reply({ kind: "preferences", preferences: preferences() }),
+      checkAITools: check,
+    });
+    await mount(
+      createElement(Preferences, {
+        enabled: true,
+        visible: false,
+        category: "tasks",
+      }),
+    );
+    expect(check).not.toHaveBeenCalled();
+    await mount(
+      createElement(Preferences, {
+        enabled: true,
+        visible: true,
+        category: "instructions",
+      }),
+    );
+    expect(check).not.toHaveBeenCalled();
+    await mount(
+      createElement(Preferences, {
+        enabled: true,
+        visible: true,
+        category: "tasks",
+      }),
+    );
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: connection.id }),
+    );
+    await change(field("Program"), "/fixture/unsaved-codex");
+    const calls = check.mock.calls.length;
+    await mount(
+      createElement(Preferences, {
+        enabled: true,
+        visible: false,
+        category: "tasks",
+      }),
+    );
+    expect(check).toHaveBeenCalledTimes(calls);
+    await mount(
+      createElement(Preferences, {
+        enabled: true,
+        visible: true,
+        category: "tasks",
+      }),
+    );
+    expect(field("Program").value).toBe("/fixture/unsaved-codex");
+    expect(
+      check.mock.calls.filter(
+        ([input]) => input.connectionId === connection.id,
+      ),
+    ).toHaveLength(1);
+    expect(host.textContent).not.toContain("Version: 0.156.0");
+  });
   it("uses only the saved connection identity, coalesces sign-in and permits cancellation", async () => {
     const pending = deferred<IpcResponse>();
     const signIn = vi.fn(() => pending.promise);

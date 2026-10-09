@@ -129,7 +129,8 @@ billing mismatch, permission escalation, model pagination/identity and process
 cleanup. Child-process fixtures use only Node and synthetic nonsecret data;
 provider/model fixtures perform no real authentication or model contact.
 
-The final desktop suite passed 527 tests in 54 files, including the last
+The desktop suite passed 530 tests in 54 files, including the three hidden-panel
+regressions. Final verification includes the last
 adapter/path/replay/helper and late-metadata state regressions. Final aggregate
 and exact-commit CI results are recorded after the final source boundary. Desktop
 typechecks, ESLint, production build, isolated built helper and the production
@@ -150,6 +151,16 @@ logger cannot interleave raw stdout with Node's serialized test results. Provide
 fixtures create their roots beneath realpath(Temp), including on Windows where
 Temp may use a short-name alias. Canonical-worktree, link-denial and cancellation
 assertions remain intact; the application still rejects noncanonical roots.
+
+Hidden Settings and unrelated settings categories do not launch AI program
+checks. Opening the AI category starts metadata checks without overwriting an
+unsaved program draft or displaying a saved-program result for that draft. The
+effect rejection guards also ignore old failures after hiding, reopening or
+editing a launch draft. The
+native controlled journey uses an explicit version/auth metadata port alongside
+its existing controlled providers; forbidden real subprocess/network assertions
+remain in force. Production version/auth and provider contracts are exercised
+separately by the adapter tests.
 
 Native smoke stopped at
 SANDBOX_SETUP_FAILED / HELPER_OWNERSHIP_OR_MODE in this cloud environment. No

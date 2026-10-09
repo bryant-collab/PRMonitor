@@ -13,9 +13,11 @@ export function AIConnections({
   preferences,
   onSaved,
   onModels,
+  active = true,
 }: {
   readonly preferences: F16PreferencesReadModel;
   readonly onSaved: (value: F16PreferencesReadModel) => void;
+  readonly active?: boolean;
   readonly onModels?: (
     tool: AITool,
     models: NonNullable<AIToolStatus["models"]>,
@@ -115,42 +117,51 @@ export function AIConnections({
   useEffect(() => {
     alive.current = true;
     let disposed = false;
-    if (initial)
-      void check(initial).catch(() => {
-        if (alive.current)
+    if (active && saved && JSON.stringify(draft) === JSON.stringify(saved)) {
+      const savedCheck = check(saved);
+      const request = generation.current;
+      void savedCheck.catch(() => {
+        if (!disposed && alive.current && generation.current === request)
           setError("The saved connection could not be checked.");
       });
-    void Promise.all(
-      (["codex", "claude", "copilot"] as const).map(async (tool) => {
-        const response = await window.prmonitor?.checkAITools({
-          tool,
-          extraArgs: [],
-          authMode: "subscription",
-        });
+    }
+    const discoveryGeneration = generation.current;
+    if (active)
+      void Promise.all(
+        (["codex", "claude", "copilot"] as const).map(async (tool) => {
+          const response = await window.prmonitor?.checkAITools({
+            tool,
+            extraArgs: [],
+            authMode: "subscription",
+          });
+          if (
+            !disposed &&
+            alive.current &&
+            response?.ok &&
+            response.value.kind === "ai-tools"
+          ) {
+            const status = response.value.view.tools[0];
+            if (status)
+              setStatuses((current) => ({
+                ...current,
+                [tool]: current[tool] ?? status,
+              }));
+          }
+        }),
+      ).catch(() => {
         if (
           !disposed &&
           alive.current &&
-          response?.ok &&
-          response.value.kind === "ai-tools"
-        ) {
-          const status = response.value.view.tools[0];
-          if (status)
-            setStatuses((current) => ({
-              ...current,
-              [tool]: current[tool] ?? status,
-            }));
-        }
-      }),
-    ).catch(() => {
-      if (alive.current)
-        setError("Programs could not be checked. Use Browse for program.");
-    });
+          generation.current === discoveryGeneration
+        )
+          setError("Programs could not be checked. Use Browse for program.");
+      });
     return () => {
       disposed = true;
       alive.current = false;
       generation.current += 1;
     };
-  }, []);
+  }, [active]);
 
   async function action(run: () => Promise<void>) {
     if (pending.current) return;

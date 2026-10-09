@@ -376,6 +376,7 @@ export function Preferences({
           unchanged.
         </p>
         <AIConnections
+          active={visible && (category === undefined || category === "tasks")}
           preferences={preferences}
           onModels={(tool, models) =>
             setPreferences((current) =>
