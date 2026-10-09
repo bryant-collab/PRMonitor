@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { UUID } from "builder-util-runtime";
+import { log } from "builder-util/out/log.js";
 import { Packager } from "app-builder-lib/out/packager.js";
 import { WinPackager } from "app-builder-lib/out/winPackager.js";
 import { NsisTarget } from "app-builder-lib/out/targets/nsis/NsisTarget.js";
@@ -13,6 +14,13 @@ import { nsisTemplatesDir } from "app-builder-lib/out/targets/nsis/nsisUtil.js";
 const desktop = fileURLToPath(new URL("../../apps/desktop/", import.meta.url));
 
 test("shipping NSIS config enables Start menu repair and compiles with the pinned installer templates", async (t) => {
+  // The pinned logger captures stdout before Node's test IPC replaces it.
+  // Keep diagnostic output off the serialized test-result stream.
+  const originalStream = log.stream;
+  log.stream = process.stderr;
+  t.after(() => {
+    log.stream = originalStream;
+  });
   const directory = await mkdtemp(
     path.join(os.tmpdir(), "prmonitor-nsis-test-"),
   );
