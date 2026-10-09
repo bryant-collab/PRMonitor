@@ -62,3 +62,31 @@ Workspace-local npm 11.17.0 and upstream Git v2.55.0 now satisfy the unchanged
 runtime gate. Xvfb was extracted from Debian packages verified by APT's signed
 metadata into the workspace. Aggregate validation is being rerun; dependencies
 and cache paths remain environment artifacts, not repository changes.
+
+Commit 670f9f6a6097211bcaa7d44947dabfbe86f3cddb again passed Ubuntu
+aggregate checks and the Windows application checks, setup acceptance and both
+installer builds. Installer acceptance refused USER_START_LINK before fixture
+installation. This identifies the conflict and disproves native profile
+redirection as a sufficient correction.
+
+The producer is Electron's toast initialization: PRMonitor constructs the native
+surface adapter and calls Notification.isSupported(). In pinned Electron 44.4.3,
+that initializes the notification presenter, registers a toast activator and
+calls EnsureShortcut. It uses FOLDERID_Programs and the executable ProductName
+to create PRMonitor.lnk, even without showing a notification. NSIS's
+BUILD_UNINSTALLER guard excludes the install section; packaging did not create
+the conflicting link.
+
+Sources:
+
+- https://raw.githubusercontent.com/electron/electron/v44.4.3/shell/browser/api/electron_api_notification.cc
+- https://raw.githubusercontent.com/electron/electron/v44.4.3/shell/browser/notifications/win/notification_presenter_win.cc
+- https://raw.githubusercontent.com/electron/electron/v44.4.3/shell/browser/notifications/win/windows_toast_activator.cc
+
+Installer acceptance now runs in a separate clean Windows hosted job. That job
+builds the application without launching it before packaging and acceptance.
+The original Windows aggregate/setup checks remain unchanged, as do all native
+installer assertions and preflight refusals. No pre-existing shortcut is deleted
+and no application notification behavior is changed. A fresh read-only reviewer
+traced the producer and excluded the NSIS stub. The final pushed CI result is
+still required before installed acceptance can be claimed.
