@@ -97,6 +97,7 @@ export function createCodexProvider(): AIProvider {
     get capabilities() {
       return {
         ...provider.capabilities,
+        modelCatalog: [...(provider.capabilities.modelCatalog ?? []), { modelId: "gpt-6-astra", supportedOptionKeys: [], reasoningEfforts: ["low" as const, "medium" as const, "high" as const] }],
         enabled:
           (globalThis as { __controlledProviderUnavailable?: boolean })
             .__controlledProviderUnavailable !== true,

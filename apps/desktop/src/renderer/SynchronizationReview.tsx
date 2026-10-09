@@ -1,3 +1,10 @@
+import {
+  HelpButton,
+  HelpInput,
+  HelpSelect,
+  HelpTextarea,
+  HelpSummary,
+} from "./HelpControls";
 import { customerExplanation } from "./customer-copy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveSynchronizationTarget } from "./synchronization-target";
@@ -44,7 +51,7 @@ function ChangeEvidenceDetails({
 }) {
   return (
     <details>
-      <summary>{title}</summary>
+      <HelpSummary>{title}</HelpSummary>
       <dl className="profile-details synchronization-evidence">
         <div>
           <dt>Base / tip</dt>
@@ -378,9 +385,9 @@ export function SynchronizationReview({
           <p className="eyebrow">Saved branch synchronization</p>
           <h2 id="synchronization-review-heading">Synchronization results</h2>
         </div>
-        <button type="button" onClick={() => void load()} disabled={busy}>
+        <HelpButton type="button" onClick={() => void load()} disabled={busy}>
           Refresh results
-        </button>
+        </HelpButton>
       </div>
       {error !== "" ? (
         <p className="form-message" role="alert">
@@ -397,7 +404,7 @@ export function SynchronizationReview({
             className="synchronization-batch-list"
           >
             {batches.map((batch) => (
-              <button
+              <HelpButton
                 type="button"
                 className={
                   batch.batchId === selectedBatchId
@@ -416,7 +423,7 @@ export function SynchronizationReview({
                   {batch.counts.ready} ready · {batch.counts.attention}{" "}
                   attention
                 </span>
-              </button>
+              </HelpButton>
             ))}
           </nav>
           <div className="synchronization-review-content">
@@ -433,7 +440,7 @@ export function SynchronizationReview({
                   className="synchronization-result-list"
                 >
                   {selectedBatch.rows.map((row) => (
-                    <button
+                    <HelpButton
                       type="button"
                       className={
                         row.operationId === result?.operationId
@@ -461,7 +468,7 @@ export function SynchronizationReview({
                           "Inspect this saved result for its permitted next action.",
                         )}
                       </span>
-                    </button>
+                    </HelpButton>
                   ))}
                 </nav>
               </>
@@ -563,7 +570,7 @@ export function SynchronizationReview({
                 ) : null}
                 {result.worktree?.condition !== undefined ? (
                   <details>
-                    <summary>Local worktree condition</summary>
+                    <HelpSummary>Local worktree condition</HelpSummary>
                     <dl className="profile-details synchronization-evidence">
                       <div>
                         <dt>Classification</dt>
@@ -673,9 +680,9 @@ export function SynchronizationReview({
                     {result.conflictResolution.consultationHistory.length >
                     0 ? (
                       <details>
-                        <summary>
+                        <HelpSummary>
                           Consultation and competing-intent evidence
-                        </summary>
+                        </HelpSummary>
                         {result.conflictResolution.consultationHistory.map(
                           (consultation) => (
                             <div
@@ -702,7 +709,9 @@ export function SynchronizationReview({
                     ) : null}
                     {result.conflictResolution.turnHistory.length > 0 ? (
                       <details>
-                        <summary>Complete recorded turn reports</summary>
+                        <HelpSummary>
+                          Complete recorded turn reports
+                        </HelpSummary>
                         <ul>
                           {result.conflictResolution.turnHistory.map((turn) => (
                             <li key={turn.turnId}>
@@ -720,7 +729,7 @@ export function SynchronizationReview({
                       <div className="synchronization-choice">
                         <label>
                           <span>Answer or direction</span>
-                          <textarea
+                          <HelpTextarea
                             value={conflictInput}
                             onChange={(event) =>
                               setConflictInput(event.target.value)
@@ -730,21 +739,21 @@ export function SynchronizationReview({
                           />
                         </label>
                         <div className="synchronization-actions">
-                          <button
+                          <HelpButton
                             type="button"
                             onClick={() => void retryConflict("USER_ANSWER")}
                             disabled={busy || conflictInput.trim() === ""}
                           >
                             Submit answer
-                          </button>
-                          <button
+                          </HelpButton>
+                          <HelpButton
                             type="button"
                             onClick={() => void retryConflict("USER_DIRECTION")}
                             disabled={busy || conflictInput.trim() === ""}
                           >
                             Submit direction
-                          </button>
-                          <button
+                          </HelpButton>
+                          <HelpButton
                             type="button"
                             onClick={() =>
                               void retryConflict("MANUAL_EDIT_CONFIRMED")
@@ -752,8 +761,8 @@ export function SynchronizationReview({
                             disabled={busy}
                           >
                             Confirm manual edit
-                          </button>
-                          <button
+                          </HelpButton>
+                          <HelpButton
                             type="button"
                             onClick={() =>
                               void retryConflict("RETRY_RESOLUTION")
@@ -761,7 +770,7 @@ export function SynchronizationReview({
                             disabled={busy}
                           >
                             Retry resolution
-                          </button>
+                          </HelpButton>
                         </div>
                       </div>
                     ) : null}
@@ -771,27 +780,27 @@ export function SynchronizationReview({
                   className="synchronization-actions"
                   aria-label="Synchronization result actions"
                 >
-                  <button
+                  <HelpButton
                     type="button"
                     onClick={() => void refreshResult("freshness")}
                     disabled={busy || !result.capabilities.refreshFreshness}
                   >
                     Refresh remote freshness
-                  </button>
-                  <button
+                  </HelpButton>
+                  <HelpButton
                     type="button"
                     onClick={() => void refreshResult("worktree")}
                     disabled={busy || !result.capabilities.inspect}
                   >
                     Refresh worktree evidence
-                  </button>
-                  <button
+                  </HelpButton>
+                  <HelpButton
                     type="button"
                     onClick={() => void discard()}
                     disabled={busy || !result.capabilities.discard}
                   >
                     Discard result
-                  </button>
+                  </HelpButton>
                 </div>
                 {result.worktree !== undefined &&
                 result.status !== "PUBLISHED" ? (
@@ -799,7 +808,7 @@ export function SynchronizationReview({
                     <legend>Worktree decision</legend>
                     <label>
                       <span>Choice</span>
-                      <select
+                      <HelpSelect
                         value={choice}
                         onChange={(event) =>
                           setChoice(event.target.value as typeof choice)
@@ -820,11 +829,11 @@ export function SynchronizationReview({
                         <option value="KEEP_AND_CANCEL">
                           Keep Worktree and Cancel
                         </option>
-                      </select>
+                      </HelpSelect>
                     </label>
                     {choice === "CLEAR_ALL" ? (
                       <label className="checkbox-row">
-                        <input
+                        <HelpInput
                           type="checkbox"
                           checked={confirmClearAll}
                           onChange={(event) =>
@@ -835,7 +844,7 @@ export function SynchronizationReview({
                       </label>
                     ) : null}
                     <div className="synchronization-actions">
-                      <button
+                      <HelpButton
                         type="button"
                         onClick={() => void actOnWorktree()}
                         disabled={
@@ -845,8 +854,8 @@ export function SynchronizationReview({
                         }
                       >
                         Apply worktree choice
-                      </button>
-                      <button
+                      </HelpButton>
+                      <HelpButton
                         type="button"
                         onClick={() => void reevaluate()}
                         disabled={
@@ -857,7 +866,7 @@ export function SynchronizationReview({
                         }
                       >
                         Re-evaluate from current refs
-                      </button>
+                      </HelpButton>
                     </div>
                   </fieldset>
                 ) : null}
@@ -865,7 +874,7 @@ export function SynchronizationReview({
                   <fieldset className="synchronization-choice">
                     <legend>Approve merge publication</legend>
                     <label className="checkbox-row">
-                      <input
+                      <HelpInput
                         type="checkbox"
                         checked={completeDiff}
                         onChange={(event) =>
@@ -876,7 +885,7 @@ export function SynchronizationReview({
                     </label>
                     {result.mergeOutcome === "NO_OP" ? (
                       <label className="checkbox-row">
-                        <input
+                        <HelpInput
                           type="checkbox"
                           checked={noCodeChange}
                           onChange={(event) =>
@@ -888,7 +897,7 @@ export function SynchronizationReview({
                     ) : null}
                     <label>
                       <span>Commit message</span>
-                      <input
+                      <HelpInput
                         value={commitMessage}
                         onChange={(event) =>
                           setCommitMessage(event.target.value)
@@ -896,7 +905,7 @@ export function SynchronizationReview({
                         maxLength={512}
                       />
                     </label>
-                    <button
+                    <HelpButton
                       type="button"
                       onClick={() => void approve()}
                       disabled={
@@ -906,7 +915,7 @@ export function SynchronizationReview({
                       }
                     >
                       Approve publication
-                    </button>
+                    </HelpButton>
                   </fieldset>
                 ) : null}
                 {result.publication !== undefined ? (
@@ -920,20 +929,20 @@ export function SynchronizationReview({
                         : ""}
                     </p>
                     <div className="synchronization-actions">
-                      <button
+                      <HelpButton
                         type="button"
                         onClick={() => void publish(false)}
                         disabled={busy || !result.capabilities.publish}
                       >
                         Publish merge
-                      </button>
-                      <button
+                      </HelpButton>
+                      <HelpButton
                         type="button"
                         onClick={() => void publish(true)}
                         disabled={busy || !result.capabilities.reconcile}
                       >
                         Reconcile publication
-                      </button>
+                      </HelpButton>
                     </div>
                   </div>
                 ) : null}
@@ -943,7 +952,7 @@ export function SynchronizationReview({
         </div>
       ) : null}
       <details>
-        <summary>Raw support data</summary>
+        <HelpSummary>Raw support data</HelpSummary>
         <pre tabIndex={0}>{JSON.stringify({ batches, result }, null, 2)}</pre>
       </details>
     </section>

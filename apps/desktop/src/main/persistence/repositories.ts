@@ -61,6 +61,12 @@ export interface F16SettingsCommitInput<
   readonly settingKey: string;
   readonly settingsPayload: TSettings;
   readonly expectedSettingsVersion?: number;
+  readonly revisions?: readonly {
+    readonly kind: F16RevisionKind;
+    readonly id: string;
+    readonly revision: number;
+    readonly payload: TRevision;
+  }[];
   readonly revision?: {
     readonly kind: F16RevisionKind;
     readonly id: string;
@@ -772,8 +778,20 @@ export class PersistenceRepositories {
   ): F16SettingsCommitResult<TSettings, TRevision> {
     text(input.settingKey, "F16 settings key");
     const settingsEncoded = encode(input.settingsPayload);
-    const revisionEncoded =
-      input.revision === undefined ? undefined : encode(input.revision.payload);
+    const revisions = [
+      ...(input.revisions ?? []),
+      ...(input.revision ? [input.revision] : []),
+    ];
+    if (revisions.length > 4)
+      throw repositoryError(
+        this.store,
+        "INVALID_RECORD",
+        "At most four task revisions can be saved together.",
+      );
+    const encodedRevisions = revisions.map((revision) => ({
+      revision,
+      encoded: encode(revision.payload),
+    }));
     const timestamp = now(this.clock);
     return this.store.transaction((transaction) => {
       const existing = transaction.get(
@@ -815,13 +833,10 @@ export class PersistenceRepositories {
       }
 
       let revisionRecord: PersistedRecord<TRevision> | undefined;
-      if (input.revision !== undefined && revisionEncoded !== undefined) {
-        const table = f16RevisionTable(input.revision.kind);
-        const idColumn = f16RevisionIdColumn(input.revision.kind);
-        if (
-          !Number.isSafeInteger(input.revision.revision) ||
-          input.revision.revision < 1
-        )
+      for (const { revision, encoded: revisionEncoded } of encodedRevisions) {
+        const table = f16RevisionTable(revision.kind);
+        const idColumn = f16RevisionIdColumn(revision.kind);
+        if (!Number.isSafeInteger(revision.revision) || revision.revision < 1)
           throw repositoryError(
             this.store,
             "INVALID_RECORD",
@@ -829,8 +844,8 @@ export class PersistenceRepositories {
           );
         transaction.run(
           `INSERT OR IGNORE INTO ${table} (${idColumn}, revision, schema_version, payload_json, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          input.revision.id,
-          input.revision.revision,
+          revision.id,
+          revision.revision,
           revisionEncoded.schemaVersion,
           revisionEncoded.payload,
           revisionEncoded.payloadHash,
@@ -838,8 +853,8 @@ export class PersistenceRepositories {
         );
         const stored = transaction.get(
           `SELECT ${idColumn} AS id, schema_version, payload_json, payload_hash, revision, created_at FROM ${table} WHERE ${idColumn} = ? AND revision = ?`,
-          input.revision.id,
-          input.revision.revision,
+          revision.id,
+          revision.revision,
         );
         if (stored === undefined)
           throw new Error("F03_F16_REVISION_NOT_READABLE");

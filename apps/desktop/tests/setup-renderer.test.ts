@@ -120,7 +120,7 @@ describe("Issue 1 renderer setup readiness", () => {
       }
       if (check.id === "ai-access")
         expect(markup).toContain(
-          "configure OPENAI_API_KEY in the approved runtime environment",
+          "Choose a saved AI connection and check its program",
         );
     },
   );

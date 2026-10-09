@@ -1,3 +1,9 @@
+import type {
+  AIConnectionSave,
+  AIConnectionSignIn,
+  AIToolCheckInput,
+  AIToolsView,
+} from "../shared/ai-connections";
 import type { ManagedPrWork } from "../shared/managed-pr-work";
 import {
   boundedIpcResponse,
@@ -165,6 +171,17 @@ export interface IpcServices {
     readonly requestId: string;
     readonly expectedRevision?: number;
   }) => F12SchedulerControlResult;
+  readonly signInAIConnection?: (
+    input: AIConnectionSignIn,
+  ) => Promise<AIToolsView>;
+  readonly cancelAIConnectionSignIn?: (
+    input: AIConnectionSignIn,
+  ) => Promise<AIToolsView>;
+  readonly checkAITools?: (input: AIToolCheckInput) => Promise<AIToolsView>;
+  readonly pickAIProgram?: () => Promise<string | undefined>;
+  readonly saveAIConnection?: (
+    input: AIConnectionSave,
+  ) => Promise<F16PreferencesReadModel>;
   readonly readPreferences?: () => F16PreferencesReadModel;
   readonly saveTaskProfile?: (
     input: F16TaskProfileSaveInput,
@@ -720,6 +737,53 @@ export class IpcRouter {
           successResponse(request.requestId, {
             kind: "scheduler-operation",
             operation,
+          }),
+        );
+      }
+      if (
+        request.type === "ai.connection.sign-in" ||
+        request.type === "ai.connection.cancel-sign-in"
+      ) {
+        const action =
+          request.type === "ai.connection.sign-in"
+            ? this.services.signInAIConnection
+            : this.services.cancelAIConnectionSignIn;
+        if (!action) throw new Error("AI sign-in is unavailable.");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "ai-tools",
+            view: await action(request.payload),
+          }),
+        );
+      }
+      if (request.type === "ai.tools.check") {
+        if (!this.services.checkAITools)
+          throw new Error("AI settings are unavailable.");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "ai-tools",
+            view: await this.services.checkAITools(request.payload),
+          }),
+        );
+      }
+      if (request.type === "ai.program.pick") {
+        if (!this.services.pickAIProgram)
+          throw new Error("Program selection is unavailable.");
+        const selected = await this.services.pickAIProgram();
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "ai-program",
+            ...(selected ? { path: selected } : {}),
+          }),
+        );
+      }
+      if (request.type === "preferences.ai-connection.save") {
+        if (!this.services.saveAIConnection)
+          throw new Error("AI settings are unavailable.");
+        return boundedIpcResponse(
+          successResponse(request.requestId, {
+            kind: "preferences",
+            preferences: await this.services.saveAIConnection(request.payload),
           }),
         );
       }

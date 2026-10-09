@@ -1,3 +1,13 @@
+import {
+  aiConnectionSaveSchema,
+  aiConnectionSignInSchema,
+  type AIConnectionSignIn,
+  aiToolCheckInputSchema,
+  aiToolsViewSchema,
+  type AIConnectionSave,
+  type AIToolCheckInput,
+  type AIToolsView,
+} from "./ai-connections";
 import { isSafeText } from "./domain/result";
 import { managedPrWorkSchema, type ManagedPrWork } from "./managed-pr-work";
 import { isSetupReadiness, type SetupReadiness } from "./setup-readiness";
@@ -178,6 +188,11 @@ export type IpcRequestType =
   | "scheduler.check-now"
   | "scheduler.pause"
   | "scheduler.resume"
+  | "ai.tools.check"
+  | "ai.program.pick"
+  | "ai.connection.sign-in"
+  | "ai.connection.cancel-sign-in"
+  | "preferences.ai-connection.save"
   | "preferences.read"
   | "preferences.task-profile.save"
   | "preferences.policy.save"
@@ -267,6 +282,22 @@ export interface IpcRequestBase {
 }
 
 export type IpcRequest =
+  | (IpcRequestBase & {
+      readonly type: "ai.connection.sign-in" | "ai.connection.cancel-sign-in";
+      readonly payload: AIConnectionSignIn;
+    })
+  | (IpcRequestBase & {
+      readonly type: "ai.tools.check";
+      readonly payload: AIToolCheckInput;
+    })
+  | (IpcRequestBase & {
+      readonly type: "ai.program.pick";
+      readonly payload: Record<string, never>;
+    })
+  | (IpcRequestBase & {
+      readonly type: "preferences.ai-connection.save";
+      readonly payload: AIConnectionSave;
+    })
   | (IpcRequestBase & {
       readonly type: "renderer.ready";
       readonly payload: { readonly sessionId: string };
@@ -707,6 +738,8 @@ export interface CurrentState {
 export type IpcResponseValue =
   | { readonly kind: "renderer-ready"; readonly sessionId: string }
   | { readonly kind: "current-state"; readonly state: CurrentState }
+  | { readonly kind: "ai-tools"; readonly view: AIToolsView }
+  | { readonly kind: "ai-program"; readonly path?: string }
   | { readonly kind: "lifecycle-status"; readonly status: LifecycleStatus }
   | { readonly kind: "shutdown"; readonly status: LifecycleStatus }
   | { readonly kind: "recovery"; readonly projection: F28RecoveryProjection }
@@ -1086,6 +1119,17 @@ function parseCurrentState(value: unknown): value is CurrentState {
 
 function parseResponseValue(value: unknown): boolean {
   if (!isPlainRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "ai-tools")
+    return (
+      hasExactKeys(value, ["kind", "view"]) &&
+      aiToolsViewSchema.safeParse(value.view).success
+    );
+  if (value.kind === "ai-program")
+    return (
+      hasExactKeys(value, ["kind"], ["path"]) &&
+      (value.path === undefined ||
+        (typeof value.path === "string" && value.path.length <= 4096))
+    );
   if (value.kind === "renderer-ready")
     return (
       hasExactKeys(value, ["kind", "sessionId"]) &&
@@ -1532,6 +1576,32 @@ export function parseIpcRequest(
         },
       },
     };
+  }
+  if (
+    value.type === "ai.connection.sign-in" ||
+    value.type === "ai.connection.cancel-sign-in"
+  ) {
+    const parsed = aiConnectionSignInSchema.safeParse(value.payload);
+    return parsed.success
+      ? { ok: true, value: { ...base, type: value.type, payload: parsed.data } }
+      : invalidRequest("AI connection sign-in request is invalid.");
+  }
+  if (value.type === "ai.program.pick") {
+    if (Object.keys(value.payload).length)
+      return invalidRequest("Program selection does not accept a path.");
+    return { ok: true, value: { ...base, type: value.type, payload: {} } };
+  }
+  if (value.type === "ai.tools.check") {
+    const parsed = aiToolCheckInputSchema.safeParse(value.payload);
+    return parsed.success
+      ? { ok: true, value: { ...base, type: value.type, payload: parsed.data } }
+      : invalidRequest("AI program check is invalid.");
+  }
+  if (value.type === "preferences.ai-connection.save") {
+    const parsed = aiConnectionSaveSchema.safeParse(value.payload);
+    return parsed.success
+      ? { ok: true, value: { ...base, type: value.type, payload: parsed.data } }
+      : invalidRequest("AI connection settings are invalid.");
   }
   if (value.type === "preferences.read") {
     if (Object.keys(value.payload).length !== 0)
@@ -2960,6 +3030,15 @@ export interface PrMonitorPreloadApi {
   readonly checkSchedulerNow: (managedPrId?: string) => Promise<IpcResponse>;
   readonly pauseWatching: (expectedRevision?: number) => Promise<IpcResponse>;
   readonly resumeWatching: (expectedRevision?: number) => Promise<IpcResponse>;
+  readonly signInAIConnection: (
+    input: AIConnectionSignIn,
+  ) => Promise<IpcResponse>;
+  readonly cancelAIConnectionSignIn: (
+    input: AIConnectionSignIn,
+  ) => Promise<IpcResponse>;
+  readonly checkAITools: (input: AIToolCheckInput) => Promise<IpcResponse>;
+  readonly pickAIProgram: () => Promise<IpcResponse>;
+  readonly saveAIConnection: (input: AIConnectionSave) => Promise<IpcResponse>;
   readonly readPreferences: () => Promise<IpcResponse>;
   readonly saveTaskProfile: (
     input: F16TaskProfileSaveInput,

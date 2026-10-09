@@ -1,3 +1,7 @@
+import {
+  aiConnectionSaveSchema,
+  type AIConnectionSave,
+} from "../shared/ai-connections";
 import { createHash, randomUUID } from "node:crypto";
 import type { F13RootResolution } from "../shared/f13-contracts";
 import type { F12SchedulerConfiguration } from "../shared/control-plane";
@@ -182,6 +186,12 @@ export interface F16PreferencesRepository {
   readonly commitSettings: <TRevision = unknown>(input: {
     readonly settings: F16PreferencesState;
     readonly expectedSettingsVersion?: number;
+    readonly revisions?: readonly {
+      readonly kind: F16RevisionKind;
+      readonly id: string;
+      readonly revision: number;
+      readonly payload: TRevision;
+    }[];
     readonly revision?: {
       readonly kind: F16RevisionKind;
       readonly id: string;
@@ -519,8 +529,57 @@ function makeSnapshot(
 export class F16PreferencesService {
   public constructor(private readonly options: F16ServiceOptions) {}
 
+  private readModel(state: F16PreferencesState): F16PreferencesReadModel {
+    const ids = new Set([
+      ...state.taskProfiles.map((profile) => profile.providerId),
+      ...(state.aiConnections ?? []).map((connection) => connection.tool),
+    ]);
+    const providerModels: NonNullable<
+      F16PreferencesReadModel["providerModels"]
+    > = {};
+    for (const id of ids) {
+      const capabilities = this.options.capabilities.get(id);
+      if (capabilities?.modelCatalog)
+        providerModels[id] = capabilities.modelCatalog
+          .filter((model) => model.selectable !== false)
+          .map((model) => ({
+            modelId: model.modelId,
+            reasoningEfforts: [
+              ...(model.reasoningEfforts ?? capabilities.reasoningEfforts),
+            ],
+          }));
+    }
+    return { ...toReadModel(state), providerModels };
+  }
+
   public readPreferences(): F16PreferencesReadModel {
-    return toReadModel(currentRecord(this.options.repositories).state);
+    const { record, state } = currentRecord(this.options.repositories);
+    // Old Codex options were saved but never forwarded by the SDK adapter.
+    // Migrate them once with new immutable revisions rather than silently
+    // changing the meaning of an already captured operation/profile revision.
+    const changed = state.taskProfiles.filter(
+      (profile) =>
+        profile.providerId === "codex" &&
+        Object.keys(profile.providerOptions).length > 0,
+    );
+    if (!changed.length) return this.readModel(state);
+    const profiles = state.taskProfiles.map((profile) =>
+      changed.includes(profile)
+        ? { ...profile, providerOptions: {}, revision: profile.revision + 1 }
+        : profile,
+    );
+    const revisions = profiles
+      .filter((profile) => !state.taskProfiles.includes(profile))
+      .map((profile) => ({
+        kind: "TASK_PROFILE" as const,
+        id: profile.profileId,
+        revision: profile.revision,
+        payload: profile,
+      }));
+    const migrated = nextState(state, { ...state, taskProfiles: profiles });
+    return this.readModel(
+      this.commit(record, migrated, undefined, revisions).settings.payload,
+    );
   }
 
   public saveTaskProfile(
@@ -529,7 +588,18 @@ export class F16PreferencesService {
     const parsed = parseOrThrow(f16TaskProfileSaveInputSchema, input);
     const { record, state } = currentRecord(this.options.repositories);
     assertExpectedRevision(state, parsed.expectedSettingsRevision);
-    const profile = parsed.profile;
+    const selectedConnection = state.aiConnections?.find(
+      (connection) => connection.id === parsed.profile.connectionId,
+    );
+    if (parsed.profile.connectionId && !selectedConnection)
+      throw new F16ConfigurationError(
+        "F16_NOT_FOUND",
+        "AI connection not found.",
+        "Select a saved AI connection.",
+      );
+    const profile = selectedConnection
+      ? { ...parsed.profile, providerId: selectedConnection.tool }
+      : parsed.profile;
     const capabilities = this.options.capabilities.get(profile.providerId);
     const availability = validateProfileAgainstCapabilities(
       profile,
@@ -541,6 +611,7 @@ export class F16PreferencesService {
       profileId: existing.profileId,
       taskType: profile.taskType,
       providerId: profile.providerId,
+      ...(profile.connectionId ? { connectionId: profile.connectionId } : {}),
       modelId: profile.modelId,
       ...(profile.reasoningEffort === undefined
         ? {}
@@ -563,7 +634,92 @@ export class F16PreferencesService {
       revision: nextProfile.revision,
       payload: nextProfile,
     });
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
+  }
+
+  public saveAIConnection(input: AIConnectionSave): F16PreferencesReadModel {
+    const parsed = parseOrThrow(aiConnectionSaveSchema, input);
+    const { record, state } = currentRecord(this.options.repositories);
+    assertExpectedRevision(state, parsed.expectedSettingsRevision);
+    const previous = state.aiConnections?.find(
+      (connection) => connection.id === parsed.connection.id,
+    );
+    const connection = {
+      ...parsed.connection,
+      revision: (previous?.revision ?? 0) + 1,
+    };
+    const connections = [
+      ...(state.aiConnections ?? []).filter(
+        (item) => item.id !== connection.id,
+      ),
+      connection,
+    ];
+    if (connections.length > 16)
+      throw new F16ConfigurationError(
+        "F16_INPUT_LIMIT_EXCEEDED",
+        "Too many AI connections.",
+        "Use an existing connection.",
+      );
+    const taskProfiles = state.taskProfiles.map((profile) => {
+      if (!parsed.useForAllTasks && profile.connectionId !== connection.id)
+        return profile;
+      const draft = {
+        taskType: profile.taskType,
+        providerId: connection.tool,
+        connectionId: connection.id,
+        modelId:
+          previous?.tool === connection.tool &&
+          profile.connectionId === connection.id
+            ? profile.modelId
+            : parsed.modelId,
+        ...(previous?.tool === connection.tool &&
+        profile.connectionId === connection.id &&
+        profile.reasoningEffort !== undefined
+          ? { reasoningEffort: profile.reasoningEffort }
+          : {}),
+        providerOptions:
+          previous?.tool === connection.tool &&
+          profile.connectionId === connection.id
+            ? profile.providerOptions
+            : {},
+        enabled:
+          previous && profile.connectionId === connection.id
+            ? profile.enabled
+            : true,
+      };
+      const availability = validateProfileAgainstCapabilities(
+        draft,
+        this.options.capabilities.get(connection.tool),
+      );
+      const { reasoningEffort: _previousReasoning, ...baseProfile } = profile;
+      return {
+        ...baseProfile,
+        ...draft,
+        ...mapProfileAvailability(availability),
+        revision: profile.revision + 1,
+      };
+    });
+    const next = nextState(state, {
+      ...state,
+      aiConnections: connections,
+      ...(parsed.useForAllTasks ? { defaultConnectionId: connection.id } : {}),
+      taskProfiles,
+    });
+    const revisions = taskProfiles
+      .filter(
+        (profile) =>
+          profile !==
+          state.taskProfiles.find((old) => old.taskType === profile.taskType),
+      )
+      .map((profile) => ({
+        kind: "TASK_PROFILE" as const,
+        id: profile.profileId,
+        revision: profile.revision,
+        payload: { ...profile, connection },
+      }));
+    return this.readModel(
+      this.commit(record, next, undefined, revisions).settings.payload,
+    );
   }
 
   public savePolicy(input: F16PolicySaveInput): F16PreferencesReadModel {
@@ -581,7 +737,7 @@ export class F16PreferencesService {
       revision: nextPolicy.revision,
       payload: nextPolicy,
     });
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
   }
 
   public async saveOperational(
@@ -674,7 +830,7 @@ export class F16PreferencesService {
         );
       }
     }
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
   }
 
   public saveCommonInstruction(
@@ -743,7 +899,7 @@ export class F16PreferencesService {
       revision: nextProfile.revision,
       payload: nextProfile,
     });
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
   }
 
   public deleteCommonInstruction(
@@ -772,7 +928,7 @@ export class F16PreferencesService {
       ),
     });
     const result = this.commit(record, next);
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
   }
 
   public saveCommonInstructionSelection(
@@ -793,7 +949,7 @@ export class F16PreferencesService {
       selectedCommonInstructionIds: [...parsed.selectedProfileIds],
     });
     const result = this.commit(record, next);
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
   }
 
   public saveRepositorySettings(
@@ -835,7 +991,7 @@ export class F16PreferencesService {
       );
     const next = nextState(state, { ...state, repositories });
     const result = this.commit(record, next);
-    return toReadModel(result.settings.payload);
+    return this.readModel(result.settings.payload);
   }
 
   public async resolveTask(
@@ -1054,6 +1210,18 @@ export class F16PreferencesService {
         ...(profile.reasoningEffort === undefined
           ? {}
           : { reasoningEffort: profile.reasoningEffort }),
+        ...(profile.connectionId ? { connectionId: profile.connectionId } : {}),
+        ...(state.aiConnections?.find(
+          (connection) => connection.id === profile.connectionId,
+        )
+          ? {
+              connection: clone(
+                state.aiConnections.find(
+                  (connection) => connection.id === profile.connectionId,
+                )!,
+              ),
+            }
+          : {}),
         providerOptions: clone(profile.providerOptions),
         enabled: profile.enabled,
         availability: "AVAILABLE",
@@ -1127,6 +1295,12 @@ export class F16PreferencesService {
       readonly revision: number;
       readonly payload: TRevision;
     },
+    revisions?: readonly {
+      readonly kind: F16RevisionKind;
+      readonly id: string;
+      readonly revision: number;
+      readonly payload: TRevision;
+    }[],
   ): F16SettingsCommitResult<F16PreferencesState, TRevision> {
     const parsed = f16PreferencesStateSchema.safeParse(state);
     if (!parsed.success) throwSchemaFailure(parsed.error);
@@ -1135,6 +1309,7 @@ export class F16PreferencesService {
         settings: parsed.data,
         expectedSettingsVersion: record?.version ?? 0,
         ...(revision === undefined ? {} : { revision }),
+        ...(revisions === undefined ? {} : { revisions }),
       });
     } catch (error) {
       if (error instanceof F16ConfigurationError) throw error;
@@ -1168,6 +1343,9 @@ export function createF16PreferencesRepository(
           ? {}
           : { expectedSettingsVersion: input.expectedSettingsVersion }),
         ...(input.revision === undefined ? {} : { revision: input.revision }),
+        ...(input.revisions === undefined
+          ? {}
+          : { revisions: input.revisions }),
       }),
   };
 }

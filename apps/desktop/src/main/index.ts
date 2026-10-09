@@ -1,3 +1,4 @@
+import { checkAITool } from "./ai/tool-detection";
 import { recoveryActivityAttribution } from "../shared/recovery-attribution";
 import { projectManagedPrWork } from "./managed-pr-work";
 import {
@@ -101,6 +102,7 @@ import type {
 } from "../shared/f16-preferences";
 import { resolveValidationProfile } from "@prmonitor/validation-contract";
 import { AIProviderRegistry, createCodexProvider } from "./ai";
+import { ConnectionAuthentication } from "./ai/connection-authentication";
 import { F13WorktreeService } from "./f13-service";
 import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
 import { ValidationRunService } from "./f14-validation-runner";
@@ -223,6 +225,7 @@ let reviewScheduler: MainReviewScheduler | undefined;
 let f13WorktreeService: F13WorktreeService | undefined;
 let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
+let connectionAuthentication: ConnectionAuthentication | undefined;
 let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
 let f22Coordinator: F22Coordinator | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
@@ -777,7 +780,12 @@ async function initializeMainProcessPersistence(): Promise<void> {
   });
   prWatcher.reconcileStartup();
   const f15ProviderRegistry = new AIProviderRegistry();
-  f15ProviderRegistry.register(createCodexProvider());
+  connectionAuthentication = new ConnectionAuthentication(
+    path.join(userDataDirectory, "ai-connections"),
+  );
+  f15ProviderRegistry.register(
+    createCodexProvider({ connectionAuthentication }),
+  );
   f16PreferencesService = new F16PreferencesService({
     repositories: createF16PreferencesRepository(f03Repositories),
     capabilities: {
@@ -2475,6 +2483,84 @@ async function startMainProcess(): Promise<void> {
         throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
       return reviewScheduler.resumeWatching(input);
     },
+    checkAITools: async (input) => {
+      if (!input.connectionId) return { tools: [await checkAITool(input)] };
+      const connection = f16PreferencesService
+        ?.readPreferences()
+        .aiConnections?.find((value) => value.id === input.connectionId);
+      if (!connection || !connectionAuthentication)
+        throw new Error("Select a saved AI connection first.");
+      // A renderer may inspect a store only for its exact saved launch choices.
+      if (
+        connection.tool !== input.tool ||
+        connection.executable !== input.executable ||
+        connection.authMode !== input.authMode ||
+        JSON.stringify(connection.extraArgs) !== JSON.stringify(input.extraArgs)
+      )
+        throw new Error("Save these launch choices before checking sign-in.");
+      return { tools: [await connectionAuthentication.check(connection)] };
+    },
+    signInAIConnection: async (input) => {
+      const preferences = f16PreferencesService?.readPreferences();
+      const connection = preferences?.aiConnections?.find(
+        (value) => value.id === input.connectionId,
+      );
+      if (!connection || !connectionAuthentication)
+        throw new Error("Select a saved AI connection first.");
+      if (preferences?.settingsRevision !== input.expectedSettingsRevision)
+        throw new Error("AI settings changed. Reload before signing in.");
+      await connectionAuthentication.signIn(connection);
+      refreshSetupReadiness();
+      return { tools: [await connectionAuthentication.check(connection)] };
+    },
+    cancelAIConnectionSignIn: async (input) => {
+      const connection = f16PreferencesService
+        ?.readPreferences()
+        .aiConnections?.find((value) => value.id === input.connectionId);
+      if (!connection || !connectionAuthentication)
+        throw new Error("Select a saved AI connection first.");
+      connectionAuthentication.cancel(connection.id);
+      return { tools: [await connectionAuthentication.check(connection)] };
+    },
+    pickAIProgram: async () => {
+      const owner = windowManager?.visibleWindow as unknown as
+        BrowserWindow | undefined;
+      const options = {
+        title: "Browse for AI program",
+        properties: ["openFile", "dontAddToRecent"] as (
+          "openFile" | "dontAddToRecent"
+        )[],
+      };
+      const selection = owner
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options);
+      return selection.canceled ? undefined : selection.filePaths[0];
+    },
+    saveAIConnection: async (input) => {
+      if (!f16PreferencesService)
+        throw new Error("AI settings are unavailable.");
+      const status = await checkAITool({
+        tool: input.connection.tool,
+        executable: input.connection.executable,
+        extraArgs: input.connection.extraArgs,
+        authMode: input.connection.authMode,
+      });
+      if (!status.compatible || !status.executable)
+        throw new Error(status.message);
+      const executable = status.executable;
+      if (
+        input.connection.signInSource === "prmonitor" &&
+        connectionAuthentication
+      )
+        await connectionAuthentication.home(input.connection, true);
+      const preferences = setupChange(() =>
+        f16PreferencesService!.saveAIConnection({
+          ...input,
+          connection: { ...input.connection, executable },
+        }),
+      );
+      return preferences;
+    },
     readPreferences: () => {
       if (f16PreferencesService === undefined)
         throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
@@ -3193,6 +3279,8 @@ if (primaryInstance.acquire(process.argv)) {
 }
 
 app.on("will-quit", () => {
+  connectionAuthentication?.dispose();
+  connectionAuthentication = undefined;
   if (setupReadinessTimer !== undefined) clearInterval(setupReadinessTimer);
   setupReadinessTimer = undefined;
   setupReadinessService = undefined;

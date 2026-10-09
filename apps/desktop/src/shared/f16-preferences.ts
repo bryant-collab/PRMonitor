@@ -1,3 +1,4 @@
+import { aiConnectionSchema } from "./ai-connections";
 import { z } from "zod";
 import {
   aiProviderApprovalPolicySchema,
@@ -236,6 +237,7 @@ export const f16TaskProfileDraftSchema = z
   .object({
     taskType: f16TaskTypeSchema,
     providerId: f16ProviderIdSchema,
+    connectionId: f16IdentifierSchema.optional(),
     modelId: f16ModelIdSchema,
     reasoningEffort: f16ReasoningIdSchema.optional(),
     providerOptions: f16ProviderOptionsSchema,
@@ -250,10 +252,12 @@ export const f16TaskProfileRevisionSchema = z
     profileId: f16IdentifierSchema,
     taskType: f16TaskTypeSchema,
     providerId: f16ProviderIdSchema,
+    connectionId: f16IdentifierSchema.optional(),
     modelId: f16ModelIdSchema,
     reasoningEffort: f16ReasoningIdSchema.optional(),
     providerOptions: f16ProviderOptionsSchema,
     enabled: z.boolean(),
+    connection: aiConnectionSchema.optional(),
     availability: f16AvailabilitySchema,
     availabilityReason: z.string().max(F16_MAX_DIAGNOSTIC_BYTES).optional(),
     revision: z.number().int().positive(),
@@ -402,6 +406,8 @@ export const f16PreferencesStateSchema = z
     boundsRevision: z.literal(F16_BOUNDS_REVISION),
     settingsRevision: z.number().int().nonnegative(),
     taskProfiles: z.array(f16TaskProfileRevisionSchema).length(4),
+    aiConnections: z.array(aiConnectionSchema).max(16).optional(),
+    defaultConnectionId: f16IdentifierSchema.optional(),
     policy: f16PolicyRevisionSchema,
     commonInstructionProfiles: z
       .array(f16CommonInstructionProfileSchema)
@@ -416,6 +422,30 @@ export const f16PreferencesStateSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    const connections = value.aiConnections ?? [];
+    if (
+      new Set(connections.map((connection) => connection.id)).size !==
+        connections.length ||
+      (value.defaultConnectionId &&
+        !connections.some(
+          (connection) => connection.id === value.defaultConnectionId,
+        )) ||
+      value.taskProfiles.some(
+        (profile) =>
+          profile.connectionId &&
+          !connections.some(
+            (connection) =>
+              connection.id === profile.connectionId &&
+              connection.tool === profile.providerId,
+          ),
+      )
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["aiConnections"],
+        message: "AI connection selection is invalid.",
+      });
+    }
     const taskTypes = value.taskProfiles.map((profile) => profile.taskType);
     const uniqueTaskTypes = new Set(taskTypes);
     if (
@@ -464,8 +494,24 @@ export const f16PreferencesStateSchema = z
     }
   });
 export type F16PreferencesState = z.infer<typeof f16PreferencesStateSchema>;
+export const f16ProviderModelChoicesSchema = z
+  .record(
+    z.string().min(1).max(128),
+    z
+      .array(
+        z
+          .object({
+            modelId: z.string().min(1).max(256),
+            reasoningEfforts: z.array(aiProviderReasoningEffortSchema).max(16),
+          })
+          .strict(),
+      )
+      .max(64),
+  )
+  .refine((value) => Object.keys(value).length <= 16);
 export type F16PreferencesReadModel = F16PreferencesState & {
   readonly policyPresets: readonly F16PolicyPresetSummary[];
+  readonly providerModels?: z.infer<typeof f16ProviderModelChoicesSchema>;
 };
 
 export const f16TaskProfileSaveInputSchema = z
@@ -1075,6 +1121,7 @@ export function defaultF16Preferences(): F16PreferencesState {
     boundsRevision: F16_BOUNDS_REVISION,
     settingsRevision: 0,
     taskProfiles,
+    aiConnections: [],
     policy: createF16PolicyRevision("AUTONOMOUS_WORKTREE", 1),
     commonInstructionProfiles: [],
     selectedCommonInstructionIds: [],
@@ -1096,7 +1143,12 @@ export function isF16PreferencesReadModel(
   const record = value as Record<string, unknown>;
   if (!Object.prototype.hasOwnProperty.call(record, "policyPresets"))
     return false;
-  const { policyPresets, ...state } = record;
+  const { policyPresets, providerModels, ...state } = record;
+  if (
+    providerModels !== undefined &&
+    !f16ProviderModelChoicesSchema.safeParse(providerModels).success
+  )
+    return false;
   const parsed = f16PreferencesStateSchema.safeParse(state);
   if (!parsed.success) return false;
   const parsedPresets = z

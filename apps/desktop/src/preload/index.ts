@@ -1,3 +1,8 @@
+import type {
+  AIConnectionSave,
+  AIConnectionSignIn,
+  AIToolCheckInput,
+} from "../shared/ai-connections";
 import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC_CHANNELS,
@@ -80,6 +85,9 @@ function invoke(
         readonly destination: "details" | "settings";
       }
     | { readonly managedPrId: string; readonly expectedVersion: number }
+    | AIConnectionSignIn
+    | AIConnectionSave
+    | AIToolCheckInput
     | F16TaskProfileSaveInput
     | F16PolicySaveInput
     | F16OperationalSaveInput
@@ -203,6 +211,12 @@ const api: PrMonitorPreloadApi = {
       "scheduler.resume",
       expectedRevision === undefined ? {} : { expectedRevision },
     ),
+  signInAIConnection: (input) => invoke("ai.connection.sign-in", input),
+  cancelAIConnectionSignIn: (input) =>
+    invoke("ai.connection.cancel-sign-in", input),
+  checkAITools: (input) => invoke("ai.tools.check", input),
+  pickAIProgram: () => invoke("ai.program.pick", {}),
+  saveAIConnection: (input) => invoke("preferences.ai-connection.save", input),
   readPreferences: () => invoke("preferences.read", {}),
   saveTaskProfile: (input) => invoke("preferences.task-profile.save", input),
   savePolicy: (input) => invoke("preferences.policy.save", input),

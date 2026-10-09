@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { HelpButton, HelpInput, HelpSummary } from "./HelpControls";
+import { useState, type ReactNode } from "react";
 import { primaryLabels, prSummary } from "./PrDetail";
 import { customerExplanation } from "./customer-copy";
 import type {
@@ -27,7 +28,6 @@ interface ManagedPrInboxProps {
     managedPrId: string,
     destination: "details" | "settings",
   ) => void;
-  readonly onAddPr: () => void;
   readonly selection: F24SelectionSession | undefined;
   readonly confirmation: F24SynchronizationConfirmation | undefined;
   readonly preparationIntent: F24PreparationIntent | undefined;
@@ -77,7 +77,7 @@ function InboxGroup({
             }
           >
             <label className="inbox-card-selection">
-              <input
+              <HelpInput
                 type="checkbox"
                 checked={
                   selection?.selectedManagedPrIds.includes(card.id) ?? false
@@ -93,7 +93,7 @@ function InboxGroup({
               />
               <span>Branch sync selection</span>
             </label>
-            <button
+            <HelpButton
               type="button"
               className="inbox-inspect"
               aria-pressed={selectedManagedPrId === card.id}
@@ -110,14 +110,14 @@ function InboxGroup({
                   Branch sync: {readableStatus(card.synchronization.status)}
                 </span>
               )}
-            </button>
-            <button
+            </HelpButton>
+            <HelpButton
               type="button"
               className="link-button"
               onClick={() => onNavigate(card.id, "settings")}
             >
               PR settings
-            </button>
+            </HelpButton>
           </article>
         ))}
       </div>
@@ -137,7 +137,6 @@ export function ManagedPrInbox({
   lastKnown,
   onRetry,
   onNavigate,
-  onAddPr,
   selection,
   confirmation,
   preparationIntent,
@@ -148,6 +147,14 @@ export function ManagedPrInbox({
   onResetSelection,
   onConfirmPreparation,
 }: ManagedPrInboxProps) {
+  const [filter, setFilter] = useState<"ACTION_NEEDED" | "WORKING" | "ALL">(
+    "ALL",
+  );
+  const groups =
+    snapshot?.groups.filter(
+      (group) => filter === "ALL" || group.id === filter,
+    ) ?? [];
+  const visibleCount = groups.reduce((count, group) => count + group.count, 0);
   const cardsById = new Map(
     (snapshot?.cards ?? []).map((card) => [card.id, card]),
   );
@@ -171,6 +178,28 @@ export function ManagedPrInbox({
         ) : null}
       </div>
       {toolbar}
+      <div
+        className="inbox-filters"
+        role="group"
+        aria-label="Filter pull requests"
+      >
+        {(
+          [
+            ["ACTION_NEEDED", "Needs attention"],
+            ["WORKING", "Running"],
+            ["ALL", "All PRs"],
+          ] as const
+        ).map(([id, label]) => (
+          <HelpButton
+            type="button"
+            key={id}
+            aria-pressed={filter === id}
+            onClick={() => setFilter(id)}
+          >
+            {label}
+          </HelpButton>
+        ))}
+      </div>
       {snapshot !== undefined && snapshot.cards.length > 0 ? (
         <div
           className="inbox-selection-toolbar"
@@ -179,12 +208,12 @@ export function ManagedPrInbox({
           <div>
             <strong>{selection?.selectedCount ?? 0} selected</strong>
             <span>
-              Select pull requests to review exact source and destination refs
-              before preparation.
+              Select PRs for branch synchronization. Select all includes PRs
+              hidden by the current filter.
             </span>
           </div>
           <div className="inbox-selection-actions">
-            <button
+            <HelpButton
               type="button"
               className="secondary-button"
               disabled={selectionBusy}
@@ -196,8 +225,8 @@ export function ManagedPrInbox({
               }
             >
               Select all
-            </button>
-            <button
+            </HelpButton>
+            <HelpButton
               type="button"
               className="secondary-button"
               disabled={selectionBusy || (selection?.selectedCount ?? 0) === 0}
@@ -209,15 +238,15 @@ export function ManagedPrInbox({
               }
             >
               Clear
-            </button>
-            <button
+            </HelpButton>
+            <HelpButton
               type="button"
               className="primary-button"
               disabled={selectionBusy || !(selection?.canOpen ?? false)}
               onClick={onOpenSynchronization}
             >
               {selection?.actionLabel ?? "Synchronize PR Branches"}
-            </button>
+            </HelpButton>
           </div>
         </div>
       ) : null}
@@ -227,13 +256,13 @@ export function ManagedPrInbox({
         <p role="status">
           The PR inbox changed. Reset branch sync selection to select from the
           current inbox. This clears sync checkboxes and keeps the inspected PR.{" "}
-          <button
+          <HelpButton
             type="button"
             disabled={selectionBusy}
             onClick={onResetSelection}
           >
             Reset branch sync selection
-          </button>
+          </HelpButton>
         </p>
       ) : null}
       {loading ? (
@@ -245,9 +274,9 @@ export function ManagedPrInbox({
         <div className="inbox-error" role="alert">
           <strong>Inbox refresh failed.</strong>
           <span>{error}</span>
-          <button type="button" onClick={onRetry}>
+          <HelpButton type="button" onClick={onRetry}>
             Read again
-          </button>
+          </HelpButton>
         </div>
       ) : null}
       {lastKnown && snapshot !== undefined ? (
@@ -278,14 +307,11 @@ export function ManagedPrInbox({
             <div className="inbox-empty" role="status">
               <strong>No pull requests yet</strong>
               <span>Add a pull request to begin watching it.</span>
-              <button type="button" onClick={onAddPr}>
-                Add PR
-              </button>
             </div>
           ) : null}
           {snapshot !== undefined && snapshot.cards.length > 0 ? (
             <div className="inbox-groups">
-              {snapshot.groups.map((group) => (
+              {groups.map((group) => (
                 <InboxGroup
                   key={group.id}
                   group={group}
@@ -300,6 +326,14 @@ export function ManagedPrInbox({
                 />
               ))}
             </div>
+          ) : null}
+          {!loading &&
+          snapshot !== undefined &&
+          snapshot.cards.length > 0 &&
+          visibleCount === 0 ? (
+            <p role="status">
+              No PRs match this filter. Choose All PRs to see the full list.
+            </p>
           ) : null}
         </div>
         {detail}
@@ -377,7 +411,7 @@ export function ManagedPrInbox({
                   )}
                 </p>
                 <details>
-                  <summary>Raw support data</summary>
+                  <HelpSummary>Raw support data</HelpSummary>
                   <pre tabIndex={0}>
                     {JSON.stringify(
                       { managedPrId: row.managedPrId, reason: row.reason },
@@ -390,7 +424,7 @@ export function ManagedPrInbox({
             ))}
           </div>
           <div className="sync-confirmation-actions">
-            <button
+            <HelpButton
               type="button"
               className="primary-button"
               disabled={!confirmation.confirmEnabled || confirmingPreparation}
@@ -399,7 +433,7 @@ export function ManagedPrInbox({
               {confirmingPreparation
                 ? "Recording preparation…"
                 : "Confirm preparation"}
-            </button>
+            </HelpButton>
             <span className="field-help">
               Ineligible rows remain visible and will be skipped.
             </span>

@@ -1,3 +1,4 @@
+import type { AIConnection } from "../../shared/ai-connections";
 import {
   aiProviderCapabilitiesSchema,
   aiProviderOutputContractSchema,
@@ -29,6 +30,8 @@ export interface AIProviderInvokeOptions {
 export interface AIProviderLocalReadiness {
   readonly runtimeAvailable: boolean;
   readonly authenticationAvailable: boolean;
+  readonly executionBlocker?:
+    "UNVERIFIED_FILESYSTEM_BOUNDARY" | "WINDOWS_SANDBOX_SECURITY_CHANGES";
 }
 
 /**
@@ -38,8 +41,9 @@ export interface AIProviderLocalReadiness {
 export interface AIProvider {
   readonly id: string;
   readonly capabilities: AIProviderCapabilities;
-  readonly readLocalReadiness?: () =>
-    AIProviderLocalReadiness | Promise<AIProviderLocalReadiness>;
+  readonly readLocalReadiness?: (
+    connection?: AIConnection,
+  ) => AIProviderLocalReadiness | Promise<AIProviderLocalReadiness>;
   invoke(
     request: AIProviderRequest,
     options?: AIProviderInvokeOptions,

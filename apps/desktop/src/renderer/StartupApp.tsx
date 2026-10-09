@@ -1,4 +1,12 @@
 import {
+  HelpButton,
+  HelpInput,
+  HelpSelect,
+  HelpTextarea,
+  HelpSummary,
+  HelpAnchor,
+} from "./HelpControls";
+import {
   recoveryScopeManagedPrId,
   isEmptyRecoveryScope,
 } from "../shared/recovery-attribution";
@@ -59,6 +67,9 @@ import { ReviewBundleWorkspace } from "./ReviewBundleWorkspace";
 import { SynchronizationReview } from "./SynchronizationReview";
 import {
   SetupScreen,
+  SetupFooter,
+  setupInitialStep,
+  type SetupStep,
   createSetupReader,
   setupLanding,
   type SetupDestination,
@@ -100,6 +111,8 @@ export function StartupApp() {
     setRoute((current) => ({ ...current, selectedManagedPrId: id }));
   const [settingsCategory, setSettingsCategory] =
     useState<SettingsCategory>("github");
+  const [setupStep, setSetupStep] = useState<SetupStep>("github");
+  const setupStepChosen = useRef(false);
   const [managedWork, setManagedWork] = useState<ManagedPrWork>();
   const [historyBusy, setHistoryBusy] = useState(false);
   const historyGeneration = useRef(0);
@@ -1254,7 +1267,7 @@ export function StartupApp() {
         >
           <label>
             Display name
-            <input
+            <HelpInput
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
               autoComplete="off"
@@ -1264,7 +1277,7 @@ export function StartupApp() {
           </label>
           <label>
             HTTPS server origin
-            <input
+            <HelpInput
               value={serverUrl}
               onChange={(event) => setServerUrl(event.target.value)}
               autoComplete="url"
@@ -1275,7 +1288,7 @@ export function StartupApp() {
           </label>
           <label>
             Personal access value
-            <input
+            <HelpInput
               ref={tokenInputRef}
               type="password"
               autoComplete="new-password"
@@ -1287,9 +1300,9 @@ export function StartupApp() {
             This masked field is cleared after submission and is never shown in
             server status.
           </p>
-          <button type="submit" disabled={busy}>
+          <HelpButton type="submit" disabled={busy}>
             Save and Test
-          </button>
+          </HelpButton>
         </form>
         {formMessage !== "" ? (
           <p className="form-message" role="status" aria-live="polite">
@@ -1338,21 +1351,21 @@ export function StartupApp() {
                   </p>
                 ) : null}
                 <div className="profile-actions">
-                  <button
+                  <HelpButton
                     type="button"
                     disabled={busy}
                     onClick={() => void runProfileAction("test", profile)}
                   >
                     Test Connection
-                  </button>
-                  <button
+                  </HelpButton>
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
                     onClick={() => void runProfileAction("remove", profile)}
                   >
                     Remove
-                  </button>
+                  </HelpButton>
                 </div>
               </article>
             ))}
@@ -1369,7 +1382,7 @@ export function StartupApp() {
                 </span>
                 {operationNeedsAction(operation) ? (
                   <div className="profile-actions">
-                    <button
+                    <HelpButton
                       type="button"
                       disabled={busy}
                       onClick={() =>
@@ -1377,8 +1390,8 @@ export function StartupApp() {
                       }
                     >
                       Retry
-                    </button>
-                    <button
+                    </HelpButton>
+                    <HelpButton
                       type="button"
                       className="secondary-button"
                       disabled={busy}
@@ -1387,7 +1400,7 @@ export function StartupApp() {
                       }
                     >
                       Clean up
-                    </button>
+                    </HelpButton>
                   </div>
                 ) : null}
               </div>
@@ -1423,7 +1436,7 @@ export function StartupApp() {
         >
           <label>
             Verified GitHub server
-            <select
+            <HelpSelect
               value={selectedProfileId ?? ""}
               onChange={(event) => setSelectedProfileId(event.target.value)}
             >
@@ -1434,11 +1447,11 @@ export function StartupApp() {
                   {profile.status.toLowerCase().replaceAll("_", " ")}
                 </option>
               ))}
-            </select>
+            </HelpSelect>
           </label>
           <label>
             Pull-request URL
-            <input
+            <HelpInput
               value={prUrl}
               onChange={(event) => setPrUrl(event.target.value)}
               maxLength={2048}
@@ -1453,11 +1466,11 @@ export function StartupApp() {
             /owner/repository/pull/number.
           </p>
           <details className="optional-pr-settings">
-            <summary>Optional PR settings</summary>{" "}
+            <HelpSummary>Optional PR settings</HelpSummary>{" "}
             <label>
               PR Intent / Context{" "}
               <span className="label-optional">(optional)</span>
-              <textarea
+              <HelpTextarea
                 value={addContext}
                 onChange={(event) => setAddContext(event.target.value)}
                 maxLength={32 * 1024}
@@ -1467,7 +1480,7 @@ export function StartupApp() {
             <label>
               Synchronization source branch{" "}
               <span className="label-optional">(optional)</span>
-              <input
+              <HelpInput
                 value={addOverride}
                 onChange={(event) => setAddOverride(event.target.value)}
                 maxLength={255}
@@ -1478,7 +1491,7 @@ export function StartupApp() {
             <label>
               Existing local clone{" "}
               <span className="label-optional">(optional)</span>
-              <input
+              <HelpInput
                 value={addClonePath}
                 onChange={(event) => setAddClonePath(event.target.value)}
                 maxLength={4096}
@@ -1488,22 +1501,22 @@ export function StartupApp() {
             </label>
           </details>{" "}
           <div className="profile-actions">
-            <button
+            <HelpButton
               type="button"
               className="secondary-button"
               disabled={busy}
               onClick={() => void browseForClone("add")}
             >
               Browse for clone
-            </button>
-            <button
+            </HelpButton>
+            <HelpButton
               type="submit"
               disabled={
                 busy || selectedProfileId === undefined || prUrl.length === 0
               }
             >
               Add Pull Request
-            </button>
+            </HelpButton>
           </div>
         </form>
         {managedMessage !== "" ? (
@@ -1528,7 +1541,7 @@ export function StartupApp() {
                       ? ""
                       : ` · ${attempt.reason.what}`}
                   </span>
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
@@ -1554,7 +1567,7 @@ export function StartupApp() {
                     }}
                   >
                     Retry
-                  </button>
+                  </HelpButton>
                 </div>
               ))}
           </div>
@@ -1622,7 +1635,7 @@ export function StartupApp() {
           >
             <label>
               PR Intent / Context
-              <textarea
+              <HelpTextarea
                 value={prContext}
                 onChange={(event) => setPrContext(event.target.value)}
                 maxLength={32 * 1024}
@@ -1631,7 +1644,7 @@ export function StartupApp() {
             </label>
             <label>
               Synchronization source branch
-              <input
+              <HelpInput
                 value={prOverride}
                 onChange={(event) => setPrOverride(event.target.value)}
                 maxLength={255}
@@ -1639,9 +1652,9 @@ export function StartupApp() {
               />
             </label>
             <div className="profile-actions">
-              <button type="submit" disabled={busy}>
+              <HelpButton type="submit" disabled={busy}>
                 Save new configuration revision
-              </button>
+              </HelpButton>
             </div>
           </form>
           <div className="clone-panel">
@@ -1653,7 +1666,7 @@ export function StartupApp() {
             </h4>
             <label>
               Existing local clone path
-              <input
+              <HelpInput
                 value={prClonePath}
                 onChange={(event) => setPrClonePath(event.target.value)}
                 maxLength={4096}
@@ -1667,7 +1680,7 @@ export function StartupApp() {
               >
                 <h5>Known candidates</h5>
                 {managedCandidates.map((candidate) => (
-                  <button
+                  <HelpButton
                     type="button"
                     className="link-button"
                     key={candidate.canonicalRoot}
@@ -1675,7 +1688,7 @@ export function StartupApp() {
                   >
                     {candidate.canonicalRoot} ·{" "}
                     {candidate.status.toLowerCase().replaceAll("_", " ")}
-                  </button>
+                  </HelpButton>
                 ))}
               </div>
             ) : (
@@ -1685,29 +1698,29 @@ export function StartupApp() {
               </p>
             )}
             <div className="profile-actions">
-              <button
+              <HelpButton
                 type="button"
                 className="secondary-button"
                 disabled={busy}
                 onClick={() => void browseForClone("pr")}
               >
                 Browse
-              </button>
-              <button
+              </HelpButton>
+              <HelpButton
                 type="button"
                 disabled={busy || prClonePath.length === 0}
                 onClick={() => void attachClone()}
               >
                 Validate and attach
-              </button>
-              <button
+              </HelpButton>
+              <HelpButton
                 type="button"
                 className="secondary-button"
                 disabled={busy || managedDetails.localClone === undefined}
                 onClick={() => void clearClone()}
               >
                 Clear clone
-              </button>
+              </HelpButton>
             </div>
           </div>
         </article>
@@ -1733,7 +1746,7 @@ export function StartupApp() {
           feature-health, and safe activity summaries. Credentials, prompts,
           source, diffs, and local paths are omitted.
         </p>
-        <button
+        <HelpButton
           type="button"
           onClick={() => void exportSupportDiagnostics()}
           disabled={supportBusy || state === undefined}
@@ -1741,7 +1754,7 @@ export function StartupApp() {
           {supportBusy
             ? "Preparing diagnostics…"
             : "Export Support Diagnostics"}
-        </button>
+        </HelpButton>
         {supportMessage !== "" ? (
           <p className="form-message" role="status" aria-live="polite">
             {supportMessage}
@@ -1759,10 +1772,38 @@ export function StartupApp() {
   const showingSettings = ["settings", "github", "diagnostics"].includes(
     landing,
   );
+  const showingSetup =
+    landing === "setup" || (showingSettings && category === "setup");
+  const preferenceCategory = showingSetup
+    ? setupStep === "ai"
+      ? "tasks"
+      : setupStep === "permissions"
+        ? "policy"
+        : setupStep === "review"
+          ? "operational"
+          : undefined
+    : category;
+  useEffect(() => {
+    if (setupReadiness && !setupStepChosen.current) {
+      setSetupStep(setupInitialStep(setupReadiness));
+      setupStepChosen.current = true;
+    }
+  }, [setupReadiness]);
+  const showingGithub =
+    (showingSettings && category === "github") ||
+    (showingSetup && setupStep === "github");
+  useEffect(() => {
+    if (!showingGithub && tokenInputRef.current)
+      tokenInputRef.current.value = "";
+  }, [showingGithub]);
+  const chooseSetupStep = (step: SetupStep) => {
+    setupStepChosen.current = true;
+    setSetupStep(step);
+  };
   const categories: readonly [SettingsCategory, string][] = [
     ["github", "GitHub connections"],
-    ["tasks", "AI task profiles"],
-    ["policy", "Execution policy"],
+    ["tasks", "AI connections"],
+    ["policy", "Work permissions"],
     ["operational", "Monitoring and work limits"],
     ["instructions", "Common instructions"],
     ["repository", "Repository build and validation"],
@@ -1780,13 +1821,13 @@ export function StartupApp() {
         : "Watching";
   return (
     <div className="app-shell">
-      <a
+      <HelpAnchor
         className="skip-link"
         href={"#" + STARTUP_STATUS_ID}
         onClick={focusStatus}
       >
         Skip to startup status
-      </a>
+      </HelpAnchor>
       <header className="shell-header">
         <h1 id="startup-heading">{APPLICATION_TITLE}</h1>
         <div
@@ -1817,7 +1858,7 @@ export function StartupApp() {
         </div>
       </header>
       <nav className="shell-navigation" aria-label="PRMonitor destinations">
-        <button
+        <HelpButton
           type="button"
           aria-current={landing === "inbox" ? "page" : undefined}
           onClick={() => {
@@ -1825,48 +1866,30 @@ export function StartupApp() {
             void readSetup();
           }}
         >
-          PR inbox
-        </button>
-        <button
+          PRs
+        </HelpButton>
+        <HelpButton
           type="button"
           aria-current={landing === "activity" ? "page" : undefined}
           onClick={() => setDestination("activity")}
         >
           Activity
-        </button>
-        <button
+        </HelpButton>
+        <HelpButton
           type="button"
           aria-current={showingSettings ? "page" : undefined}
           onClick={() => setDestination("settings")}
         >
           Settings
-        </button>
-        <p>Application</p>
-        <button
-          type="button"
-          aria-current={landing === "connection" ? "page" : undefined}
-          onClick={() => setDestination("connection")}
-        >
-          Connection and work status
-        </button>
-        <button
-          type="button"
-          aria-current={landing === "setup" ? "page" : undefined}
-          onClick={() => {
-            setDestination("setup");
-            void readSetup();
-          }}
-        >
-          Setup
-        </button>
+        </HelpButton>
       </nav>
       <main className="shell-content" aria-labelledby="startup-heading">
         {landing !== "setup" &&
         (setupReadiness?.ready !== true || setupError !== undefined) ? (
           <p className="setup-attention" role="status">
-            <button type="button" onClick={() => setDestination("setup")}>
+            <HelpButton type="button" onClick={() => setDestination("setup")}>
               Setup needs attention
-            </button>{" "}
+            </HelpButton>{" "}
             Current work and edits remain available.
           </p>
         ) : null}
@@ -1874,10 +1897,12 @@ export function StartupApp() {
           <>
             <SetupScreen
               readiness={setupReadiness}
+              step={setupStep}
+              onStep={chooseSetupStep}
+              showActions={false}
               loading={setupLoading}
               error={setupError}
               onRetry={() => void setupReader.current?.retry()}
-              onAddPr={beginAddPr}
               onRemediate={remediate}
               onOpenInbox={() => setDestination("inbox")}
               onOpenDiagnostics={() => {
@@ -1886,12 +1911,12 @@ export function StartupApp() {
               }}
             />
             {route.target === undefined ? null : (
-              <button
+              <HelpButton
                 type="button"
                 onClick={() => targetHandler.current(route.target!)}
               >
                 Return to saved target
-              </button>
+              </HelpButton>
             )}
           </>
         ) : null}
@@ -1907,7 +1932,6 @@ export function StartupApp() {
             lastKnown={inboxLastKnown}
             onRetry={() => void retryInbox()}
             onNavigate={(id, dest) => void navigateFromInbox(id, dest)}
-            onAddPr={beginAddPr}
             selectedManagedPrId={selectedManagedPrId}
             selection={synchronizationSelection}
             confirmation={synchronizationConfirmation}
@@ -1951,17 +1975,17 @@ export function StartupApp() {
             }
             toolbar={
               <div className="inbox-toolbar">
-                <button type="button" onClick={beginAddPr}>
+                <HelpButton type="button" onClick={beginAddPr}>
                   Add PR
-                </button>
-                <button
+                </HelpButton>
+                <HelpButton
                   type="button"
                   disabled={schedulerBusy || scheduler === undefined}
                   onClick={() => void schedulerCommand("check")}
                 >
                   Check all PRs now
-                </button>
-                <button
+                </HelpButton>
+                <HelpButton
                   type="button"
                   disabled={schedulerBusy || scheduler === undefined}
                   onClick={() =>
@@ -1973,7 +1997,7 @@ export function StartupApp() {
                   {scheduler?.pause.paused
                     ? "Resume watching"
                     : "Pause watching"}
-                </button>
+                </HelpButton>
                 {schedulerMessage === "" ? null : (
                   <p role="status">{schedulerMessage}</p>
                 )}
@@ -2006,9 +2030,9 @@ export function StartupApp() {
         ) : null}
         {landing === "managed" ? (
           <div className="focused-page">
-            <button type="button" onClick={() => setDestination("inbox")}>
+            <HelpButton type="button" onClick={() => setDestination("inbox")}>
               Back to PR inbox
-            </button>
+            </HelpButton>
             {addPanel}
           </div>
         ) : null}
@@ -2030,7 +2054,7 @@ export function StartupApp() {
               aria-label="Settings categories"
             >
               {categories.map(([id, label]) => (
-                <button
+                <HelpButton
                   type="button"
                   key={id}
                   aria-pressed={category === id}
@@ -2040,21 +2064,42 @@ export function StartupApp() {
                   }}
                 >
                   {label}
-                </button>
+                </HelpButton>
               ))}
             </nav>
-            {category === "github" ? githubPanel : null}
             {category === "support" ? supportPanel : null}
           </section>
         ) : null}
+        <div
+          hidden={
+            !(
+              (showingSettings && category === "github") ||
+              (showingSetup && setupStep === "github")
+            )
+          }
+        >
+          {githubPanel}
+        </div>
         <Preferences
           enabled={state !== undefined}
           visible={
-            showingSettings &&
-            !["github", "support", "setup"].includes(category)
+            (showingSettings &&
+              !["github", "support", "setup"].includes(category)) ||
+            (showingSetup && setupStep !== "github")
           }
-          category={category}
+          category={preferenceCategory}
         />
+        {showingSetup ? (
+          <SetupFooter
+            step={setupStep}
+            readiness={setupReadiness}
+            loading={setupLoading}
+            error={setupError}
+            onStep={chooseSetupStep}
+            onRetry={() => void setupReader.current?.retry()}
+            onFinish={() => setDestination("inbox")}
+          />
+        ) : null}
         {landing === "connection" ? (
           <ConnectionStatus
             pullRequests={managedPrs.map((pr) => ({
@@ -2095,9 +2140,9 @@ export function StartupApp() {
           />
         ) : null}
         {landing === "target" ? (
-          <button type="button" onClick={() => setDestination("inbox")}>
+          <HelpButton type="button" onClick={() => setDestination("inbox")}>
             Back to PR inbox
-          </button>
+          </HelpButton>
         ) : null}
         {visitedReviews.map((id) => (
           <ReviewBundleWorkspace
@@ -2136,13 +2181,13 @@ export function StartupApp() {
       </main>
       <footer className="shell-footer">
         <span>{watchingStatus}</span>
-        <button
+        <HelpButton
           type="button"
           className="link-button"
           onClick={() => setDestination("connection")}
         >
           Connection and work status
-        </button>
+        </HelpButton>
       </footer>
     </div>
   );

@@ -1,3 +1,4 @@
+import { HelpButton, HelpInput, HelpSelect, HelpSummary } from "./HelpControls";
 import {
   useCallback,
   useEffect,
@@ -76,7 +77,7 @@ export function ActivityRow({
                 : "Unclassified event"))}
         </span>
         <details className="activity-event-details">
-          <summary>View event details</summary>
+          <HelpSummary>View event details</HelpSummary>
           {presentation.explanation === undefined ? null : (
             <p>{presentation.explanation}</p>
           )}
@@ -88,16 +89,16 @@ export function ActivityRow({
             <time dateTime={event.recordedAt}>{event.recordedAt}</time>
           </p>
           {event.relatedTarget === undefined ? null : (
-            <button
+            <HelpButton
               type="button"
               className="secondary-button"
               onClick={() => onOpen?.(event.eventId)}
             >
               Open related work
-            </button>
+            </HelpButton>
           )}
           <details>
-            <summary>Raw support data (redacted)</summary>
+            <HelpSummary>Raw support data (redacted)</HelpSummary>
             <pre tabIndex={0}>{JSON.stringify(event, null, 2)}</pre>
           </details>
         </details>
@@ -110,7 +111,6 @@ export function ActivityViewer({
   visible = true,
   enabled,
   onNavigate,
-  onAddPr,
   managedPrId: fixedPr,
   pullRequests = [],
 }: ActivityViewerProps) {
@@ -215,7 +215,7 @@ export function ActivityViewer({
       </p>
       <label>
         Activity view
-        <select
+        <HelpSelect
           value={query.view ?? "PR_WORK"}
           onChange={(event) =>
             changeQuery({
@@ -228,7 +228,7 @@ export function ActivityViewer({
           <option value="PR_WORK">PR work</option>
           <option value="APPLICATION">Application diagnostics</option>
           <option value="ALL">All activity</option>
-        </select>
+        </HelpSelect>
       </label>
       <form
         className="activity-filters"
@@ -238,7 +238,7 @@ export function ActivityViewer({
         {fixedPr === undefined ? (
           <label>
             Pull request
-            <select
+            <HelpSelect
               value={selectedPr}
               onChange={(event) => setSelectedPr(event.target.value)}
             >
@@ -252,14 +252,14 @@ export function ActivityViewer({
               !pullRequests.some((pr) => pr.id === selectedPr) ? (
                 <option value={selectedPr}>Saved pull request</option>
               ) : null}
-            </select>
+            </HelpSelect>
           </label>
         ) : (
           <p>Activity for the selected pull request</p>
         )}
         <label>
           Severity
-          <select
+          <HelpSelect
             value={severity}
             onChange={(event) => setSeverity(event.target.value)}
           >
@@ -269,11 +269,11 @@ export function ActivityViewer({
                 {label(value)}
               </option>
             ))}
-          </select>
+          </HelpSelect>
         </label>
         <label>
           Stage
-          <select
+          <HelpSelect
             value={stage}
             onChange={(event) => setStage(event.target.value)}
           >
@@ -283,13 +283,13 @@ export function ActivityViewer({
                 {label(value)}
               </option>
             ))}
-          </select>
+          </HelpSelect>
         </label>
         <details className="activity-advanced">
-          <summary>Advanced filters</summary>
+          <HelpSummary>Advanced filters</HelpSummary>
           <label>
             Correlation ID
-            <input
+            <HelpInput
               value={correlationId}
               onChange={(event) => setCorrelationId(event.target.value)}
               maxLength={128}
@@ -297,7 +297,7 @@ export function ActivityViewer({
           </label>
           <label>
             Work-item key
-            <input
+            <HelpInput
               value={workItemKey}
               onChange={(event) => setWorkItemKey(event.target.value)}
               maxLength={256}
@@ -305,17 +305,17 @@ export function ActivityViewer({
             />
           </label>
         </details>
-        <button type="submit" disabled={loading}>
+        <HelpButton type="submit" disabled={loading}>
           Apply filters
-        </button>
-        <button
+        </HelpButton>
+        <HelpButton
           type="button"
           className="secondary-button"
           disabled={loading}
           onClick={() => void reader.current?.load(query)}
         >
           Refresh activity
-        </button>
+        </HelpButton>
       </form>
       <div className="activity-status" role="status" aria-live="polite">
         {loading ? "Loading activity…" : null}
@@ -339,10 +339,7 @@ export function ActivityViewer({
                 PRMonitor will record activity here when you add pull requests
                 and work begins
               </p>
-              <button type="button" onClick={onAddPr}>
-                Add PR
-              </button>
-              <button
+              <HelpButton
                 type="button"
                 className="secondary-button"
                 onClick={() =>
@@ -350,7 +347,7 @@ export function ActivityViewer({
                 }
               >
                 View application diagnostics
-              </button>
+              </HelpButton>
             </>
           ) : null}
         </div>
@@ -367,7 +364,7 @@ export function ActivityViewer({
             ))}
           </ol>
           <details className="activity-retention">
-            <summary>About activity history</summary>
+            <HelpSummary>About activity history</HelpSummary>
             <p>
               PRMonitor keeps activity for up to{" "}
               {snapshot.retention.policy.maxAgeDays} days,{" "}
@@ -385,7 +382,7 @@ export function ActivityViewer({
         </>
       )}
       {snapshot?.hasMore ? (
-        <button
+        <HelpButton
           type="button"
           className="secondary-button"
           disabled={loading}
@@ -397,7 +394,7 @@ export function ActivityViewer({
           }
         >
           Load older activity
-        </button>
+        </HelpButton>
       ) : null}
     </section>
   );

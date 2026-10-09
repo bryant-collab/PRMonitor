@@ -1,3 +1,11 @@
+import { CODEX_MODEL_CHOICES } from "../../shared/ai/codex-models";
+import type { AIConnection } from "../../shared/ai-connections";
+import {
+  assertCodexNativeBoundary,
+  createCodexAppServerClient,
+  openCodexProtocol,
+} from "./codex-app-server";
+import { ConnectionAuthentication } from "./connection-authentication";
 import {
   Codex,
   type CodexOptions,
@@ -18,7 +26,11 @@ import {
   type AIProviderUsage,
 } from "../../shared/ai/provider-contracts";
 import { redactF29Text } from "../../shared/f29-security";
-import type { AIProvider, AIProviderInvokeOptions } from "./registry";
+import type {
+  AIProvider,
+  AIProviderInvokeOptions,
+  AIProviderLocalReadiness,
+} from "./registry";
 
 export interface CodexThreadOptions {
   readonly model: string;
@@ -43,14 +55,20 @@ export interface CodexClientPort {
 }
 
 export interface CodexRuntimePort {
+  readonly readConnectionReadiness?: (
+    connection: AIConnection,
+  ) => Promise<AIProviderLocalReadiness>;
   readonly isAvailable?: () => boolean;
   readonly createClient: (options: {
     readonly env: Record<string, string>;
+    readonly connection?: AIConnection;
   }) => CodexClientPort;
   readonly authenticationEnvironment?: Readonly<Record<string, string>>;
 }
 
 export interface CodexAdapterOptions {
+  readonly connectionRuntimeRoot?: string;
+  readonly connectionAuthentication?: ConnectionAuthentication;
   readonly runtime?: CodexRuntimePort;
   readonly now?: () => string;
   readonly baseEnvironment?: Readonly<Record<string, string>>;
@@ -58,14 +76,12 @@ export interface CodexAdapterOptions {
 }
 
 const CODEX_REASONING_EFFORTS: ModelReasoningEffort[] = [
-  "minimal",
   "low",
   "medium",
   "high",
   "xhigh",
   "max",
   "ultra",
-  "persistent",
 ];
 
 const CODEX_CAPABILITIES: AIProviderCapabilities = {
@@ -94,15 +110,23 @@ const CODEX_CAPABILITIES: AIProviderCapabilities = {
   worktreeAccess: "worktree_write",
   controlledEnvironment: true,
   modelCatalog: [
+    ...CODEX_MODEL_CHOICES.map((model) => ({
+      modelId: model.modelId,
+      reasoningEfforts: [...model.reasoningEfforts],
+      supportedOptionKeys: [],
+    })),
     {
+      // Preserve old immutable profiles; current runtime support is separately checked.
+      selectable: false,
       modelId: "gpt-5-codex",
+      supportedOptionKeys: [],
       taskTypes: [
         "AUTOMATIC_REVIEW_REEVALUATION",
         "REVIEW_REVISION",
         "READ_ONLY_CONVERSATION",
         "MERGE_CONFLICT_RESOLUTION",
       ],
-      reasoningEfforts: CODEX_REASONING_EFFORTS,
+      reasoningEfforts: ["low", "medium", "high"],
     },
   ],
   providerOptionBounds: {
@@ -119,7 +143,15 @@ function defaultNow(): string {
   return new Date().toISOString();
 }
 
-function defaultRuntime(): CodexRuntimePort {
+function defaultRuntime(
+  connectionRuntimeRoot?: string,
+  suppliedAuthentication?: ConnectionAuthentication,
+): CodexRuntimePort {
+  const authentication =
+    suppliedAuthentication ??
+    (connectionRuntimeRoot
+      ? new ConnectionAuthentication(connectionRuntimeRoot)
+      : undefined);
   const authenticationEnvironment: Record<string, string> = {};
   for (const key of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID"]) {
     const value = process.env[key];
@@ -128,6 +160,18 @@ function defaultRuntime(): CodexRuntimePort {
   }
   return {
     authenticationEnvironment,
+    readConnectionReadiness: async (connection) => {
+      if (!authentication)
+        return { runtimeAvailable: false, authenticationAvailable: false };
+      const status = await authentication.check(connection);
+      return {
+        runtimeAvailable: status.compatible && process.platform !== "win32",
+        authenticationAvailable: status.authentication === connection.authMode,
+        ...(process.platform === "win32"
+          ? { executionBlocker: "WINDOWS_SANDBOX_SECURITY_CHANGES" as const }
+          : {}),
+      };
+    },
     // The SDK constructor resolves its installed native executable without
     // spawning it, starting a thread, or contacting a model service.
     isAvailable: () => {
@@ -139,6 +183,53 @@ function defaultRuntime(): CodexRuntimePort {
       }
     },
     createClient: (options) => {
+      if (options.connection) {
+        if (!authentication)
+          throw new Error("AI connection storage is unavailable.");
+        const connection = options.connection;
+        return createCodexAppServerClient(
+          connection,
+          async (threadOptions, signal) => {
+            assertCodexNativeBoundary(process.platform);
+            const release = await authentication.acquire(connection.id, signal);
+            try {
+              signal?.throwIfAborted();
+              const home = await authentication.home(connection);
+              if (!home)
+                throw new Error(
+                  "Sign in for this PRMonitor connection before starting work.",
+                );
+              const status = await authentication.check(connection, signal);
+              if (
+                !status.compatible ||
+                status.authentication !== connection.authMode ||
+                !status.executable
+              )
+                throw new Error(status.message);
+              const protocol = await openCodexProtocol(
+                { ...connection, executable: status.executable },
+                authentication.environment(connection, home, options.env),
+                threadOptions,
+                signal,
+              );
+              return {
+                request: protocol.request.bind(protocol),
+                notifications: protocol.notifications.bind(protocol),
+                close: async () => {
+                  try {
+                    await protocol.close();
+                  } finally {
+                    release();
+                  }
+                },
+              };
+            } catch (error) {
+              release();
+              throw error;
+            }
+          },
+        );
+      }
       const client = new Codex(options as CodexOptions);
       return {
         startThread: (threadOptions) => {
@@ -480,17 +571,33 @@ export class CodexAIProvider implements AIProvider {
   >;
 
   public constructor(options: CodexAdapterOptions = {}) {
-    this.runtime = options.runtime ?? defaultRuntime();
+    this.runtime =
+      options.runtime ??
+      defaultRuntime(
+        options.connectionRuntimeRoot,
+        options.connectionAuthentication,
+      );
     this.now = options.now ?? defaultNow;
     this.baseEnvironment = options.baseEnvironment;
     this.providerAuthenticationEnvironment =
       options.providerAuthenticationEnvironment;
   }
 
-  public readLocalReadiness(): {
-    readonly runtimeAvailable: boolean;
-    readonly authenticationAvailable: boolean;
-  } {
+  public readLocalReadiness(): AIProviderLocalReadiness;
+  public readLocalReadiness(
+    connection: AIConnection,
+  ): Promise<AIProviderLocalReadiness>;
+  public readLocalReadiness(
+    connection?: AIConnection,
+  ): AIProviderLocalReadiness | Promise<AIProviderLocalReadiness> {
+    if (connection)
+      return (
+        this.runtime.readConnectionReadiness?.(connection) ??
+        Promise.resolve({
+          runtimeAvailable: false,
+          authenticationAvailable: false,
+        })
+      );
     const environment = safeEnvironment(
       this.baseEnvironment ?? defaultBaseEnvironment(),
       this.providerAuthenticationEnvironment ??
@@ -623,7 +730,12 @@ export class CodexAIProvider implements AIProvider {
     );
     let thread: CodexThreadPort;
     try {
-      const client = this.runtime.createClient({ env: environment });
+      const client = this.runtime.createClient({
+        env: environment,
+        ...(request.profileSnapshot.connection
+          ? { connection: request.profileSnapshot.connection }
+          : {}),
+      });
       thread =
         request.conversationContinuation?.authorized === true
           ? client.resumeThread(

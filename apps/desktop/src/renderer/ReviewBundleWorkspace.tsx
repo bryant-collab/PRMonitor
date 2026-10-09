@@ -1,3 +1,10 @@
+import {
+  HelpButton,
+  HelpInput,
+  HelpSelect,
+  HelpTextarea,
+  HelpSummary,
+} from "./HelpControls";
 import { customerExplanation } from "./customer-copy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -116,7 +123,7 @@ function DiffLines({
               : "Inspect or refresh the worktree before relying on these changes.",
           )}
         </p>
-        <button
+        <HelpButton
           type="button"
           className="secondary-button"
           onClick={() => setShowContext((current) => !current)}
@@ -124,10 +131,10 @@ function DiffLines({
           {showContext
             ? "Collapse unchanged context"
             : "Show unchanged context"}
-        </button>
-        <button type="button" className="secondary-button" onClick={onCopy}>
+        </HelpButton>
+        <HelpButton type="button" className="secondary-button" onClick={onCopy}>
           Copy displayed diff
-        </button>
+        </HelpButton>
       </div>
       {view.files.length === 0 ? (
         <p className="review-empty" role="status">
@@ -156,22 +163,22 @@ function DiffLines({
                   >
                     {file.marker}
                   </span>
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={!fileActionsEnabled || file.binary}
                     onClick={() => onFileAction("OPEN_FILE", file.path)}
                   >
                     Open file
-                  </button>
-                  <button
+                  </HelpButton>
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={!fileActionsEnabled}
                     onClick={() => onFileAction("REVEAL_FILE", file.path)}
                   >
                     Reveal file
-                  </button>
+                  </HelpButton>
                 </div>
               </header>
               {file.binary ? (
@@ -307,13 +314,13 @@ function ValidationPanel({
               ) : null}
               {step.stdout !== undefined ? (
                 <details>
-                  <summary>stdout</summary>
+                  <HelpSummary>stdout</HelpSummary>
                   <pre>{step.stdout}</pre>
                 </details>
               ) : null}
               {step.stderr !== undefined ? (
                 <details>
-                  <summary>stderr</summary>
+                  <HelpSummary>stderr</HelpSummary>
                   <pre>{step.stderr}</pre>
                 </details>
               ) : null}
@@ -1361,9 +1368,9 @@ export function ReviewBundleWorkspace({
         <div className="review-error" role="alert">
           <strong>Review Bundle unavailable.</strong>
           <span>{error ?? "No committed workspace status was returned."}</span>
-          <button type="button" onClick={() => void readWorkspace()}>
+          <HelpButton type="button" onClick={() => void readWorkspace()}>
             Reload Review Bundle
-          </button>
+          </HelpButton>
         </div>
       </section>
     );
@@ -1421,14 +1428,14 @@ export function ReviewBundleWorkspace({
           ["actions", "Discard and re-evaluate"],
           ["publication", "Publication"],
         ].map(([id, label]) => (
-          <button
+          <HelpButton
             type="button"
             key={id}
             aria-pressed={workspacePane === id}
             onClick={() => setWorkspacePane(id!)}
           >
             {label}
-          </button>
+          </HelpButton>
         ))}
       </nav>
       <div className="review-guidance">
@@ -1546,7 +1553,7 @@ export function ReviewBundleWorkspace({
                             key={response.responseKey}
                           >
                             <label className="review-checkbox">
-                              <input
+                              <HelpInput
                                 type="checkbox"
                                 disabled={!publication.canApprove || busy}
                                 checked={selected.included}
@@ -1563,7 +1570,7 @@ export function ReviewBundleWorkspace({
                               Include response for{" "}
                               {response.target.source.toLowerCase()}
                             </label>
-                            <textarea
+                            <HelpTextarea
                               aria-label={`Editable response ${response.responseKey}`}
                               disabled={!publication.canApprove || busy}
                               value={selected.body}
@@ -1586,7 +1593,7 @@ export function ReviewBundleWorkspace({
                     <fieldset className="review-publication-acknowledgements">
                       <legend>Publication approval acknowledgements</legend>
                       <label className="review-checkbox">
-                        <input
+                        <HelpInput
                           type="checkbox"
                           checked={publicationAcknowledged}
                           disabled={busy}
@@ -1600,7 +1607,7 @@ export function ReviewBundleWorkspace({
                       {publication.candidate.condition ===
                       "UNATTRIBUTED_CHANGES" ? (
                         <label className="review-checkbox">
-                          <input
+                          <HelpInput
                             type="checkbox"
                             checked={publicationUnattributedAcknowledged}
                             disabled={busy}
@@ -1630,44 +1637,44 @@ export function ReviewBundleWorkspace({
                   ))}
                   <div className="review-publication-actions">
                     {publication.canApprove ? (
-                      <button
+                      <HelpButton
                         type="button"
                         className="primary-button"
                         disabled={busy}
                         onClick={() => void approvePublication()}
                       >
                         Approve exact publication
-                      </button>
+                      </HelpButton>
                     ) : null}
                     {publication.canPublish ? (
-                      <button
+                      <HelpButton
                         type="button"
                         className="primary-button"
                         disabled={busy}
                         onClick={() => void runPublication("publish")}
                       >
                         Publish approved Review Bundle
-                      </button>
+                      </HelpButton>
                     ) : null}
                     {publication.canReconcile ? (
-                      <button
+                      <HelpButton
                         type="button"
                         className="secondary-button"
                         disabled={busy}
                         onClick={() => void runPublication("reconcile")}
                       >
                         Reconcile publication state
-                      </button>
+                      </HelpButton>
                     ) : null}
                     {publication.canRetryResponses ? (
-                      <button
+                      <HelpButton
                         type="button"
                         className="secondary-button"
                         disabled={busy}
                         onClick={() => void runPublication("retry-responses")}
                       >
                         Retry responses only
-                      </button>
+                      </HelpButton>
                     ) : null}
                   </div>
                 </>
@@ -1723,14 +1730,14 @@ export function ReviewBundleWorkspace({
                     worktree, waiting state and evidence remain saved until
                     PRMonitor checks the outcome.
                   </p>
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
                     onClick={() => void reconcileF22()}
                   >
                     Check pending action outcome
-                  </button>
+                  </HelpButton>
                 </>
               ) : null}
               {workspace.f22.retainedCandidateEventVersionIds !== undefined &&
@@ -1745,7 +1752,7 @@ export function ReviewBundleWorkspace({
                   {workspace.f22.retainedCandidateEventVersionIds.map(
                     (eventVersionId) => (
                       <label key={eventVersionId} className="review-checkbox">
-                        <input
+                        <HelpInput
                           type="checkbox"
                           disabled={busy || f22Preview !== undefined}
                           checked={f22SelectedRetainedEventVersionIds.includes(
@@ -1770,36 +1777,36 @@ export function ReviewBundleWorkspace({
               <div className="review-f22-actions">
                 {workspace.f22PendingAction?.status === "PENDING" &&
                 f22Preview === undefined ? (
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
                     onClick={() => void cancelF22Preview()}
                   >
                     Cancel pending action
-                  </button>
+                  </HelpButton>
                 ) : null}
                 {workspace.f22.actions.discard &&
                 workspace.f22PendingAction === undefined ? (
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
                     onClick={() => void beginF22("DISCARD")}
                   >
                     Discard Review Bundle
-                  </button>
+                  </HelpButton>
                 ) : null}
                 {workspace.f22.actions.reevaluate &&
                 workspace.f22PendingAction === undefined ? (
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
                     onClick={() => void beginF22("REEVALUATE")}
                   >
                     Re-evaluate at current head
-                  </button>
+                  </HelpButton>
                 ) : null}
               </div>
               {f22Preview !== undefined && f22ActionId !== undefined ? (
@@ -2130,7 +2137,7 @@ export function ReviewBundleWorkspace({
               <ol>
                 {workspace.items.map((item) => (
                   <li key={item.itemId}>
-                    <button
+                    <HelpButton
                       type="button"
                       className={
                         item.itemId === selectedItemId
@@ -2148,12 +2155,12 @@ export function ReviewBundleWorkspace({
                         {item.feedback.path ??
                           readable(item.feedback.sourceKind)}
                       </small>
-                    </button>
+                    </HelpButton>
                   </li>
                 ))}
               </ol>
               {proposal ? (
-                <button
+                <HelpButton
                   type="button"
                   disabled={
                     !action(workspace, "CONFIRM_DECISIONS")?.enabled || busy
@@ -2161,7 +2168,7 @@ export function ReviewBundleWorkspace({
                   onClick={() => void confirmDecisions()}
                 >
                   Continue to implementation
-                </button>
+                </HelpButton>
               ) : null}
             </nav>
 
@@ -2228,7 +2235,7 @@ export function ReviewBundleWorkspace({
                     </pre>
                     {selectedItem.feedback.diffHunk !== undefined ? (
                       <details>
-                        <summary>Original feedback hunk</summary>
+                        <HelpSummary>Original feedback hunk</HelpSummary>
                         <pre className="review-feedback">
                           {selectedItem.feedback.diffHunk}
                         </pre>
@@ -2312,7 +2319,7 @@ export function ReviewBundleWorkspace({
                           They are not publication approval.
                         </p>
                         <div className="review-button-row">
-                          <button
+                          <HelpButton
                             type="button"
                             disabled={!accept?.enabled || busy}
                             onClick={() =>
@@ -2329,8 +2336,8 @@ export function ReviewBundleWorkspace({
                             }
                           >
                             Accept recommendation
-                          </button>
-                          <button
+                          </HelpButton>
+                          <HelpButton
                             type="button"
                             className="secondary-button"
                             disabled={!override?.enabled || busy}
@@ -2347,11 +2354,11 @@ export function ReviewBundleWorkspace({
                             }
                           >
                             Override recommendation
-                          </button>
+                          </HelpButton>
                         </div>
                         <label>
                           Override disposition
-                          <select
+                          <HelpSelect
                             value={overrideDisposition}
                             onChange={(event) =>
                               editItemDraft({
@@ -2365,11 +2372,11 @@ export function ReviewBundleWorkspace({
                                 {readable(value)}
                               </option>
                             ))}
-                          </select>
+                          </HelpSelect>
                         </label>
                         <label>
                           Override instructions{" "}
-                          <textarea
+                          <HelpTextarea
                             value={overrideInstruction}
                             maxLength={64 * 1024}
                             onChange={(event) =>
@@ -2377,7 +2384,7 @@ export function ReviewBundleWorkspace({
                             }
                           />
                         </label>
-                        <button
+                        <HelpButton
                           type="button"
                           className="secondary-button"
                           disabled={
@@ -2393,12 +2400,12 @@ export function ReviewBundleWorkspace({
                           }
                         >
                           Save entry instruction
-                        </button>
+                        </HelpButton>
                         {selectedItem.questionAnswerRequired ||
                         overrideDisposition === "question" ? (
                           <label>
                             Question answer (required before implementation)
-                            <textarea
+                            <HelpTextarea
                               value={answer}
                               maxLength={64 * 1024}
                               onChange={(event) =>
@@ -2410,7 +2417,7 @@ export function ReviewBundleWorkspace({
                         ) : null}
                         {selectedItem.questionAnswerRequired ||
                         overrideDisposition === "question" ? (
-                          <button
+                          <HelpButton
                             type="button"
                             className="secondary-button"
                             disabled={
@@ -2424,7 +2431,7 @@ export function ReviewBundleWorkspace({
                             }
                           >
                             Save question answer
-                          </button>
+                          </HelpButton>
                         ) : null}
                         {selectedItem.questionAnswerRequired ||
                         overrideDisposition === "question" ? (
@@ -2455,7 +2462,7 @@ export function ReviewBundleWorkspace({
                       </div>
                       <label>
                         Draft response
-                        <textarea
+                        <HelpTextarea
                           value={draftText}
                           maxLength={64 * 1024}
                           disabled={!draftAction?.enabled || busy}
@@ -2469,13 +2476,13 @@ export function ReviewBundleWorkspace({
                         workflow. It is not a posted, resolved, or approved
                         GitHub response.
                       </p>
-                      <button
+                      <HelpButton
                         type="button"
                         disabled={!draftAction?.enabled || busy}
                         onClick={() => void saveDraft()}
                       >
                         Save response draft
-                      </button>
+                      </HelpButton>
                     </article>
                   ) : null}
                 </>
@@ -2511,7 +2518,7 @@ export function ReviewBundleWorkspace({
               <fieldset className="review-conversation-modes">
                 <legend>Conversation mode</legend>
                 <label>
-                  <input
+                  <HelpInput
                     type="radio"
                     name={`f21-mode-${workspace.bundleId}`}
                     value="READ_ONLY_CONVERSATION"
@@ -2523,7 +2530,7 @@ export function ReviewBundleWorkspace({
                   Ask / clarify (read-only)
                 </label>
                 <label>
-                  <input
+                  <HelpInput
                     type="radio"
                     name={`f21-mode-${workspace.bundleId}`}
                     value="REVIEW_REVISION"
@@ -2536,7 +2543,7 @@ export function ReviewBundleWorkspace({
               {conversationMode === "REVIEW_REVISION" &&
               condition?.classification === "UNATTRIBUTED_CHANGES" ? (
                 <label className="review-acknowledgement">
-                  <input
+                  <HelpInput
                     type="checkbox"
                     checked={acknowledgeUnattributed}
                     onChange={(event) =>
@@ -2551,7 +2558,7 @@ export function ReviewBundleWorkspace({
                 {conversationMode === "READ_ONLY_CONVERSATION"
                   ? "Question or clarification"
                   : "Explicit revision instruction"}
-                <textarea
+                <HelpTextarea
                   value={conversationText}
                   maxLength={64 * 1024}
                   disabled={busy}
@@ -2564,7 +2571,7 @@ export function ReviewBundleWorkspace({
                 Submitted text is saved with this conversation.
               </p>
               <div className="review-button-row">
-                <button
+                <HelpButton
                   type="button"
                   disabled={
                     busy ||
@@ -2577,20 +2584,20 @@ export function ReviewBundleWorkspace({
                   {conversationMode === "READ_ONLY_CONVERSATION"
                     ? "Ask read-only question"
                     : "Request explicit revision"}
-                </button>
+                </HelpButton>
                 {conversation.activeOperation?.permittedNextAction ===
                 "CONTINUE_AI_WORK" ? (
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={busy}
                     onClick={() => void continueConversation()}
                   >
                     Continue AI Work
-                  </button>
+                  </HelpButton>
                 ) : null}
                 {conversation.capabilities.canCancel ? (
-                  <button
+                  <HelpButton
                     type="button"
                     className="secondary-button"
                     disabled={
@@ -2599,13 +2606,13 @@ export function ReviewBundleWorkspace({
                     onClick={() => void cancelConversation()}
                   >
                     Cancel AI Work
-                  </button>
+                  </HelpButton>
                 ) : null}
                 {conversation.capabilities.canStartNewOperation ? (
                   <>
                     <label className="review-budget-field">
                       New turn budget
-                      <input
+                      <HelpInput
                         type="number"
                         min={1}
                         max={10}
@@ -2621,14 +2628,14 @@ export function ReviewBundleWorkspace({
                         }
                       />
                     </label>
-                    <button
+                    <HelpButton
                       type="button"
                       className="secondary-button"
                       disabled={busy}
                       onClick={() => void startNewOperation()}
                     >
                       Start new AI Work budget
-                    </button>
+                    </HelpButton>
                   </>
                 ) : null}
               </div>
@@ -2676,14 +2683,14 @@ export function ReviewBundleWorkspace({
                   <h4>Latest read-only answer</h4>
                   <p>{conversation.turns.at(-1)?.answer}</p>
                   {selectedItem?.questionAnswerRequired ? (
-                    <button
+                    <HelpButton
                       type="button"
                       className="secondary-button"
                       disabled={busy}
                       onClick={useLatestAnswer}
                     >
                       Use as answer
-                    </button>
+                    </HelpButton>
                   ) : null}
                 </div>
               ) : null}
@@ -2757,7 +2764,7 @@ export function ReviewBundleWorkspace({
                 </dl>
                 {workspace.configuration.prIntentContext !== undefined ? (
                   <details>
-                    <summary>Saved PR intent and context</summary>
+                    <HelpSummary>Saved PR intent and context</HelpSummary>
                     <pre className="review-feedback">
                       {workspace.configuration.prIntentContext}
                     </pre>
@@ -2814,29 +2821,29 @@ export function ReviewBundleWorkspace({
               </div>
               <p className="review-path">{workspace.worktree.canonicalPath}</p>
               <div className="review-button-row">
-                <button
+                <HelpButton
                   type="button"
                   disabled={!worktreeAction?.enabled || busy}
                   onClick={() => void pathAction("OPEN_WORKTREE")}
                 >
                   Open worktree
-                </button>
-                <button
+                </HelpButton>
+                <HelpButton
                   type="button"
                   className="secondary-button"
                   disabled={!copyWorktreeAction?.enabled || busy}
                   onClick={() => void copyWorktreePath()}
                 >
                   Copy worktree path
-                </button>
-                <button
+                </HelpButton>
+                <HelpButton
                   type="button"
                   className="secondary-button"
                   disabled={busy}
                   onClick={() => void refreshWorktree()}
                 >
                   Refresh evidence
-                </button>
+                </HelpButton>
               </div>
               <dl className="review-evidence-grid">
                 <div>
@@ -2933,7 +2940,7 @@ export function ReviewBundleWorkspace({
               aria-label="Diff modes"
             >
               {diffModes.map((mode) => (
-                <button
+                <HelpButton
                   type="button"
                   key={mode.id}
                   className={
@@ -2945,7 +2952,7 @@ export function ReviewBundleWorkspace({
                   onClick={() => void loadDiff(mode.id)}
                 >
                   {mode.label}
-                </button>
+                </HelpButton>
               ))}
             </div>
             {diffLoading ? (
@@ -3004,13 +3011,13 @@ export function ReviewBundleWorkspace({
                 <h3 id="review-diff-file-actions-heading">
                   Recorded file actions
                 </h3>
-                <button
+                <HelpButton
                   type="button"
                   className="secondary-button"
                   onClick={() => void copyDisplayedDiff()}
                 >
                   Copy displayed diff
-                </button>
+                </HelpButton>
               </div>
               <p className="review-control-help">
                 Open or reveal only files present in the recorded worktree diff
@@ -3020,7 +3027,7 @@ export function ReviewBundleWorkspace({
                 {diff.files.map((file) => (
                   <div className="review-diff-file-action" key={file.path}>
                     <code>{file.path}</code>
-                    <button
+                    <HelpButton
                       type="button"
                       className="secondary-button"
                       disabled={
@@ -3029,8 +3036,8 @@ export function ReviewBundleWorkspace({
                       onClick={() => void pathAction("OPEN_FILE", file.path)}
                     >
                       Open file
-                    </button>
-                    <button
+                    </HelpButton>
+                    <HelpButton
                       type="button"
                       className="secondary-button"
                       disabled={
@@ -3040,7 +3047,7 @@ export function ReviewBundleWorkspace({
                       onClick={() => void pathAction("REVEAL_FILE", file.path)}
                     >
                       Reveal file
-                    </button>
+                    </HelpButton>
                   </div>
                 ))}
               </div>
@@ -3049,7 +3056,7 @@ export function ReviewBundleWorkspace({
         </>
       ) : null}
       <details>
-        <summary>Raw support data</summary>
+        <HelpSummary>Raw support data</HelpSummary>
         <pre tabIndex={0}>{JSON.stringify(workspace, null, 2)}</pre>
       </details>
     </section>
@@ -3065,10 +3072,10 @@ function AiWorkSummary({
 }) {
   return (
     <details className="review-ai-summary" open={summary.attention}>
-      <summary>
+      <HelpSummary>
         {label}: {readable(summary.status)} · remaining budget{" "}
         {summary.remainingBudget}
-      </summary>
+      </HelpSummary>
       <p>
         Next action: {readable(summary.nextAction)} · Attention:{" "}
         {summary.attention ? "yes" : "no"}

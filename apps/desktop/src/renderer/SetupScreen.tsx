@@ -1,8 +1,138 @@
+import { HelpButton } from "./HelpControls";
 import { useEffect, useRef } from "react";
 import type { SetupReadinessProjection } from "../shared/setup-readiness";
 import type { IpcResponse } from "../shared/ipc";
 
 export type SetupDestination = "local" | "github" | "ai" | "tasks" | "policy";
+export type SetupStep = "github" | "ai" | "permissions" | "review";
+export const setupSteps: readonly [SetupStep, string][] = [
+  ["github", "GitHub"],
+  ["ai", "AI connection"],
+  ["permissions", "Work permissions"],
+  ["review", "Review and finish"],
+];
+
+export function setupInitialStep(
+  readiness?: SetupReadinessProjection,
+): SetupStep {
+  const complete = (id: string) =>
+    readiness?.checks.some(
+      (check) => check.id === id && check.status === "complete",
+    ) === true;
+  return !complete("github-access")
+    ? "github"
+    : !complete("ai-access") || !complete("ai-task-configuration")
+      ? "ai"
+      : !complete("working-policy")
+        ? "permissions"
+        : "review";
+}
+
+export function canAdvanceSetup(
+  step: SetupStep,
+  readiness?: SetupReadinessProjection,
+): boolean {
+  const complete = (id: string) =>
+    readiness?.checks.some(
+      (check) => check.id === id && check.status === "complete",
+    ) === true;
+  return step === "github"
+    ? complete("github-access")
+    : step === "ai"
+      ? complete("ai-access") && complete("ai-task-configuration")
+      : step === "permissions"
+        ? complete("working-policy")
+        : readiness?.ready === true;
+}
+
+export function SetupFooter({
+  step,
+  readiness,
+  loading,
+  error,
+  onStep,
+  onRetry,
+  onFinish,
+}: {
+  readonly step: SetupStep;
+  readonly readiness?: SetupReadinessProjection;
+  readonly loading: boolean;
+  readonly error?: string;
+  readonly onStep: (step: SetupStep) => void;
+  readonly onRetry: () => void;
+  readonly onFinish: () => void;
+}) {
+  const index = setupSteps.findIndex(([id]) => id === step);
+  const pendingAction = useRef(false);
+  useEffect(() => {
+    pendingAction.current = false;
+  }, [step, loading]);
+  const advance = () => {
+    if (
+      pendingAction.current ||
+      loading ||
+      error !== undefined ||
+      !canAdvanceSetup(step, readiness)
+    )
+      return;
+    pendingAction.current = true;
+    if (index === setupSteps.length - 1) onFinish();
+    else onStep(setupSteps[index + 1]![0]);
+  };
+  const explanation = loading
+    ? "Checking saved setup…"
+    : error !== undefined
+      ? "Setup could not be checked. Choose Check saved setup to retry."
+      : !canAdvanceSetup(step, readiness)
+        ? step === "review"
+          ? "Finish becomes available when every saved setup check passes."
+          : "Save this step's settings, then choose Check saved setup before continuing."
+        : undefined;
+  return (
+    <div>
+      {explanation ? (
+        <p id="setup-step-help" className="section-help">
+          {explanation}
+        </p>
+      ) : null}
+      <div className="profile-actions">
+        <HelpButton
+          type="button"
+          disabled={index === 0 || loading}
+          onClick={() => onStep(setupSteps[index - 1]![0])}
+        >
+          Back
+        </HelpButton>
+        <HelpButton
+          type="button"
+          disabled={loading}
+          onClick={() => {
+            if (pendingAction.current || loading) return;
+            pendingAction.current = true;
+            onRetry();
+          }}
+        >
+          Check saved setup
+        </HelpButton>
+        <HelpButton
+          type="button"
+          disabled={
+            loading || error !== undefined || !canAdvanceSetup(step, readiness)
+          }
+          help={
+            step === "review"
+              ? "Finish after all saved setup checks pass."
+              : "Save this step's settings and pass its checks before continuing."
+          }
+          aria-describedby={explanation ? "setup-step-help" : undefined}
+          onClick={advance}
+        >
+          {step === "review" ? "Finish setup" : "Next"}
+        </HelpButton>
+      </div>
+    </div>
+  );
+}
 
 const labels = {
   "local-prerequisites": "Local prerequisites",
@@ -138,7 +268,9 @@ export function SetupScreen({
   onRemediate,
   onOpenInbox,
   onOpenDiagnostics,
-  onAddPr,
+  step,
+  onStep,
+  showActions = true,
 }: {
   readonly readiness?: SetupReadinessProjection;
   readonly loading: boolean;
@@ -147,7 +279,9 @@ export function SetupScreen({
   readonly onRemediate: (destination: SetupDestination) => void;
   readonly onOpenInbox: () => void;
   readonly onOpenDiagnostics?: () => void;
-  readonly onAddPr?: () => void;
+  readonly step?: SetupStep;
+  readonly onStep?: (step: SetupStep) => void;
+  readonly showActions?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -168,10 +302,32 @@ export function SetupScreen({
         Set up PRMonitor
       </h2>
       <p>
-        Configure the local tools, GitHub access, and AI settings PRMonitor
-        needs to work. Progress is saved by each configuration action and
-        checked again when you reopen PRMonitor.
+        Connect GitHub, choose AI, and set work permissions. Each saved change
+        is checked again when you reopen PRMonitor.
       </p>
+      {step && onStep ? (
+        <nav aria-label="Setup steps" className="setup-steps">
+          {setupSteps.map(([id, label], index) => (
+            <HelpButton
+              type="button"
+              key={id}
+              aria-current={step === id ? "step" : undefined}
+              onClick={() => onStep(id)}
+            >
+              {index + 1}. {label}
+            </HelpButton>
+          ))}
+        </nav>
+      ) : null}
+      {step && step !== "review" ? (
+        <p className="section-help">
+          {step === "github"
+            ? "Add a GitHub connection and test its access below."
+            : step === "ai"
+              ? "Save one AI connection for all tasks. Advanced choices are optional."
+              : "Choose the permissions allowed for local AI work. Publishing still requires your decision."}
+        </p>
+      ) : null}
       {loading ? (
         <p role="status" aria-live="polite">
           Checking setup…
@@ -187,7 +343,8 @@ export function SetupScreen({
           ? `${confirmedReadiness.completedCount} of ${confirmedReadiness.checks.length} checks complete; ${confirmedReadiness.checks.length - confirmedReadiness.completedCount} remaining.`
           : "Setup readiness has not been confirmed."}
       </div>
-      {confirmedReadiness !== undefined ? (
+      {confirmedReadiness !== undefined &&
+      (step === undefined || step === "review") ? (
         <div className="setup-checks">
           {(
             ["Local checks", "GitHub connection", "AI configuration"] as const
@@ -213,12 +370,12 @@ export function SetupScreen({
                     </p>
                     {check.status !== "complete" ? (
                       <>
-                        <button
+                        <HelpButton
                           type="button"
                           onClick={() => onRemediate(check.remediation)}
                         >
                           {actions[check.remediation]}
-                        </button>
+                        </HelpButton>
                         {check.id === "local-prerequisites" ? (
                           <>
                             <p>
@@ -228,26 +385,29 @@ export function SetupScreen({
                               For a storage problem, inspect diagnostics and
                               recovery.
                             </p>
-                            <button
+                            <HelpButton
                               type="button"
                               disabled={loading}
                               onClick={onRetry}
                             >
                               Retry local prerequisites
-                            </button>
+                            </HelpButton>
                             {onOpenDiagnostics !== undefined ? (
-                              <button type="button" onClick={onOpenDiagnostics}>
+                              <HelpButton
+                                type="button"
+                                onClick={onOpenDiagnostics}
+                              >
                                 Open diagnostics and recovery
-                              </button>
+                              </HelpButton>
                             ) : null}
                           </>
                         ) : null}
                         {check.id === "ai-access" ? (
                           <p>
-                            For Codex, configure OPENAI_API_KEY in the approved
-                            runtime environment used by the adapter, then Retry.
-                            PRMonitor checks availability locally and does not
-                            ask you to enter the key here.
+                            Choose a saved AI connection and check its program
+                            and sign-in. Subscription access and API billing are
+                            separate choices; PRMonitor will not switch between
+                            them.
                           </p>
                         ) : null}
                       </>
@@ -258,28 +418,27 @@ export function SetupScreen({
           ))}
         </div>
       ) : null}
-      <div className="profile-actions">
-        <button type="button" disabled={loading} onClick={onRetry}>
-          Retry setup checks
-        </button>
-        <button
-          type="button"
-          disabled={loading || error !== undefined || readiness?.ready !== true}
-          onClick={onOpenInbox}
-        >
-          Open PR inbox
-        </button>
-      </div>
+      {showActions ? (
+        <div className="profile-actions">
+          <HelpButton type="button" disabled={loading} onClick={onRetry}>
+            Retry setup checks
+          </HelpButton>
+          <HelpButton
+            type="button"
+            disabled={
+              loading || error !== undefined || readiness?.ready !== true
+            }
+            onClick={onOpenInbox}
+          >
+            Open PR inbox
+          </HelpButton>
+        </div>
+      ) : null}
       <p className="section-help">
         Optional: add a PR from the PR inbox, then configure its local clone in
         PR settings. Repository guidance, common instructions and work limits
         can be configured later in Settings.
       </p>
-      {onAddPr === undefined ? null : (
-        <button type="button" onClick={onAddPr}>
-          Add PR
-        </button>
-      )}
     </section>
   );
 }

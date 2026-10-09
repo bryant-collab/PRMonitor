@@ -218,11 +218,19 @@ export class SetupReadinessService {
       return [...checks, unavailable(2), unavailable(3), unavailable(4)];
     const state = preferences.value;
     const profiles = state.taskProfiles;
-    const providerIds = new Set(profiles.map((profile) => profile.providerId));
-    let accessComplete = providerIds.size > 0;
+    const accessProfiles = [
+      ...new Map(
+        profiles.map((profile) => [
+          `${profile.providerId}:${profile.connectionId ?? "legacy"}`,
+          profile,
+        ]),
+      ).values(),
+    ];
+    let accessComplete = accessProfiles.length > 0;
     let accessUnavailable = false;
-    for (const id of providerIds) {
-      const provider = this.ports.providers.resolve(id);
+    let boundaryBlocked = false;
+    for (const profile of accessProfiles) {
+      const provider = this.ports.providers.resolve(profile.providerId);
       if (
         provider === undefined ||
         !provider.capabilities.enabled ||
@@ -232,7 +240,14 @@ export class SetupReadinessService {
         continue;
       }
       try {
-        const result = await this.bounded(() => provider.readLocalReadiness!());
+        const result = await this.bounded(() =>
+          provider.readLocalReadiness!(
+            state.aiConnections?.find(
+              (connection) => profile.connectionId === connection.id,
+            ),
+          ),
+        );
+        boundaryBlocked ||= result.executionBlocker !== undefined;
         accessComplete &&=
           result.runtimeAvailable === true &&
           result.authenticationAvailable === true;
@@ -248,7 +263,9 @@ export class SetupReadinessService {
             accessComplete ? "complete" : "incomplete",
             accessComplete
               ? "Configured locally; service access is checked when work starts"
-              : "Configure the selected provider's local runtime and supported authentication source, then retry.",
+              : boundaryBlocked
+                ? "AI sign-in and program configuration can be saved. This provider's native work permissions cannot yet be verified without security changes."
+                : "Configure the selected provider's local runtime and supported authentication source, then retry.",
           ),
     );
     const tasksComplete =

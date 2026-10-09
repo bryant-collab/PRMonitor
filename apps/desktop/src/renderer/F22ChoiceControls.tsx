@@ -1,3 +1,4 @@
+import { HelpButton, HelpInput, HelpSelect } from "./HelpControls";
 import { useEffect, useRef } from "react";
 import type { F22DirtyWorktreeChoice } from "../shared/f22-discard-reevaluation";
 
@@ -53,7 +54,7 @@ export function F22ChoiceControls({
         action preview opens.
       </p>
       <label htmlFor="f22-worktree-choice">Worktree choice</label>
-      <select
+      <HelpSelect
         id="f22-worktree-choice"
         aria-describedby="f22-choice-help"
         value={choice}
@@ -72,10 +73,10 @@ export function F22ChoiceControls({
           </>
         ) : null}
         <option value="KEEP_AND_CANCEL">Keep Worktree and Cancel</option>
-      </select>
+      </HelpSelect>
       {choice !== "KEEP_AND_CANCEL" ? (
         <label className="review-checkbox" htmlFor="f22-confirmation">
-          <input
+          <HelpInput
             id="f22-confirmation"
             type="checkbox"
             checked={confirmed}
@@ -88,15 +89,15 @@ export function F22ChoiceControls({
         </label>
       ) : null}
       <div className="review-f22-actions">
-        <button
+        <HelpButton
           id="f22-confirm-choice"
           type="button"
           disabled={f22ChoiceConfirmDisabled({ choice, confirmed, busy })}
           onClick={onConfirm}
         >
           Confirm action choice
-        </button>
-        <button
+        </HelpButton>
+        <HelpButton
           id="f22-close-preview"
           type="button"
           className="secondary-button"
@@ -104,7 +105,7 @@ export function F22ChoiceControls({
           onClick={onClose}
         >
           Close preview
-        </button>
+        </HelpButton>
       </div>
     </div>
   );

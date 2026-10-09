@@ -408,11 +408,36 @@ async function start() {
       ),
       true,
     );
+    const firstMissing =
+      read.checks.find((c) => c.id === "github-access")?.status !== "complete"
+        ? "1. GitHub"
+        : read.checks.some(
+              (c) =>
+                ["ai-access", "ai-task-configuration"].includes(c.id) &&
+                c.status !== "complete",
+            )
+          ? "2. AI connection"
+          : read.checks.find((c) => c.id === "working-policy")?.status !==
+              "complete"
+            ? "3. Work permissions"
+            : "4. Review and finish";
     assert.equal(
       await evaluate(
-        "[...document.querySelectorAll('.setup-screen button')].find(b=>b.textContent==='Open PR inbox').disabled",
+        "document.querySelector('.setup-steps [aria-current=step]').textContent.trim()",
+      ),
+      firstMissing,
+    );
+    await click("4. Review and finish");
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Finish setup'&&!b.closest('[hidden]')).disabled",
       ),
       true,
+    );
+    assert.ok(
+      await visible(
+        "Finish becomes available when every saved setup check passes.",
+      ),
     );
     assertions.push(
       "setup heading receives focus; statuses are live; incomplete inbox action is disabled",
@@ -443,7 +468,7 @@ async function start() {
     );
     assert.equal(
       await evaluate(
-        "Boolean(document.querySelector('.preferences-panel, .activity-viewer, .connection-status, .server-form'))",
+        "[...document.querySelectorAll('.preferences-panel, .activity-viewer, .connection-status, .server-form')].some(e=>!e.closest('[hidden]'))",
       ),
       false,
     );
@@ -482,7 +507,33 @@ async function start() {
       ),
       selected,
     );
+    const selectionBeforeFilter = await evaluate(
+      "window.prmonitor.readSynchronizationSelection().then(r=>r.value.selection.selectedManagedPrIds)",
+    );
+    for (const filter of ["Needs attention", "Running"]) {
+      await click(filter);
+      assert.deepEqual(
+        await evaluate(
+          "window.prmonitor.readSynchronizationSelection().then(r=>r.value.selection.selectedManagedPrIds)",
+        ),
+        selectionBeforeFilter,
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('#selected-pr-heading').textContent",
+        ),
+        selected,
+      );
+    }
     await click("Select all");
+    await waitFor(
+      () =>
+        evaluate(
+          "window.prmonitor.readSynchronizationSelection().then(r=>r.value.selection.selectedCount===20)",
+        ),
+      "Select all includes filtered-out PRs",
+    );
+    await click("All PRs");
     await waitFor(
       () =>
         evaluate(
@@ -534,7 +585,7 @@ async function start() {
       true,
     );
     await capture("activity-application-diagnostics");
-    await click("PR inbox");
+    await click("PRs");
     await waitFor(
       () =>
         evaluate(
@@ -545,7 +596,7 @@ async function start() {
     const inspectedId = await evaluate(
       "window.prmonitor.readManagedPrs().then(r=>r.value.value.managedPrs.find(p=>document.querySelector('.pr-detail-heading p').textContent===p.owner+'/'+p.repositoryName+' #'+p.number).id)",
     );
-    for (const back of ["Back to PR inbox", "PR inbox"]) {
+    for (const back of ["Back to PR inbox", "PRs"]) {
       await click("Add PR");
       await waitFor(
         () =>
@@ -828,7 +879,7 @@ async function start() {
     );
     await capture("fresh-narrow-125-percent");
     await evaluate(
-      "document.querySelector('.setup-screen .profile-actions').scrollIntoView({block:'center'})",
+      "[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Finish setup').scrollIntoView({block:'center'})",
     );
     await capture("fresh-narrow-125-percent-actions");
     assertions.push(
@@ -893,15 +944,16 @@ async function start() {
       async () => (await readiness())?.ready,
       "all checks complete",
     );
-    await click("Retry setup checks");
+    await click("Check saved setup");
+    await click("4. Review and finish");
     await waitFor(
       async () =>
         evaluate(
-          "[...document.querySelectorAll('.setup-screen button')].some(b=>b.textContent==='Open PR inbox'&&!b.disabled)",
+          "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Finish setup'&&!b.disabled&&!b.closest('[hidden]'))",
         ),
       "open inbox enabled",
     );
-    await click("Open PR inbox");
+    await click("Finish setup");
     await waitFor(() => visible("No pull requests yet"), "empty inbox");
     assert.ok(await visible("Add PR"));
     await capture("completed-empty-inbox");
@@ -1264,7 +1316,10 @@ async function start() {
         "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
       );
     };
-    await category("AI task profiles");
+    await category("AI connections");
+    await evaluate(
+      "[...document.querySelectorAll('summary')].find(e=>e.textContent.trim()==='Advanced task choices').parentElement.open=true",
+    );
     await waitFor(
       () =>
         evaluate("Boolean(document.querySelector('.preference-card input'))"),
@@ -1278,13 +1333,19 @@ async function start() {
     };
     const values = await preferences();
     const modelSelector =
-      ".preference-card .preferences-form label:nth-child(2) input";
+      ".preference-card .preferences-form label:nth-child(3) select";
+    const draftReasoning = (profile) =>
+      profile.reasoningEffort === "high" ? "low" : "high";
     for (const profile of values.taskProfiles) {
       await task(profile.taskType);
-      await setField(modelSelector, `unsaved-${profile.taskType}`);
+      await setField(
+        ".preference-card .preferences-form label:nth-child(2) select",
+        "gpt-6-astra",
+      );
+      await setField(modelSelector, draftReasoning(profile));
     }
     for (const label of [
-      "Execution policy",
+      "Work permissions",
       "Monitoring and work limits",
       "Common instructions",
       "Repository build and validation",
@@ -1308,14 +1369,14 @@ async function start() {
       ),
       "",
     );
-    await category("AI task profiles");
+    await category("AI connections");
     for (const profile of values.taskProfiles) {
       await task(profile.taskType);
       assert.equal(
         await evaluate(
           `document.querySelector(${JSON.stringify(modelSelector)}).value`,
         ),
-        `unsaved-${profile.taskType}`,
+        draftReasoning(profile),
       );
     }
     const first = values.taskProfiles[0];
@@ -1325,8 +1386,13 @@ async function start() {
       await evaluate(
         `document.querySelector(${JSON.stringify(modelSelector)}).value`,
       ),
-      first.modelId,
+      first.reasoningEffort ?? "",
     );
+    await setField(
+      ".preference-card .preferences-form label:nth-child(2) select",
+      "gpt-6-astra",
+    );
+    await setField(modelSelector, draftReasoning(first));
     await click("Save task profile");
     await waitFor(
       async () =>
@@ -1341,7 +1407,7 @@ async function start() {
         await evaluate(
           `document.querySelector(${JSON.stringify(modelSelector)}).value`,
         ),
-        `unsaved-${profile.taskType}`,
+        draftReasoning(profile),
       );
       assert.equal(
         (await preferences()).taskProfiles.find(
@@ -1352,37 +1418,23 @@ async function start() {
     }
     await capture("settings-independent-task-drafts");
     await task(first.taskType);
-    const optionsSelector = ".preference-card .preferences-form textarea";
-    const beforeInvalidOptions = await preferences();
-    await setField(optionsSelector, "{");
-    await click("Save task profile");
-    await waitFor(
-      () =>
-        visible(
-          "Provider options must be valid JSON before they can be saved.",
-        ),
-      "invalid JSON options reported inline",
-    );
-    assert.deepEqual(await preferences(), beforeInvalidOptions);
-    await setField(optionsSelector, "[]");
-    await click("Save task profile");
-    await waitFor(
-      () =>
-        evaluate(
-          "[...document.querySelectorAll('[role=alert]')].some(e=>!e.closest('[hidden]')&&e.textContent.trim().length>0&&!e.textContent.includes('must be valid JSON'))",
-        ),
-      "typed options validation refusal reported",
-    );
-    assert.deepEqual(await preferences(), beforeInvalidOptions);
-    await click("Discard task draft");
     assert.equal(
       await evaluate(
-        `document.querySelector(${JSON.stringify(optionsSelector)}).value`,
+        "Boolean(document.querySelector('.preference-card .preferences-form textarea'))",
       ),
-      JSON.stringify(first.providerOptions, null, 2),
+      false,
     );
+    const beforeInvalidOptions = await preferences();
+    const current = beforeInvalidOptions.taskProfiles.find(
+      (profile) => profile.taskType === first.taskType,
+    );
+    const rejected = await evaluate(
+      `window.prmonitor.saveTaskProfile(${JSON.stringify({ expectedSettingsRevision: beforeInvalidOptions.settingsRevision, profile: { taskType: current.taskType, providerId: current.providerId, modelId: current.modelId, enabled: current.enabled, providerOptions: [] } })})`,
+    );
+    assert.equal(rejected.ok, false);
+    assert.deepEqual(await preferences(), beforeInvalidOptions);
     assertions.push(
-      "invalid JSON and structured invalid provider options render errors without changing any saved profile or revision; discarding restores the selected task draft",
+      "supported model/reasoning controls replace ignored provider JSON; malformed typed options leave every saved profile and revision unchanged",
     );
     assertions.push(
       "all four task drafts survive category and destination navigation; discard/save affects only the selected task; other saved revisions remain unchanged; leaving GitHub settings clears the unsaved credential field",
@@ -1457,7 +1509,7 @@ async function start() {
     );
     for (const [number, back] of [
       [73, "Back to PR inbox"],
-      [74, "PR inbox"],
+      [74, "PRs"],
     ]) {
       await click("Add PR");
       await waitFor(
@@ -3392,24 +3444,32 @@ async function start() {
       );
       await waitFor(() => visible(heading), "settings category loaded");
     };
-    await category("AI task profiles", "AI Task Profiles");
+    await category("AI connections", "AI connections");
     const initial = await preferences();
     const taskSection =
       '.preference-section[aria-labelledby="task-profiles-heading"]';
     const task = await evaluate(
-      `document.querySelector(${JSON.stringify(taskSection + " select")}).value`,
+      `document.querySelector(${JSON.stringify(taskSection + " .preference-grid select")}).value`,
     );
-    await setField(`${taskSection} textarea`, "{invalid");
-    await click("Save task profile");
-    await waitFor(
-      () =>
-        visible(
-          "Provider options must be valid JSON before they can be saved.",
-        ),
-      "invalid options refused visibly",
+    await evaluate(
+      "[...document.querySelectorAll('summary')].find(e=>e.textContent.trim()==='Advanced task choices').parentElement.open=true",
     );
+    const profile = initial.taskProfiles.find(
+      (value) => value.taskType === task,
+    );
+    const invalid = await evaluate(
+      `window.prmonitor.saveTaskProfile(${JSON.stringify({ expectedSettingsRevision: initial.settingsRevision, profile: { taskType: profile.taskType, providerId: profile.providerId, modelId: profile.modelId, enabled: profile.enabled, providerOptions: [] } })})`,
+    );
+    assert.equal(invalid.ok, false);
     assert.deepEqual(await preferences(), initial);
-    await setField(`${taskSection} textarea`, "{}");
+    const reasoning = `${taskSection} .preference-card .preferences-form label:nth-child(3) select`;
+    const changedReasoning =
+      profile.reasoningEffort === "high" ? "low" : "high";
+    await setField(
+      `${taskSection} .preference-card .preferences-form label:nth-child(2) select`,
+      "gpt-6-astra",
+    );
+    await setField(reasoning, changedReasoning);
     globalThis.__controlledProviderUnavailable = true;
     await click("Save task profile");
     await waitFor(
@@ -3428,6 +3488,7 @@ async function start() {
     );
     globalThis.__controlledProviderUnavailable = false;
     const unavailable = await preferences();
+    await setField(reasoning, profile.reasoningEffort ?? "");
     await click("Save task profile");
     await waitFor(
       async () =>
@@ -3439,7 +3500,7 @@ async function start() {
         .availability,
       "AVAILABLE",
     );
-    await category("Execution policy", "Execution Policy");
+    await category("Work permissions", "Work permissions");
     const policySection =
       '.preference-section[aria-labelledby="policy-heading"]';
     const originalPolicy = (await preferences()).policy.preset;
@@ -3507,6 +3568,10 @@ async function start() {
       assert.deepEqual(await preferences(), saved);
       await setField(selector, original);
     }
+    await setField(
+      `${operational} .preferences-form label:nth-of-type(1) input`,
+      String(saved.operational.maxAiWorkTurns + 1),
+    );
     await click("Save operational preferences");
     await waitFor(
       async () =>
@@ -3516,7 +3581,7 @@ async function start() {
     assert.deepEqual(globalThis.__controlledProviderContracts, []);
     await capture("conditional-settings-failures-retry");
     assertions.push(
-      "isolated actual F16 typed commands and persistence: malformed provider JSON leaves preferences unchanged; disabled provider is classified and explicitly revalidated without invocation; all policy presets retain operation-owned scope and no publication authority, with original policy restored; invalid/stale policy, turn budget, missing worktree root and invalid monitoring timers fail without changing saved preferences, followed by a valid explicit retry",
+      "isolated actual F16 typed commands and persistence: malformed typed provider options leave preferences unchanged; disabled provider is classified and explicitly revalidated without invocation; all policy presets retain operation-owned scope and no publication authority, with original policy restored; invalid/stale policy, turn budget, missing worktree root and invalid monitoring timers fail without changing saved preferences, followed by a valid explicit retry",
     );
   }
   assert.equal(

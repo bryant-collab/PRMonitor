@@ -1,3 +1,4 @@
+import { HelpButton, HelpSummary } from "./HelpControls";
 import { savedWorkTarget } from "./shell-routing";
 import type { ReactNode } from "react";
 import type { ManagedPrInboxCard } from "../shared/inbox";
@@ -75,13 +76,13 @@ export function PrDetail({
             <p role={error === "" ? "status" : "alert"}>
               {error || "Loading pull request details."}
             </p>
-            <button type="button" onClick={onBack}>
+            <HelpButton type="button" onClick={onBack}>
               Back to PR inbox
-            </button>
+            </HelpButton>
             {error === "" ? null : (
-              <button type="button" onClick={onRetry}>
+              <HelpButton type="button" onClick={onRetry}>
                 Retry details
-              </button>
+              </HelpButton>
             )}
           </>
         )}
@@ -90,15 +91,15 @@ export function PrDetail({
   return (
     <section className="pr-detail" aria-labelledby="selected-pr-heading">
       <header className="pr-detail-heading">
-        <button type="button" className="narrow-back" onClick={onBack}>
+        <HelpButton type="button" className="narrow-back" onClick={onBack}>
           Back to PR inbox
-        </button>
+        </HelpButton>
         <p>{card.reference}</p>
         <h2 id="selected-pr-heading">{card.title ?? card.reference}</h2>
         <p>{primaryLabels[card.primaryState]}</p>
         <nav role="tablist" aria-label="Pull request detail views">
           {tabs.map(([id, label]) => (
-            <button
+            <HelpButton
               type="button"
               key={id}
               role="tab"
@@ -131,7 +132,7 @@ export function PrDetail({
               }}
             >
               {label}
-            </button>
+            </HelpButton>
           ))}
         </nav>
       </header>
@@ -146,9 +147,9 @@ export function PrDetail({
         {error === "" ? null : (
           <p role="alert">
             {error}{" "}
-            <button type="button" onClick={onRetry}>
+            <HelpButton type="button" onClick={onRetry}>
               Retry details
-            </button>
+            </HelpButton>
           </p>
         )}
         {tab === "overview" ? (
@@ -199,7 +200,7 @@ export function PrDetail({
                 . Open Branch sync to inspect its saved result.
               </p>
             )}
-            <button
+            <HelpButton
               type="button"
               onClick={() =>
                 onTab(card.primaryState === "WATCHING" ? "settings" : "review")
@@ -208,9 +209,9 @@ export function PrDetail({
               {card.primaryState === "WATCHING"
                 ? "Open PR settings"
                 : "Inspect saved review"}
-            </button>
+            </HelpButton>
             <details>
-              <summary>Raw support data</summary>
+              <HelpSummary>Raw support data</HelpSummary>
               <pre tabIndex={0}>
                 {JSON.stringify({ card, details }, null, 2)}
               </pre>
@@ -235,14 +236,14 @@ export function PrDetail({
                     Saved review updated{" "}
                     {new Date(review.updatedAt).toLocaleString()}
                   </p>
-                  <button
+                  <HelpButton
                     type="button"
                     onClick={() =>
                       onOpen(savedWorkTarget("REVIEW_BUNDLE", review.bundleId))
                     }
                   >
                     Open full review workspace
-                  </button>
+                  </HelpButton>
                 </article>
               ))
             )}
@@ -270,7 +271,7 @@ export function PrDetail({
               work.synchronization.map((item, index) => (
                 <article key={item.resultId}>
                   <p>Saved synchronization {index + 1}</p>
-                  <button
+                  <HelpButton
                     type="button"
                     onClick={() =>
                       onOpen(
@@ -282,8 +283,8 @@ export function PrDetail({
                     }
                   >
                     Open synchronization result
-                  </button>
-                  <button
+                  </HelpButton>
+                  <HelpButton
                     type="button"
                     onClick={() =>
                       onOpen(
@@ -292,7 +293,7 @@ export function PrDetail({
                     }
                   >
                     Open batch
-                  </button>
+                  </HelpButton>
                 </article>
               ))
             )}
@@ -300,11 +301,15 @@ export function PrDetail({
         ) : null}
         {(tab === "review" || tab === "sync") &&
         work?.nextOffset !== undefined ? (
-          <button type="button" disabled={historyBusy} onClick={onMoreHistory}>
+          <HelpButton
+            type="button"
+            disabled={historyBusy}
+            onClick={onMoreHistory}
+          >
             {historyBusy
               ? "Loading older saved work."
               : "Load older saved work"}
-          </button>
+          </HelpButton>
         ) : null}
         {tab === "activity" ? (
           <ActivityViewer enabled managedPrId={card.id} onNavigate={onOpen} />
