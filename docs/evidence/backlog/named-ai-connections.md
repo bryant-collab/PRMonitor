@@ -99,9 +99,16 @@ child handle to kill. When a handle remains, force-stop sends SIGKILL and clears
 it without awaiting exit/close; the public stdio API exposes neither
 a spawn callback nor a child-close receipt. A resolved mocked force-stop call
 does not prove native reaping. This correction does not access private SDK fields,
-change transports, open TCP listeners or change provider versions. Actual forced
-fallback cleanup remains unverified. A robust closure needs a supported public
-process-owner/await-close contract or a separately reviewed process-owner design.
+change transports, open TCP listeners or change provider versions. The approved
+supervised-worker design now establishes application-owned Windows Job ownership
+before SDK initialization, preserves bounded scope-bound permission callbacks,
+and awaits worker close plus zero Job processes before releasing the connection.
+Uncertain cleanup quarantines the connection instead of admitting overlapping
+work. SDK stop is advisory. Native and packaged worker fixtures passed on hosted
+Windows. Fresh independent review and green hosted Windows acceptance allowed
+removal of the temporary production admission gate. Architecture, fixture boundaries and exact evidence are in
+[Copilot supervised SDK worker](copilot-worker.md). Live user-PC/provider
+acceptance remains separate and unverified.
 
 Both pinned SDKs use the explicitly supplied environment without merging parent
 environment values. Their types and dependencies are isolated in a private

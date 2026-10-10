@@ -26,10 +26,6 @@ import {
 import type { AIProvider } from "./registry";
 import { CopilotCleanupError } from "./copilot-process";
 
-// Temporary admission gate. Enable only after supervised cleanup fixture gates
-// and independent review pass on Windows; no environment/user bypass exists.
-export const COPILOT_TASK_EXECUTION_ENABLED = false;
-
 export const COPILOT_CAPABILITIES: AIProviderCapabilities = {
   ...CODEX_CAPABILITIES,
   providerId: "copilot",
@@ -91,10 +87,6 @@ export function createCopilotProvider(config: {
           },
           async runStreamed(input, runOptions) {
             async function* events(): AsyncIterable<unknown> {
-              if (!config.factory && !COPILOT_TASK_EXECUTION_ENABLED)
-                throw new Error(
-                  "Copilot task execution is unavailable while supervised cleanup is being verified.",
-                );
               runOptions.signal?.throwIfAborted();
               const release = await config.authentication.acquire(
                 connection!.id,
@@ -313,12 +305,6 @@ export function createCopilotProvider(config: {
       };
     },
     readLocalReadiness: async (connection) => {
-      if (!config.factory && !COPILOT_TASK_EXECUTION_ENABLED)
-        return {
-          runtimeAvailable: false,
-          authenticationAvailable: false,
-          executionBlocker: "UNVERIFIED_PROCESS_CLEANUP",
-        };
       if (!connection)
         return { runtimeAvailable: false, authenticationAvailable: false };
       const status = await config.authentication.check(connection);

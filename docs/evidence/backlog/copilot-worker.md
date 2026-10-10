@@ -1,14 +1,15 @@
 # Copilot supervised SDK worker
 
-## Authorized result and admission gate
+## Authorized result and verified admission
 
 The pinned Copilot SDK's public forced stop does not provide a descendant-tree
 cleanup receipt. PRMonitor must own a worker outside the SDK, establish Windows
 Job ownership before SDK initialization, and await process cleanup before
 releasing its saved connection. This implements the approved supervised-worker
-design. Copilot task execution remains explicitly unavailable until native
-Windows fixtures and independent review establish the required guarantees.
-There is no environment, renderer, or saved-setting bypass of that gate.
+design. The temporary Copilot task admission gate was removed after hosted
+Windows native, packaged and desktop acceptance passed on
+`ef1b79928b76b0e59de7290f7f299f1e99688b47`, with fresh independent review.
+Ownership, permission and cleanup failures still fail closed at runtime.
 
 SDK 1.0.13, subscription authentication, existing sign-in selection, fixed
 stdio launch options, and operation-scoped file tools remain unchanged. No SDK
@@ -91,8 +92,22 @@ shipping installer acceptance and Ubuntu foundation jobs passed. The Windows
 foundation job subsequently failed in the controlled-provider startup fixture:
 its separate esbuild bundle relocated Koffi away from its native binary. The
 fixture now preserves the real native wrapper as an external absolute module;
-normal shipping packaging is unchanged. Final-head Windows acceptance remains
-required, and these initial results do not constitute a green final build.
+normal shipping packaging is unchanged. These initial results did not constitute
+a green final build.
+
+Gated implementation `ef1b79928b76b0e59de7290f7f299f1e99688b47` passed
+[PR CI](https://github.com/bryant-collab/PRMonitor/actions/runs/38015853640)
+and [push CI](https://github.com/bryant-collab/PRMonitor/actions/runs/38015851568):
+Ubuntu foundation, Windows foundation and shipping installer acceptance. Windows
+executed all 22 worker tests and 565 desktop tests, with one unrelated platform
+skip. Every startup/restart/conditional-provider stage passed. Earlier attempts
+hit unchanged five-second worktree/recovery test deadlines and a 15-second
+conditional-review startup deadline (window created at 16.523 seconds, 842
+SQLite commits totaling 15.400 seconds). Same-commit retries passed without
+changing those tests, timing assertions, database code or security settings.
+Independent review confirmed the startup miss precedes the changed controlled
+provider entry, and worker registration triggers no startup database work.
+The final enabled-source commit must pass its own normal CI as well.
 
 ## Safe focused Windows procedure
 
@@ -121,6 +136,6 @@ GitHub-hosted runner.
 
 The normal Windows PR foundation check runs these tests after its shipping
 package build. Exact-head hosted Windows CI and fresh independent review are
-required before enabling Copilot task execution. Actual user-PC/provider
+required for Copilot task admission. Actual user-PC/provider
 subscription acceptance remains distinct and must not be inferred from these
 synthetic fixtures.
