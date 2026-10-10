@@ -1,10 +1,11 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { stat } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { copilotSessionOptions } from "../src/main/ai/copilot-policy";
+import { withCancellation } from "../src/main/ai/copilot-runtime";
 import { createWindowsJob } from "../src/main/ai/windows-job";
 import {
   CopilotProcess,
@@ -23,6 +24,70 @@ import {
 } from "./copilot-fixture";
 
 const fixtures: Awaited<ReturnType<typeof copilotProcessFixture>>[] = [];
+it("observes an already-started SDK rejection when cancellation preceded the wait", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let reject!: (error: Error) => void;
+  const pending = new Promise<void>((_resolve, fail) => {
+    reject = fail;
+  });
+  expect(() => withCancellation(pending, controller.signal)).toThrow();
+  reject(new Error("Owned synthetic late SDK rejection."));
+  await new Promise((resolve) => setImmediate(resolve));
+});
+function closureReceipt(child: ChildProcess): () => Promise<void> {
+  let closed = false;
+  const receipt = new Promise<void>((resolve) =>
+    child.once("close", () => {
+      closed = true;
+      resolve();
+    }),
+  );
+  child.on("error", () => {
+    /* The bounded close receipt reports spawn failure. */
+  });
+  return async () => {
+    await waitFor(
+      async () => closed,
+      (value) => value,
+    );
+    await receipt;
+  };
+}
+async function bootstrapReceipt(
+  child: ChildProcess,
+): Promise<ReturnType<typeof decodeCopilotMessage>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onMessage!: (raw: unknown) => void;
+  let onError!: (error: Error) => void;
+  let onClose!: () => void;
+  try {
+    return await new Promise((resolve, reject) => {
+      onMessage = (raw) => {
+        try {
+          resolve(decodeCopilotMessage(raw));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      onError = reject;
+      onClose = () =>
+        reject(new Error("Fixture bootstrap closed before its receipt."));
+      child.once("message", onMessage);
+      child.once("error", onError);
+      child.once("close", onClose);
+      timer = setTimeout(
+        () => reject(new Error("Fixture bootstrap receipt timed out.")),
+        5000,
+      );
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+    child.removeListener("message", onMessage);
+    child.removeListener("error", onError);
+    child.removeListener("close", onClose);
+  }
+}
 afterEach(async () => {
   for (const f of fixtures.splice(0)) {
     await f.client.closeOwnedRuntime().catch(() => {});
@@ -242,6 +307,33 @@ describe("supervised Copilot SDK worker and native ownership", () => {
       owner.child.exitCode !== null || owner.child.signalCode !== null,
     ).toBe(true);
   });
+  it("kills and awaits the bootstrap even when Job termination and accounting fail", async () => {
+    const f = await fixture();
+    const job = {
+      assign: vi.fn(),
+      terminate: vi.fn(() => {
+        throw new Error("Synthetic native termination failure.");
+      }),
+      activeProcesses: vi.fn(() => {
+        throw new Error("Synthetic accounting failure.");
+      }),
+      close: vi.fn(),
+    };
+    const owner = new CopilotProcess({
+      worker: f.worker,
+      cwd: f.root,
+      env: f.env,
+      createJob: () => job,
+      cleanupTimeoutMs: 500,
+    });
+    await new Promise<void>((resolve) => owner.child.once("spawn", resolve));
+    await expect(owner.close()).rejects.toBeInstanceOf(CopilotCleanupError);
+    expect(
+      owner.child.exitCode !== null || owner.child.signalCode !== null,
+    ).toBe(true);
+    expect(job.close).not.toHaveBeenCalled();
+    await expect(readFile(path.join(f.root, "runtime.pid"))).rejects.toThrow();
+  });
   it("rejects oversized or malformed policy messages and mismatched reply types", () => {
     expect(() => decodeCopilotMessage({ kind: "request" })).toThrow();
     expect(() =>
@@ -342,18 +434,7 @@ describe("supervised Copilot SDK worker and native ownership", () => {
         env: f.env,
       });
       try {
-        const boot = await new Promise<ReturnType<typeof decodeCopilotMessage>>(
-          (resolve, reject) => {
-            owner.child.once("message", (raw) => {
-              try {
-                resolve(decodeCopilotMessage(raw));
-              } catch (error) {
-                reject(error);
-              }
-            });
-            owner.child.once("error", reject);
-          },
-        );
+        const boot = await bootstrapReceipt(owner.child);
         if (boot.kind !== "booted" || !boot.birth)
           throw new Error("Missing fixture worker birth identity.");
         const wrongBirth = String(BigInt(boot.birth) + 1n);
@@ -489,8 +570,14 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
             ok: true,
           });
         } finally {
-          job.terminate();
-          if (!closed) child.kill("SIGKILL");
+          let terminationFailure: unknown;
+          try {
+            job.terminate();
+          } catch (error) {
+            terminationFailure = error;
+          } finally {
+            if (!closed) child.kill("SIGKILL");
+          }
           await waitFor(
             async () => closed,
             (value) => value,
@@ -501,6 +588,7 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
             (count) => count === 0,
           );
           job.close();
+          expect(terminationFailure).toBeUndefined();
         }
       }
     },
@@ -554,6 +642,7 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
     child.stderr?.resume();
+    const awaitClosed = closureReceipt(child);
     try {
       const ready = new Promise<void>((resolve, reject) => {
         child.once("message", () => resolve());
@@ -568,11 +657,8 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
         () => f.heartbeat(),
         (n) => n >= 2,
       );
-      const closed = new Promise<void>((resolve) =>
-        child.once("close", resolve),
-      );
       child.kill("SIGKILL");
-      await closed;
+      await awaitClosed();
       for (const pid of identities)
         await waitFor(
           () => processRunning(pid),
@@ -582,6 +668,7 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
     } finally {
       if (child.exitCode === null && child.signalCode === null)
         child.kill("SIGKILL");
+      await awaitClosed();
     }
   }, 15000);
   it("owner crash before assignment cannot initialize the SDK or leave an unassigned bootstrap", async () => {
@@ -603,14 +690,14 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
     child.once("message", (raw) => {
       workerPid = (raw as { pid: number }).pid;
     });
-    const ended = new Promise<void>((resolve) => child.once("close", resolve));
+    const awaitClosed = closureReceipt(child);
     try {
       await waitFor(
         async () => workerPid,
         (value) => Number.isSafeInteger(value),
       );
       child.kill("SIGKILL");
-      await ended;
+      await awaitClosed();
       await waitFor(
         () => processRunning(workerPid!),
         (value) => !value,
@@ -621,6 +708,7 @@ process.on("disconnect",()=>process.exit(1));setTimeout(()=>process.exit(1),1000
     } finally {
       if (child.exitCode === null && child.signalCode === null)
         child.kill("SIGKILL");
+      await awaitClosed();
     }
   }, 15000);
   it("application shutdown awaits its registered trees and prevents another worker from starting", async () => {

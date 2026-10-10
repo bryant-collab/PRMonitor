@@ -205,6 +205,9 @@ export class SupervisedCopilotClient implements CopilotClientPort {
     });
     try {
       await booted;
+      // The bootstrap deadline only bounds assignment. Provider startup keeps
+      // its existing caller cancellation/readiness deadline after ownership.
+      clearTimeout(timer);
       if (this.closing) throw this.error();
       await this.request("start", configuration);
     } finally {

@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { CopilotCleanupError } from "./copilot-process";
+import { withCancellation } from "./copilot-runtime";
 import {
   aiConnectionSchema,
   type AIConnection,
@@ -229,12 +230,20 @@ export class ConnectionAuthentication {
     if (this.quarantined.has(connection.id)) throw new CopilotCleanupError();
     // Tasks already hold this lease. Standalone Copilot metadata workers must
     // serialize with tasks and other metadata workers under the same owner.
-    const release =
-      connection.tool === "copilot" && !ownsConnection
-        ? await this.acquire(connection.id, signal)
-        : undefined;
+    const standalone = connection.tool === "copilot" && !ownsConnection;
+    const deadline = standalone ? new AbortController() : undefined;
+    const cancel = () => deadline?.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+    const timer = deadline ? setTimeout(cancel, 15000) : undefined;
+    const checkSignal = deadline?.signal ?? signal;
+    let release: (() => void) | undefined;
     try {
-      const home = await this.home(connection);
+      if (standalone) release = await this.acquire(connection.id, checkSignal);
+      const pendingHome = this.home(connection);
+      const home = checkSignal
+        ? await withCancellation(pendingHome, checkSignal)
+        : await pendingHome;
       if (this.quarantined.has(connection.id)) throw new CopilotCleanupError();
       return await checkAITool(
         {
@@ -245,13 +254,25 @@ export class ConnectionAuthentication {
         },
         this.run,
         this.source,
-        signal,
+        checkSignal,
         home,
       );
     } catch (error) {
       if (error instanceof CopilotCleanupError) this.quarantine(connection.id);
+      else if (deadline?.signal.aborted && !signal?.aborted)
+        return {
+          tool: connection.tool,
+          detected: false,
+          compatible: false,
+          authentication: "unknown" as const,
+          workReadiness: "blocked" as const,
+          message:
+            "This Copilot connection is busy or its check timed out. Retry after the active work finishes.",
+        };
       throw error;
     } finally {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
       if (!this.quarantined.has(connection.id)) release?.();
     }
   }

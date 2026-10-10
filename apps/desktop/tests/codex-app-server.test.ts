@@ -661,6 +661,39 @@ describe("provider-owned connection storage and refresh serialization", () => {
 });
 
 describe("owned provider process cleanup", () => {
+  it("bounds a standalone Copilot check waiting for task ownership without starting another provider", async () => {
+    vi.useFakeTimers();
+    const run = vi.fn();
+    const auth = new ConnectionAuthentication(process.cwd(), {}, run);
+    const selected = { ...connection, tool: "copilot" as const };
+    const home = vi.spyOn(auth, "home");
+    const owner = await auth.acquire(selected.id);
+    try {
+      const check = auth.check(selected);
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(await check).toMatchObject({
+        authentication: "unknown",
+        compatible: false,
+        workReadiness: "blocked",
+      });
+      expect(home).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+      let granted = false;
+      const queued = auth.acquire(selected.id).then((release) => {
+        granted = true;
+        return release;
+      });
+      await Promise.resolve();
+      expect(granted).toBe(false);
+      owner();
+      (await queued)();
+      expect(granted).toBe(true);
+    } finally {
+      owner();
+      auth.dispose();
+      vi.useRealTimers();
+    }
+  });
   it("serializes standalone Copilot checks with the task owner and rejects quarantine occurring during home resolution", async () => {
     const auth = new ConnectionAuthentication(process.cwd(), {}, vi.fn());
     const selected = { ...connection, tool: "copilot" as const };

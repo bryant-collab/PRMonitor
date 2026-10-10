@@ -150,6 +150,7 @@ export function withCancellation<T>(
   pending: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
+  if (signal.aborted) void pending.catch(() => {});
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const abort = () => {

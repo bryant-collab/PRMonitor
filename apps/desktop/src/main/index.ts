@@ -3307,7 +3307,13 @@ if (primaryInstance.acquire(process.argv)) {
 let copilotShutdownFinished = false;
 let copilotShutdownStarted = false;
 app.on("before-quit", (event) => {
-  if (copilotShutdownFinished || !hasCopilotWorkers()) return;
+  if (copilotShutdownFinished) return;
+  if (!hasCopilotWorkers()) {
+    // Close admission even when metadata work is still resolving its home.
+    void shutdownCopilotWorkers();
+    copilotShutdownFinished = true;
+    return;
+  }
   event.preventDefault();
   if (copilotShutdownStarted) return;
   copilotShutdownStarted = true;

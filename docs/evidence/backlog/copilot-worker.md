@@ -45,8 +45,13 @@ possibly unassigned child. Unconfirmed cleanup retains the Job handle and the
 connection lease, quarantines that connection, and rejects queued/subsequent
 work until restart. Standalone Copilot checks serialize under the same saved
 connection lease; task checks run inside their already-held lease.
+The standalone check's 15-second deadline includes waiting for that lease and
+resolving the provider home. A timed-out queued check launches no provider and
+cannot release the running task's ownership. Cancellation before a SDK wait
+still observes any later rejection from the already-started promise.
 
-Application quit drains registered workers before continuing. Owner crash
+Application quit closes worker admission even when the current worker set is
+empty, and drains registered workers before continuing. Owner crash
 closes the noninherited Job handle and kills its assigned descendants. POSIX
 uses an owned process group and confirms no running group members after worker
 closure; Linux zombie entries are not running processes. This POSIX guarantee
@@ -77,6 +82,17 @@ work receives the lease only after all descendants have stopped. An uncertain
 cleanup test verifies quarantine and rejection of queued/subsequent ownership.
 `codex-app-server.test.ts` verifies standalone-check serialization and quarantine
 occurring during deferred home-directory resolution.
+
+Initial Windows evidence at `97e548805e4b317d80dc19f346bb6aa902fc2a94`:
+[PR foundation run](https://github.com/bryant-collab/PRMonitor/actions/runs/38014968210)
+executed all 20 worker cases successfully, including the three Windows-native
+cases; desktop totals were 562 passed and one unrelated platform skip. Its
+shipping installer acceptance and Ubuntu foundation jobs passed. The Windows
+foundation job subsequently failed in the controlled-provider startup fixture:
+its separate esbuild bundle relocated Koffi away from its native binary. The
+fixture now preserves the real native wrapper as an external absolute module;
+normal shipping packaging is unchanged. Final-head Windows acceptance remains
+required, and these initial results do not constitute a green final build.
 
 ## Safe focused Windows procedure
 

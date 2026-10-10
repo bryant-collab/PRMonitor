@@ -139,6 +139,7 @@ export function createCopilotProvider(config: {
                   !status.executable
                 )
                   throw new Error(status.message);
+                controller.signal.throwIfAborted();
                 const env = config.authentication.environment(
                   connection!,
                   home,
