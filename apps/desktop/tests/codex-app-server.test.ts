@@ -20,6 +20,7 @@ import {
   type CodexProtocol,
 } from "../src/main/ai/codex-app-server";
 import { ConnectionAuthentication } from "../src/main/ai/connection-authentication";
+import { CopilotCleanupError } from "../src/main/ai/copilot-process";
 import type { AIConnection } from "../src/shared/ai-connections";
 import {
   CodexAdapter,
@@ -660,6 +661,32 @@ describe("provider-owned connection storage and refresh serialization", () => {
 });
 
 describe("owned provider process cleanup", () => {
+  it("serializes standalone Copilot checks with the task owner and rejects quarantine occurring during home resolution", async () => {
+    const auth = new ConnectionAuthentication(process.cwd(), {}, vi.fn());
+    const selected = { ...connection, tool: "copilot" as const };
+    let resolveHome!: (home: undefined) => void;
+    const home = vi.spyOn(auth, "home").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveHome = resolve;
+        }),
+    );
+    const owner = await auth.acquire(selected.id);
+    const standalone = auth.check(selected).catch((error) => error);
+    await Promise.resolve();
+    expect(home).not.toHaveBeenCalled();
+    const held = auth.check(selected, undefined, true).catch((error) => error);
+    await vi.waitFor(() => expect(home).toHaveBeenCalledOnce());
+    auth.quarantine(selected.id);
+    resolveHome(undefined);
+    expect(await held).toBeInstanceOf(CopilotCleanupError);
+    expect(await standalone).toBeInstanceOf(Error);
+    expect(home).toHaveBeenCalledOnce();
+    await expect(auth.acquire(selected.id)).rejects.toBeInstanceOf(
+      CopilotCleanupError,
+    );
+    owner();
+  });
   it("coalesces sign-in and releases a connection only after its cancelled process closes", async () => {
     const root = await mkdtemp(
       path.join(await realpath(tmpdir()), "prmonitor-login-process-"),

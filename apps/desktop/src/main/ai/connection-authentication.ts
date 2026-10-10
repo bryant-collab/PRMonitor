@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { CopilotCleanupError } from "./copilot-process";
 import {
   aiConnectionSchema,
   type AIConnection,
@@ -19,6 +20,7 @@ const pathKey = (value: string) =>
     : path.resolve(value);
 /** Nonsecret ownership metadata only. Credential storage remains inside the provider. */
 export class ConnectionAuthentication {
+  private readonly quarantined = new Set<string>();
   private readonly holders = new Set<string>();
   private readonly queues = new Map<
     string,
@@ -152,6 +154,8 @@ export class ConnectionAuthentication {
     signal?: AbortSignal,
   ): Promise<() => void> {
     signal?.throwIfAborted();
+    if (this.quarantined.has(connectionId))
+      return Promise.reject(new CopilotCleanupError());
     return new Promise((resolve, reject) => {
       const queue = this.queues.get(connectionId) ?? [];
       if (queue.length >= 32) {
@@ -195,6 +199,13 @@ export class ConnectionAuthentication {
       }
     });
   }
+  /** No overlapping work is allowed after an unconfirmed owned-process cleanup. */
+  public quarantine(connectionId: string): void {
+    this.quarantined.add(connectionId);
+    for (const waiter of [...(this.queues.get(connectionId) ?? [])])
+      waiter.reject();
+    this.queues.delete(connectionId);
+  }
   public environment(
     connection: AIConnection,
     home: string,
@@ -210,20 +221,39 @@ export class ConnectionAuthentication {
           : "CODEX_HOME"]: home,
     };
   }
-  public async check(connection: AIConnection, signal?: AbortSignal) {
-    const home = await this.home(connection);
-    return checkAITool(
-      {
-        tool: connection.tool,
-        executable: connection.executable,
-        extraArgs: connection.extraArgs,
-        authMode: connection.authMode,
-      },
-      this.run,
-      this.source,
-      signal,
-      home,
-    );
+  public async check(
+    connection: AIConnection,
+    signal?: AbortSignal,
+    ownsConnection = false,
+  ) {
+    if (this.quarantined.has(connection.id)) throw new CopilotCleanupError();
+    // Tasks already hold this lease. Standalone Copilot metadata workers must
+    // serialize with tasks and other metadata workers under the same owner.
+    const release =
+      connection.tool === "copilot" && !ownsConnection
+        ? await this.acquire(connection.id, signal)
+        : undefined;
+    try {
+      const home = await this.home(connection);
+      if (this.quarantined.has(connection.id)) throw new CopilotCleanupError();
+      return await checkAITool(
+        {
+          tool: connection.tool,
+          executable: connection.executable,
+          extraArgs: connection.extraArgs,
+          authMode: connection.authMode,
+        },
+        this.run,
+        this.source,
+        signal,
+        home,
+      );
+    } catch (error) {
+      if (error instanceof CopilotCleanupError) this.quarantine(connection.id);
+      throw error;
+    } finally {
+      if (!this.quarantined.has(connection.id)) release?.();
+    }
   }
   public signIn(connection: AIConnection): Promise<void> {
     const existing = this.logins.get(connection.id);

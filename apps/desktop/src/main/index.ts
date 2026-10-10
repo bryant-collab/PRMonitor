@@ -108,6 +108,10 @@ import {
   createCopilotProvider,
 } from "./ai";
 import { ConnectionAuthentication } from "./ai/connection-authentication";
+import {
+  hasCopilotWorkers,
+  shutdownCopilotWorkers,
+} from "./ai/copilot-supervisor";
 import { F13WorktreeService } from "./f13-service";
 import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
 import { ValidationRunService } from "./f14-validation-runner";
@@ -3300,6 +3304,18 @@ if (primaryInstance.acquire(process.argv)) {
     .catch((error: unknown) => smokeFailure("APP_START_FAILED", error));
 }
 
+let copilotShutdownFinished = false;
+let copilotShutdownStarted = false;
+app.on("before-quit", (event) => {
+  if (copilotShutdownFinished || !hasCopilotWorkers()) return;
+  event.preventDefault();
+  if (copilotShutdownStarted) return;
+  copilotShutdownStarted = true;
+  void shutdownCopilotWorkers().finally(() => {
+    copilotShutdownFinished = true;
+    app.quit();
+  });
+});
 app.on("will-quit", () => {
   connectionAuthentication?.dispose();
   connectionAuthentication = undefined;

@@ -91,7 +91,7 @@ const rendererOrSharedLeaks = [...contents.entries()]
       relative.startsWith("apps/desktop/src/shared/");
     return (
       rendererSafe &&
-      /from\s+["'](?:electron|node:(?:child_process|fs|process|module)|@openai\/codex-sdk|@prmonitor\/provider-runtimes|@anthropic-ai\/(?:claude-agent-sdk|sdk)|@github\/copilot-sdk)["']/u.test(
+      /from\s+["'](?:electron|node:(?:child_process|fs|process|module)|@openai\/codex-sdk|@prmonitor\/provider-runtimes(?:\/native)?|@anthropic-ai\/(?:claude-agent-sdk|sdk)|@github\/copilot-sdk)["']/u.test(
         content,
       )
     );
@@ -106,7 +106,9 @@ const additionalSdkImports = [...contents.entries()]
   .map(([file]) => path.relative(root, file).replaceAll("\\", "/"));
 const hostRuntimeImports = [...contents.entries()]
   .filter(([, content]) =>
-    /from\s+["']@prmonitor\/provider-runtimes["']/u.test(content),
+    /(?:from\s+|import\s*\()["']@prmonitor\/provider-runtimes(?:\/native)?["']/u.test(
+      content,
+    ),
   )
   .map(([file]) => path.relative(root, file).replaceAll("\\", "/"));
 const allowedHostRuntimes = new Set(
@@ -116,6 +118,10 @@ const allowedHostRuntimes = new Set(
     "claude-process.ts",
     "copilot-adapter.ts",
     "copilot-runtime.ts",
+    "copilot-policy.ts",
+    "copilot-supervisor.ts",
+    "copilot-worker.ts",
+    "windows-job.ts",
   ].map((name) => `apps/desktop/src/main/ai/${name}`),
 );
 const dynamicLoading = [...contents.entries()]

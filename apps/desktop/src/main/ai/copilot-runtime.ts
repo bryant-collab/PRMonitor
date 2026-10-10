@@ -1,10 +1,12 @@
 import {
-  CopilotClient,
   RuntimeConnection,
   type CopilotClientOptions,
   type SessionConfig,
   type ResumeSessionConfig,
 } from "@prmonitor/provider-runtimes";
+import { SupervisedCopilotClient } from "./copilot-supervisor";
+export { copilotBareModel, copilotSubscription } from "./copilot-wire";
+import { copilotBareModel, copilotSubscription } from "./copilot-wire";
 import { recordProviderModels } from "./provider-models";
 import type { AIConnection, AIToolStatus } from "../../shared/ai-connections";
 
@@ -28,6 +30,8 @@ export interface CopilotClientPort {
   start(): Promise<void>;
   stop(): Promise<unknown>;
   forceStop(): Promise<void>;
+  /** Resolves only after owned worker closure and OS descendant cleanup. */
+  closeOwnedRuntime(): Promise<void>;
   getAuthStatus(): Promise<{
     isAuthenticated: boolean;
     authType?: string;
@@ -57,7 +61,7 @@ export type CopilotFactory = (
   options: CopilotClientOptions,
 ) => CopilotClientPort;
 export const defaultCopilotFactory: CopilotFactory = (options) =>
-  new CopilotClient(options);
+  new SupervisedCopilotClient(options);
 export function copilotClientOptions(
   connection: AIConnection,
   env: Record<string, string>,
@@ -81,38 +85,11 @@ export function copilotClientOptions(
     logLevel: "none",
   };
 }
-export function copilotSubscription(value: {
-  isAuthenticated: boolean;
-  authType?: string;
-  host?: string;
-}): boolean {
-  return (
-    value.isAuthenticated === true &&
-    value.authType === "user" &&
-    (value.host === "github.com" || value.host === "https://github.com")
-  );
-}
-export function copilotBareModel(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,255}$/u.test(value) && value !== "auto";
-}
-/** Bounds SDK shutdown; its force-stop API provides no child-close receipt. */
+/** Cleanup failure remains a failure; never replace the owner receipt with a timer. */
 export async function closeCopilotClient(
   client: CopilotClientPort,
 ): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      client.stop(),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, 2000);
-      }),
-    ]);
-  } catch {
-    /* Force cleanup below owns the same runtime child. */
-  } finally {
-    if (timer) clearTimeout(timer);
-    await boundedCleanup(client.forceStop());
-  }
+  await client.closeOwnedRuntime();
 }
 export async function checkCopilotSignIn(
   connection: AIConnection,

@@ -31,7 +31,9 @@ export interface AIProviderLocalReadiness {
   readonly runtimeAvailable: boolean;
   readonly authenticationAvailable: boolean;
   readonly executionBlocker?:
-    "UNVERIFIED_FILESYSTEM_BOUNDARY" | "WINDOWS_SANDBOX_SECURITY_CHANGES";
+    | "UNVERIFIED_FILESYSTEM_BOUNDARY"
+    | "WINDOWS_SANDBOX_SECURITY_CHANGES"
+    | "UNVERIFIED_PROCESS_CLEANUP";
 }
 
 /**

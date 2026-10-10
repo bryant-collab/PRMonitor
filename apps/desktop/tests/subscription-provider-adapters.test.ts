@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,12 @@ import { ConnectionAuthentication } from "../src/main/ai/connection-authenticati
 import { createClaudeProvider } from "../src/main/ai/claude-adapter";
 import { claudeQueryOptions } from "../src/main/ai/claude-adapter";
 import { createCopilotProvider } from "../src/main/ai/copilot-adapter";
+import { CopilotCleanupError } from "../src/main/ai/copilot-process";
+import {
+  copilotProcessFixture,
+  processRunning,
+  waitFor,
+} from "./copilot-fixture";
 import {
   checkCopilotSignIn,
   copilotClientOptions,
@@ -150,6 +156,10 @@ function copilotFixture(overrides: Partial<CopilotClientPort> = {}) {
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
     forceStop: vi.fn(async () => {}),
+    closeOwnedRuntime: vi.fn(async () => {
+      await client.stop();
+      await client.forceStop();
+    }),
     getAuthStatus: vi.fn(async () => ({
       isAuthenticated: true,
       authType: "user",
@@ -435,5 +445,97 @@ describe("actual subscription adapter contracts", () => {
     await vi.advanceTimersByTimeAsync(15000);
     expect(await checked).toMatchObject({ authentication: "unknown" });
     expect(sdk.client.forceStop).toHaveBeenCalled();
+  });
+  it.each(["startup-hang", "send-hang"] as const)(
+    "cancels %s through the production adapter and releases ownership only after the entire SDK tree closes",
+    async (mode) => {
+      const f = await fixture("copilot");
+      const owned = await copilotProcessFixture(mode);
+      roots.push(owned.root);
+      vi.mocked(f.auth.home).mockResolvedValue(owned.root);
+      vi.mocked(f.auth.environment).mockReturnValue(owned.env);
+      vi.mocked(f.auth.check).mockResolvedValue({
+        tool: "copilot",
+        executable: path.join(owned.root, "runtime.js"),
+        detected: true,
+        compatible: true,
+        authentication: "subscription",
+        message: "fixture",
+      });
+      const controller = new AbortController();
+      const provider = createCopilotProvider({
+        authentication: f.auth,
+        factory: () => owned.client,
+      });
+      const invoked = provider.invoke(
+        {
+          ...f.request,
+          worktree: { ...f.request.worktree!, canonicalPath: owned.root },
+        },
+        { signal: controller.signal },
+      );
+      try {
+        const identities = await owned.identities();
+        if (mode === "send-hang") {
+          await waitFor(
+            () => readFile(path.join(owned.root, "sent"), "utf8"),
+            (value) => value.length > 0,
+          );
+        }
+        let granted = false;
+        const next = f.auth.acquire(f.connection.id).then((release) => {
+          granted = true;
+          return release;
+        });
+        expect(granted).toBe(false);
+        controller.abort();
+        expect((await invoked).status).toBe("cancelled");
+        const release = await next;
+        for (const pid of identities)
+          expect(await processRunning(pid)).toBe(false);
+        release();
+      } finally {
+        await owned.client.closeOwnedRuntime();
+      }
+    },
+    15000,
+  );
+  it("retains and quarantines ownership when cleanup is unconfirmed, rejecting queued and subsequent work", async () => {
+    const f = await fixture("copilot");
+    let cleanupEntered!: () => void;
+    let failCleanup!: (error: Error) => void;
+    const entered = new Promise<void>((resolve) => {
+      cleanupEntered = resolve;
+    });
+    const sdk = copilotFixture({
+      closeOwnedRuntime: async () => {
+        cleanupEntered();
+        await new Promise<void>((_resolve, reject) => {
+          failCleanup = reject;
+        });
+      },
+    });
+    const quarantine = vi.spyOn(f.auth, "quarantine");
+    const invoked = createCopilotProvider({
+      authentication: f.auth,
+      factory: sdk.factory,
+    }).invoke(f.request);
+    await entered;
+    let granted = false;
+    const queued = f.auth.acquire(f.connection.id).then(
+      (release) => {
+        granted = true;
+        release();
+      },
+      () => "rejected",
+    );
+    failCleanup(new CopilotCleanupError());
+    expect((await invoked).status).toBe("failed");
+    expect(await queued).toBe("rejected");
+    expect(granted).toBe(false);
+    expect(quarantine).toHaveBeenCalledWith(f.connection.id);
+    await expect(f.auth.acquire(f.connection.id)).rejects.toBeInstanceOf(
+      CopilotCleanupError,
+    );
   });
 });
