@@ -21,6 +21,7 @@ import {
   classifyApplicationSmokeReason,
 } from "./smoke-failure.mjs";
 import { listPackage } from "@electron/asar";
+import { hasCredentialPayload } from "../../../scripts/credential-payload.mjs";
 import { forbiddenRuntimePayload } from "../../../scripts/runtime-payload.mjs";
 import { assertWindowsBranding } from "../../../scripts/windows-branding.mjs";
 
@@ -229,11 +230,7 @@ async function assertArtifactShape(executable) {
       `SMOKE_ARTIFACT_INVALID: runtime state in package ${forbidden.join(", ")}`,
     );
   const payloadText = (await readFile(payloadPath)).toString("utf8");
-  if (
-    /(?:TYPESAFE_API_KEY|GITHUB_TOKEN|OPENAI_API_KEY|PRMONITOR_[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY))\s*[:=]/iu.test(
-      payloadText,
-    )
-  ) {
+  if (hasCredentialPayload(payloadText)) {
     throw new Error(
       "SMOKE_ARTIFACT_INVALID: credential-shaped content found in packaged payload",
     );

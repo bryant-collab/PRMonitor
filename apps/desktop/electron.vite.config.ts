@@ -7,7 +7,20 @@ export default defineConfig({
     build: {
       outDir: "out/main",
       rollupOptions: {
-        input: "src/main/index.ts",
+        preserveEntrySignatures: "exports-only",
+        input: {
+          index: "src/main/index.ts",
+          "claude-policy-helper": "src/main/ai/claude-policy-helper.ts",
+          "copilot-worker": "src/main/ai/copilot-worker.ts",
+          "copilot-supervisor": "src/main/ai/copilot-supervisor.ts",
+        },
+        output: {
+          chunkFileNames: "chunks/[name]-[hash].js",
+          entryFileNames: (chunk) =>
+            chunk.name === "claude-policy-helper"
+              ? "claude-policy-helper.js"
+              : "[name].js",
+        },
       },
     },
   },

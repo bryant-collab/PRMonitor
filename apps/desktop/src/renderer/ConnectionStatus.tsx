@@ -1,3 +1,4 @@
+import { HelpButton, HelpSummary } from "./HelpControls";
 import {
   isEmptyRecoveryScope,
   recoveryScopeManagedPrId,
@@ -83,17 +84,17 @@ export function ConnectionStatus({
           </h3>
           <p>{scopeMessage(scope)}</p>
           {scope.scope.kind === "application" ? null : (
-            <button type="button" onClick={() => onOpen(scope)}>
+            <HelpButton type="button" onClick={() => onOpen(scope)}>
               {recoveryScopeManagedPrId(scope.scope) !== undefined ||
               ["managed_pr", "review_bundle", "sync_operation"].includes(
                 scope.scope.kind,
               )
                 ? "Open saved work"
                 : "Open Activity"}
-            </button>
+            </HelpButton>
           )}
           <details>
-            <summary>Raw support data (redacted)</summary>
+            <HelpSummary>Raw support data (redacted)</HelpSummary>
             <pre tabIndex={0}>{JSON.stringify(scope, null, 2)}</pre>
           </details>
         </article>
@@ -108,9 +109,9 @@ export function ConnectionStatus({
         This check does not approve new changes or restart stopped AI work. It
         can check the outcome of changes you already approved.
       </p>
-      <button type="button" onClick={onCheck} disabled={busy}>
+      <HelpButton type="button" onClick={onCheck} disabled={busy}>
         {busy ? "Checking interrupted work…" : "Check interrupted work"}
-      </button>
+      </HelpButton>
       {message === "" ? null : (
         <p role="status" aria-live="polite">
           {message}
@@ -119,7 +120,7 @@ export function ConnectionStatus({
       {error === "" ? null : <p role="alert">{error}</p>}
       {projection === undefined ? null : (
         <details>
-          <summary>Raw support data (redacted)</summary>
+          <HelpSummary>Raw support data (redacted)</HelpSummary>
           <pre tabIndex={0}>{JSON.stringify(projection, null, 2)}</pre>
         </details>
       )}

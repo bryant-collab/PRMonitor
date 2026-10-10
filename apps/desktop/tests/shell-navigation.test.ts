@@ -273,7 +273,6 @@ it("Inbox inspection and synchronization selection have distinct controls; selec
       lastKnown: false,
       onRetry: () => undefined,
       onNavigate: () => undefined,
-      onAddPr: () => undefined,
       selection: undefined,
       confirmation: undefined,
       preparationIntent: undefined,

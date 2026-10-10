@@ -57,6 +57,9 @@ export interface F29IpcSecurityGate {
 }
 
 const privilegedRequestTypes = new Set<IpcRequest["type"]>([
+  "ai.tools.check",
+  "ai.program.pick",
+  "preferences.ai-connection.save",
   "scheduler.configuration.save",
   "scheduler.check-now",
   "scheduler.pause",

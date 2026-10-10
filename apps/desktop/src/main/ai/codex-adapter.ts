@@ -1,3 +1,11 @@
+import { CODEX_MODEL_CHOICES } from "../../shared/ai/codex-models";
+import type { AIConnection } from "../../shared/ai-connections";
+import {
+  assertCodexFileEnvironment,
+  createCodexAppServerClient,
+  openCodexProtocol,
+} from "./codex-app-server";
+import { ConnectionAuthentication } from "./connection-authentication";
 import {
   Codex,
   type CodexOptions,
@@ -18,7 +26,11 @@ import {
   type AIProviderUsage,
 } from "../../shared/ai/provider-contracts";
 import { redactF29Text } from "../../shared/f29-security";
-import type { AIProvider, AIProviderInvokeOptions } from "./registry";
+import type {
+  AIProvider,
+  AIProviderInvokeOptions,
+  AIProviderLocalReadiness,
+} from "./registry";
 
 export interface CodexThreadOptions {
   readonly model: string;
@@ -43,14 +55,20 @@ export interface CodexClientPort {
 }
 
 export interface CodexRuntimePort {
+  readonly readConnectionReadiness?: (
+    connection: AIConnection,
+  ) => Promise<AIProviderLocalReadiness>;
   readonly isAvailable?: () => boolean;
   readonly createClient: (options: {
     readonly env: Record<string, string>;
+    readonly connection?: AIConnection;
   }) => CodexClientPort;
   readonly authenticationEnvironment?: Readonly<Record<string, string>>;
 }
 
 export interface CodexAdapterOptions {
+  readonly connectionRuntimeRoot?: string;
+  readonly connectionAuthentication?: ConnectionAuthentication;
   readonly runtime?: CodexRuntimePort;
   readonly now?: () => string;
   readonly baseEnvironment?: Readonly<Record<string, string>>;
@@ -58,14 +76,12 @@ export interface CodexAdapterOptions {
 }
 
 const CODEX_REASONING_EFFORTS: ModelReasoningEffort[] = [
-  "minimal",
   "low",
   "medium",
   "high",
   "xhigh",
   "max",
   "ultra",
-  "persistent",
 ];
 
 const CODEX_CAPABILITIES: AIProviderCapabilities = {
@@ -94,15 +110,23 @@ const CODEX_CAPABILITIES: AIProviderCapabilities = {
   worktreeAccess: "worktree_write",
   controlledEnvironment: true,
   modelCatalog: [
+    ...CODEX_MODEL_CHOICES.map((model) => ({
+      modelId: model.modelId,
+      reasoningEfforts: [...model.reasoningEfforts],
+      supportedOptionKeys: [],
+    })),
     {
+      // Preserve old immutable profiles; current runtime support is separately checked.
+      selectable: false,
       modelId: "gpt-5-codex",
+      supportedOptionKeys: [],
       taskTypes: [
         "AUTOMATIC_REVIEW_REEVALUATION",
         "REVIEW_REVISION",
         "READ_ONLY_CONVERSATION",
         "MERGE_CONFLICT_RESOLUTION",
       ],
-      reasoningEfforts: CODEX_REASONING_EFFORTS,
+      reasoningEfforts: ["low", "medium", "high"],
     },
   ],
   providerOptionBounds: {
@@ -119,7 +143,15 @@ function defaultNow(): string {
   return new Date().toISOString();
 }
 
-function defaultRuntime(): CodexRuntimePort {
+function defaultRuntime(
+  connectionRuntimeRoot?: string,
+  suppliedAuthentication?: ConnectionAuthentication,
+): CodexRuntimePort {
+  const authentication =
+    suppliedAuthentication ??
+    (connectionRuntimeRoot
+      ? new ConnectionAuthentication(connectionRuntimeRoot)
+      : undefined);
   const authenticationEnvironment: Record<string, string> = {};
   for (const key of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID"]) {
     const value = process.env[key];
@@ -128,6 +160,15 @@ function defaultRuntime(): CodexRuntimePort {
   }
   return {
     authenticationEnvironment,
+    readConnectionReadiness: async (connection) => {
+      if (!authentication)
+        return { runtimeAvailable: false, authenticationAvailable: false };
+      const status = await authentication.check(connection);
+      return {
+        runtimeAvailable: status.compatible,
+        authenticationAvailable: status.authentication === connection.authMode,
+      };
+    },
     // The SDK constructor resolves its installed native executable without
     // spawning it, starting a thread, or contacting a model service.
     isAvailable: () => {
@@ -139,6 +180,68 @@ function defaultRuntime(): CodexRuntimePort {
       }
     },
     createClient: (options) => {
+      if (options.connection) {
+        if (!authentication)
+          throw new Error("AI connection storage is unavailable.");
+        const connection = options.connection;
+        return createCodexAppServerClient(
+          connection,
+          async (threadOptions, signal) => {
+            const release = await authentication.acquire(connection.id, signal);
+            try {
+              signal?.throwIfAborted();
+              const home = await authentication.home(connection);
+              if (!home)
+                throw new Error(
+                  "Sign in for this PRMonitor connection before starting work.",
+                );
+              const status = await authentication.check(connection, signal);
+              if (
+                !status.compatible ||
+                status.authentication !== connection.authMode ||
+                !status.executable
+              )
+                throw new Error(status.message);
+              const fileTools = process.platform === "win32";
+              const env = authentication.environment(
+                connection,
+                home,
+                options.env,
+              );
+              if (fileTools) await assertCodexFileEnvironment(env);
+              const protocol = await openCodexProtocol(
+                { ...connection, executable: status.executable },
+                env,
+                threadOptions,
+                signal,
+                undefined,
+                fileTools,
+              );
+              return {
+                ...(protocol.setFileToolHandler
+                  ? {
+                      setFileToolHandler:
+                        protocol.setFileToolHandler.bind(protocol),
+                    }
+                  : {}),
+                request: protocol.request.bind(protocol),
+                notifications: protocol.notifications.bind(protocol),
+                close: async () => {
+                  try {
+                    await protocol.close();
+                  } finally {
+                    release();
+                  }
+                },
+              };
+            } catch (error) {
+              release();
+              throw error;
+            }
+          },
+          process.platform === "win32",
+        );
+      }
       const client = new Codex(options as CodexOptions);
       return {
         startThread: (threadOptions) => {
@@ -480,17 +583,33 @@ export class CodexAIProvider implements AIProvider {
   >;
 
   public constructor(options: CodexAdapterOptions = {}) {
-    this.runtime = options.runtime ?? defaultRuntime();
+    this.runtime =
+      options.runtime ??
+      defaultRuntime(
+        options.connectionRuntimeRoot,
+        options.connectionAuthentication,
+      );
     this.now = options.now ?? defaultNow;
     this.baseEnvironment = options.baseEnvironment;
     this.providerAuthenticationEnvironment =
       options.providerAuthenticationEnvironment;
   }
 
-  public readLocalReadiness(): {
-    readonly runtimeAvailable: boolean;
-    readonly authenticationAvailable: boolean;
-  } {
+  public readLocalReadiness(): AIProviderLocalReadiness;
+  public readLocalReadiness(
+    connection: AIConnection,
+  ): Promise<AIProviderLocalReadiness>;
+  public readLocalReadiness(
+    connection?: AIConnection,
+  ): AIProviderLocalReadiness | Promise<AIProviderLocalReadiness> {
+    if (connection)
+      return (
+        this.runtime.readConnectionReadiness?.(connection) ??
+        Promise.resolve({
+          runtimeAvailable: false,
+          authenticationAvailable: false,
+        })
+      );
     const environment = safeEnvironment(
       this.baseEnvironment ?? defaultBaseEnvironment(),
       this.providerAuthenticationEnvironment ??
@@ -548,7 +667,7 @@ export class CodexAIProvider implements AIProvider {
             : "CANCELLED",
           "CANCELLATION",
           "RETRY_EXPLICITLY",
-          "The Codex turn was stopped before the provider started.",
+          "The AI turn was stopped before the provider started.",
         ),
       );
     }
@@ -572,7 +691,7 @@ export class CodexAIProvider implements AIProvider {
           "POLICY_UNSUPPORTED",
           "POLICY",
           "REVIEW_POLICY",
-          "The direct Codex adapter cannot provide the requested approval or sandbox boundary.",
+          "The selected AI tool cannot provide the requested approval or sandbox boundary.",
         ),
       );
     }
@@ -590,7 +709,7 @@ export class CodexAIProvider implements AIProvider {
           "POLICY_BOUNDARY_VIOLATION",
           "AUTHORITY",
           "REVIEW_WORKTREE",
-          "Publication capability is never passed to Codex.",
+          "Publication capability is never passed to the AI tool.",
         ),
       );
     }
@@ -623,7 +742,12 @@ export class CodexAIProvider implements AIProvider {
     );
     let thread: CodexThreadPort;
     try {
-      const client = this.runtime.createClient({ env: environment });
+      const client = this.runtime.createClient({
+        env: environment,
+        ...(request.profileSnapshot.connection
+          ? { connection: request.profileSnapshot.connection }
+          : {}),
+      });
       thread =
         request.conversationContinuation?.authorized === true
           ? client.resumeThread(
@@ -645,7 +769,9 @@ export class CodexAIProvider implements AIProvider {
           "PROVIDER_START_FAILURE",
           "PROCESS",
           "RETRY_EXPLICITLY",
-          reason instanceof Error ? reason.message : "Codex could not start.",
+          reason instanceof Error
+            ? reason.message
+            : "The AI program could not start.",
           true,
         ),
       );
@@ -686,7 +812,7 @@ export class CodexAIProvider implements AIProvider {
             "MALFORMED_PROVIDER_EVENT",
             "PROVIDER",
             "RETRY_EXPLICITLY",
-            "Codex emitted a non-object event.",
+            "The AI program returned an invalid event.",
           );
           append("failure", { code: providerFailure.code });
           break;
@@ -716,7 +842,8 @@ export class CodexAIProvider implements AIProvider {
             "PROVIDER_TURN_FAILED",
             "SERVICE",
             "RETRY_EXPLICITLY",
-            asString(providerError?.message) ?? "Codex reported a failed turn.",
+            asString(providerError?.message) ??
+              "The AI program reported a failed turn.",
             true,
           );
           append("failure", { code: providerFailure.code });
@@ -725,7 +852,8 @@ export class CodexAIProvider implements AIProvider {
             "PROVIDER_STREAM_FAILURE",
             "PROCESS",
             "RETRY_EXPLICITLY",
-            asString(record.message) ?? "Codex emitted a stream error.",
+            asString(record.message) ??
+              "The AI program returned a stream error.",
             true,
           );
           append("failure", { code: providerFailure.code });
@@ -774,7 +902,7 @@ export class CodexAIProvider implements AIProvider {
             status === "timed_out" ? "TIMEOUT" : "CANCELLED",
             "CANCELLATION",
             "RETRY_EXPLICITLY",
-            "The Codex turn was stopped by the owning workflow.",
+            "The AI turn was stopped by the owning workflow.",
           ),
         );
       }
@@ -784,7 +912,7 @@ export class CodexAIProvider implements AIProvider {
         "RETRY_EXPLICITLY",
         reason instanceof Error
           ? reason.message
-          : "Codex did not complete the stream.",
+          : "The AI program stopped before completing the task.",
         true,
       );
       append("failure", { code: providerFailure.code });
@@ -812,7 +940,7 @@ export class CodexAIProvider implements AIProvider {
           status === "timed_out" ? "TIMEOUT" : "CANCELLED",
           "CANCELLATION",
           "RETRY_EXPLICITLY",
-          "The Codex turn was stopped by the owning workflow.",
+          "The AI turn was stopped by the owning workflow.",
         ),
       );
     }
@@ -858,7 +986,7 @@ export class CodexAIProvider implements AIProvider {
           "PROVIDER_TURN_INCOMPLETE",
           "PROCESS",
           "RECONCILE",
-          "Codex ended without a terminal turn.completed event.",
+          "The AI program stopped without completing the task.",
           true,
         ),
       );

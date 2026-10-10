@@ -1,4 +1,12 @@
-import { useEffect, useState } from "react";
+import {
+  HelpButton,
+  HelpInput,
+  HelpSelect,
+  HelpTextarea,
+  HelpSummary,
+} from "./HelpControls";
+import { AIConnections } from "./AIConnections";
+import { useEffect, useRef, useState } from "react";
 import { customerExplanation } from "./customer-copy";
 import type { SettingsCategory } from "./shell-routing";
 import type { IpcResponse } from "../shared/ipc";
@@ -20,9 +28,9 @@ interface PreferencesProps {
 
 interface TaskDraftForm {
   readonly providerId: string;
+  readonly connectionId?: string;
   readonly modelId: string;
   readonly reasoningEffort: string;
-  readonly providerOptions: string;
   readonly enabled: boolean;
 }
 
@@ -56,9 +64,9 @@ function readPreferencesValue(
 function taskDraft(profile: F16TaskProfileRevision): TaskDraftForm {
   return {
     providerId: profile.providerId,
+    ...(profile.connectionId ? { connectionId: profile.connectionId } : {}),
     modelId: profile.modelId,
     reasoningEffort: profile.reasoningEffort ?? "",
-    providerOptions: JSON.stringify(profile.providerOptions, null, 2),
     enabled: profile.enabled,
   };
 }
@@ -118,6 +126,7 @@ export function Preferences({
   const [pollingIntervalMs, setPollingIntervalMs] = useState("600000");
   const [quietPeriodMs, setQuietPeriodMs] = useState("600000");
   const [instructionId, setInstructionId] = useState<string>();
+  const instructionEditorGeneration = useRef(0);
   const [instructionName, setInstructionName] = useState("");
   const [instructionText, setInstructionText] = useState("");
   const [instructionEnabled, setInstructionEnabled] = useState(true);
@@ -133,6 +142,7 @@ export function Preferences({
     buildInstructions: "",
   });
   const [busy, setBusy] = useState(false);
+  const pendingSave = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -167,7 +177,8 @@ export function Preferences({
   const commit = async (
     operation: (settingsRevision: number) => Promise<IpcResponse>,
   ) => {
-    if (preferences === undefined || busy) return;
+    if (preferences === undefined || pendingSave.current) return;
+    pendingSave.current = true;
     setBusy(true);
     setMessage("");
     setError("");
@@ -212,12 +223,14 @@ export function Preferences({
           ),
         ];
       });
-      setMessage(`Saved Preferences revision ${value.settingsRevision}.`);
+      setMessage("Settings saved.");
+      return value;
     } catch {
       setError(
         "The Preferences operation failed safely. Reload and retry from the current revision.",
       );
     } finally {
+      pendingSave.current = false;
       setBusy(false);
     }
   };
@@ -225,21 +238,13 @@ export function Preferences({
   const saveTaskProfile = async (taskType: F16TaskType) => {
     const draft = drafts?.[taskType];
     if (preferences === undefined || draft === undefined) return;
-    let providerOptions: F16TaskProfileDraft["providerOptions"];
-    try {
-      providerOptions = JSON.parse(
-        draft.providerOptions,
-      ) as F16TaskProfileDraft["providerOptions"];
-    } catch {
-      setError("Provider options must be valid JSON before they can be saved.");
-      return;
-    }
     await commit((settingsRevision) =>
       window.prmonitor!.saveTaskProfile({
         expectedSettingsRevision: settingsRevision,
         profile: {
           taskType,
           providerId: draft.providerId,
+          ...(draft.connectionId ? { connectionId: draft.connectionId } : {}),
           modelId: draft.modelId,
           ...(draft.reasoningEffort.trim().length === 0
             ? {}
@@ -247,7 +252,7 @@ export function Preferences({
                 reasoningEffort:
                   draft.reasoningEffort as F16TaskProfileDraft["reasoningEffort"],
               }),
-          providerOptions,
+          providerOptions: {},
           enabled: draft.enabled,
         },
       }),
@@ -255,6 +260,7 @@ export function Preferences({
   };
 
   const editInstruction = (profile: F16CommonInstructionProfile) => {
+    ++instructionEditorGeneration.current;
     setInstructionId(profile.profileId);
     setInstructionName(profile.name);
     setInstructionText(profile.instructionText);
@@ -282,14 +288,15 @@ export function Preferences({
     });
   };
 
-  if (!enabled || !visible) return null;
+  if (!enabled) return null;
   if (preferences === undefined) {
     return (
       <section
         className="preferences-panel"
+        hidden={!visible}
         aria-labelledby="preferences-heading"
       >
-        <h2 id="preferences-heading">Preferences</h2>
+        <h2 id="preferences-heading">Loading settings</h2>
         <p className="section-help">Loading AI settings…</p>
         {error !== "" ? (
           <p className="form-message" role="alert">
@@ -300,20 +307,38 @@ export function Preferences({
     );
   }
 
+  const operationalDirty =
+    maxAiWorkTurns !== String(preferences.operational.maxAiWorkTurns) ||
+    worktreeRoot !==
+      (preferences.operational.worktreeRoot?.configuredPath ?? "") ||
+    pollingIntervalMs !== String(preferences.operational.pollingIntervalMs) ||
+    quietPeriodMs !== String(preferences.operational.quietPeriodMs);
+  const repositoryDirty =
+    JSON.stringify(repository) !== JSON.stringify(repositoryForm(preferences));
+  const instructionBaseline = preferences.commonInstructionProfiles.find(
+    (profile) => profile.profileId === instructionId,
+  );
+  const instructionDirty =
+    instructionName !== (instructionBaseline?.name ?? "") ||
+    instructionText !== (instructionBaseline?.instructionText ?? "") ||
+    instructionEnabled !== (instructionBaseline?.enabled ?? true) ||
+    instructionSelected !==
+      (instructionId
+        ? preferences.selectedCommonInstructionIds.includes(instructionId)
+        : false);
+  const orderDirty =
+    JSON.stringify(instructionOrder) !==
+    JSON.stringify(selectedOrder(preferences));
+
   return (
     <section
       className="preferences-panel"
       aria-labelledby="preferences-heading"
+      hidden={!visible}
     >
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h2 id="preferences-heading">Preferences</h2>
-        </div>
-        <span className="store-state" aria-label="Preferences revision">
-          revision {preferences.settingsRevision}
-        </span>
-      </div>
+      <span id="preferences-heading" className="sr-only">
+        Configuration
+      </span>
       <p className="section-help">
         Changes apply to new work. Work that has already started keeps its saved
         settings.
@@ -329,26 +354,65 @@ export function Preferences({
         </p>
       ) : null}
 
-      {category === undefined || category === "tasks" ? (
-        <section
-          className="preference-section"
-          aria-labelledby="task-profiles-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">AI settings</p>
-              <h3 id="task-profiles-heading">AI Task Profiles</h3>
-            </div>
+      <section
+        hidden={category !== undefined && category !== "tasks"}
+        className="preference-section"
+        aria-labelledby="task-profiles-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <h3 id="task-profiles-heading">AI connections</h3>
           </div>
-          <p className="section-help">
-            The four task types are separate revisioned profiles. Model and
-            option compatibility is checked before a profile can become
-            available.
-          </p>
+        </div>
+        <p className="section-help">
+          Use one connection for all tasks, or choose a different connection for
+          a task under Advanced task choices. Older custom JSON options were not
+          used and have been removed. Use supported launch options in the
+          connection instead.
+        </p>
+        <p className="section-help">
+          Models may depend on your sign-in. PRMonitor checks the selected model
+          and reasoning before work begins. Unavailable saved choices stay
+          unchanged.
+        </p>
+        <AIConnections
+          active={visible && (category === undefined || category === "tasks")}
+          preferences={preferences}
+          onModels={(tool, models) =>
+            setPreferences((current) =>
+              current
+                ? {
+                    ...current,
+                    providerModels: {
+                      ...current.providerModels,
+                      [tool]: models,
+                    },
+                  }
+                : current,
+            )
+          }
+          onSaved={(value) => {
+            setPreferences(value);
+            setDrafts((current) => {
+              const next = draftsFor(value);
+              const baseline = draftsFor(preferences);
+              if (current)
+                for (const type of taskTypes)
+                  if (
+                    JSON.stringify(current[type]) !==
+                    JSON.stringify(baseline[type])
+                  )
+                    next[type] = current[type];
+              return next;
+            });
+          }}
+        />
+        <details>
+          <HelpSummary>Advanced task choices</HelpSummary>
           <div className="preference-grid">
             <label>
               AI task
-              <select
+              <HelpSelect
                 value={selectedTask}
                 onChange={(event) =>
                   setSelectedTask(event.target.value as F16TaskType)
@@ -359,7 +423,7 @@ export function Preferences({
                     {F16_TASK_LABELS[type]}
                   </option>
                 ))}
-              </select>
+              </HelpSelect>
             </label>
             {[selectedTask].map((taskType) => {
               const profile = preferences.taskProfiles.find(
@@ -367,6 +431,12 @@ export function Preferences({
               );
               const draft = drafts?.[taskType];
               if (profile === undefined || draft === undefined) return null;
+              const models =
+                preferences.providerModels?.[draft.providerId] ?? [];
+              const model = models.find(
+                (value) => value.modelId === draft.modelId,
+              );
+              const reasoningEfforts = model?.reasoningEfforts ?? [];
               return (
                 <article className="preference-card" key={taskType}>
                   <div className="profile-card-heading">
@@ -381,28 +451,46 @@ export function Preferences({
                   </div>
                   <div className="preferences-form">
                     <label>
-                      Provider
-                      <input
-                        value={draft.providerId}
-                        onChange={(event) =>
+                      AI connection
+                      <HelpSelect
+                        value={draft.connectionId ?? ""}
+                        onChange={(event) => {
+                          const connection = preferences.aiConnections?.find(
+                            (value) => value.id === event.target.value,
+                          );
                           setDrafts((current) =>
-                            current === undefined
-                              ? current
-                              : {
+                            current
+                              ? {
                                   ...current,
                                   [taskType]: {
                                     ...draft,
-                                    providerId: event.target.value,
+                                    connectionId: connection?.id,
+                                    providerId:
+                                      connection?.tool ?? profile.providerId,
+                                    modelId:
+                                      preferences.providerModels?.[
+                                        connection?.tool ?? profile.providerId
+                                      ]?.[0]?.modelId ?? profile.modelId,
+                                    reasoningEffort: "",
                                   },
-                                },
-                          )
-                        }
-                        maxLength={128}
-                      />
+                                }
+                              : current,
+                          );
+                        }}
+                      >
+                        <option value="">
+                          Existing settings ({profile.providerId})
+                        </option>
+                        {(preferences.aiConnections ?? []).map((connection) => (
+                          <option key={connection.id} value={connection.id}>
+                            {connection.name}
+                          </option>
+                        ))}
+                      </HelpSelect>
                     </label>
                     <label>
                       Model
-                      <input
+                      <HelpSelect
                         value={draft.modelId}
                         onChange={(event) =>
                           setDrafts((current) =>
@@ -417,12 +505,24 @@ export function Preferences({
                                 },
                           )
                         }
-                        maxLength={256}
-                      />
+                      >
+                        {!models.some(
+                          (value) => value.modelId === draft.modelId,
+                        ) ? (
+                          <option value={draft.modelId}>
+                            {draft.modelId} (saved; needs compatibility check)
+                          </option>
+                        ) : null}
+                        {models.map((value) => (
+                          <option key={value.modelId} value={value.modelId}>
+                            {value.modelId}
+                          </option>
+                        ))}
+                      </HelpSelect>
                     </label>
                     <label>
                       Reasoning effort
-                      <input
+                      <HelpSelect
                         value={draft.reasoningEffort}
                         onChange={(event) =>
                           setDrafts((current) =>
@@ -437,36 +537,27 @@ export function Preferences({
                                 },
                           )
                         }
-                        maxLength={64}
-                        placeholder="medium"
-                      />
+                      >
+                        <option value="">Use tool default</option>
+                        {draft.reasoningEffort &&
+                        !reasoningEfforts.includes(
+                          draft.reasoningEffort as F16TaskProfileDraft["reasoningEffort"] &
+                            string,
+                        ) ? (
+                          <option value={draft.reasoningEffort}>
+                            {draft.reasoningEffort} (saved; needs compatibility
+                            check)
+                          </option>
+                        ) : null}
+                        {reasoningEfforts.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </HelpSelect>
                     </label>
-                    <label>
-                      Provider options (JSON)
-                      <textarea
-                        value={draft.providerOptions}
-                        onChange={(event) =>
-                          setDrafts((current) =>
-                            current === undefined
-                              ? current
-                              : {
-                                  ...current,
-                                  [taskType]: {
-                                    ...draft,
-                                    providerOptions: event.target.value,
-                                  },
-                                },
-                          )
-                        }
-                        rows={3}
-                        aria-describedby={`${taskType}-options-help`}
-                      />
-                    </label>
-                    <p id={`${taskType}-options-help`} className="field-help">
-                      Bounded JSON only; credential-shaped keys are rejected.
-                    </p>
                     <label className="checkbox-label">
-                      <input
+                      <HelpInput
                         type="checkbox"
                         checked={draft.enabled}
                         onChange={(event) =>
@@ -502,16 +593,24 @@ export function Preferences({
                         </dd>
                       </div>
                     </dl>
-                    <button
+                    <HelpButton
                       type="button"
-                      disabled={busy}
+                      disabled={
+                        busy ||
+                        JSON.stringify(draft) ===
+                          JSON.stringify(taskDraft(profile))
+                      }
                       onClick={() => void saveTaskProfile(taskType)}
                     >
                       Save task profile
-                    </button>
-                    <button
+                    </HelpButton>
+                    <HelpButton
                       type="button"
-                      disabled={busy}
+                      disabled={
+                        busy ||
+                        JSON.stringify(draft) ===
+                          JSON.stringify(taskDraft(profile))
+                      }
                       onClick={() =>
                         setDrafts((current) =>
                           current === undefined
@@ -521,52 +620,53 @@ export function Preferences({
                       }
                     >
                       Discard task draft
-                    </button>
+                    </HelpButton>
                   </div>
                 </article>
               );
             })}
           </div>
-        </section>
-      ) : null}
+        </details>
+      </section>
 
-      {category === undefined || category === "policy" ? (
-        <section
-          className="preference-section"
-          aria-labelledby="policy-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Bounded execution matrix</p>
-              <h3 id="policy-heading">Execution Policy</h3>
-            </div>
-            <span className="status-pill">
-              {preferences.policy.preset.replaceAll("_", " ").toLowerCase()}
-            </span>
+      <section
+        hidden={category !== undefined && category !== "policy"}
+        className="preference-section"
+        aria-labelledby="policy-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <h3 id="policy-heading">Work permissions</h3>
           </div>
-          <p className="section-help">
-            Review proposals and read-only conversations cannot change code. No
-            AI policy permits publication.
-          </p>
-          <label>
-            Configured policy
-            <select
-              value={policy}
-              onChange={(event) =>
-                setPolicy(event.target.value as F16PolicyPreset)
-              }
-            >
-              {F16_POLICY_PRESETS.map((preset) => (
-                <option key={preset} value={preset}>
-                  {preferences.policyPresets.find(
-                    (summary) => summary.preset === preset,
-                  )?.label ?? preset}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="policy-summary-grid">
-            {preferences.policyPresets.map((summary) => (
+          <span className="status-pill">
+            {preferences.policy.preset.replaceAll("_", " ").toLowerCase()}
+          </span>
+        </div>
+        <p className="section-help">
+          Review proposals and read-only conversations cannot change code. No AI
+          policy permits publication.
+        </p>
+        <label>
+          Permission level
+          <HelpSelect
+            value={policy}
+            onChange={(event) =>
+              setPolicy(event.target.value as F16PolicyPreset)
+            }
+          >
+            {F16_POLICY_PRESETS.map((preset) => (
+              <option key={preset} value={preset}>
+                {preferences.policyPresets.find(
+                  (summary) => summary.preset === preset,
+                )?.label ?? preset}
+              </option>
+            ))}
+          </HelpSelect>
+        </label>
+        <div className="policy-summary-grid">
+          {preferences.policyPresets
+            .filter((summary) => summary.preset === policy)
+            .map((summary) => (
               <article
                 className={`policy-summary${summary.preset === policy ? " policy-summary-selected" : ""}`}
                 key={summary.preset}
@@ -579,182 +679,214 @@ export function Preferences({
                 </small>
               </article>
             ))}
+        </div>
+        <HelpButton
+          type="button"
+          disabled={busy || policy === preferences.policy.preset}
+          onClick={() =>
+            void commit((settingsRevision) =>
+              window.prmonitor!.savePolicy({
+                expectedSettingsRevision: settingsRevision,
+                preset: policy,
+              }),
+            )
+          }
+        >
+          Save permissions
+        </HelpButton>
+        <HelpButton
+          type="button"
+          disabled={busy || policy === preferences.policy.preset}
+          onClick={() => setPolicy(preferences.policy.preset)}
+        >
+          Discard changes
+        </HelpButton>
+        <details>
+          <HelpSummary>Compare permission levels</HelpSummary>
+          {preferences.policyPresets.map((summary) => (
+            <p key={summary.preset}>
+              <strong>{summary.label}</strong>: {summary.summary}
+            </p>
+          ))}
+        </details>
+      </section>
+
+      <section
+        hidden={category !== undefined && category !== "operational"}
+        className="preference-section"
+        aria-labelledby="operational-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">monitoring / worktree handoff</p>
+            <h3 id="operational-heading">Operational Preferences</h3>
           </div>
-          <button
+        </div>
+        <p className="section-help">
+          Timing values are validated by monitoring. The isolated-worktree root
+          is validated by worktree and must already exist; Preferences never
+          creates or removes it.
+        </p>
+        <div className="preferences-form">
+          <label>
+            Maximum AI Work Turns
+            <HelpInput
+              type="number"
+              min={1}
+              max={10}
+              value={maxAiWorkTurns}
+              onChange={(event) => setMaxAiWorkTurns(event.target.value)}
+            />
+          </label>
+          <label>
+            Isolated-worktree root
+            <HelpInput
+              value={worktreeRoot}
+              onChange={(event) => setWorktreeRoot(event.target.value)}
+              maxLength={32767}
+              placeholder="Blank clears the saved root"
+            />
+          </label>
+          <label>
+            Polling interval (ms)
+            <HelpInput
+              type="number"
+              min={60000}
+              max={86400000}
+              value={pollingIntervalMs}
+              onChange={(event) => setPollingIntervalMs(event.target.value)}
+            />
+          </label>
+          <label>
+            Quiet period (ms)
+            <HelpInput
+              type="number"
+              min={60000}
+              max={86400000}
+              value={quietPeriodMs}
+              onChange={(event) => setQuietPeriodMs(event.target.value)}
+            />
+          </label>
+          <HelpButton
             type="button"
-            disabled={busy || policy === preferences.policy.preset}
+            disabled={busy || !operationalDirty}
             onClick={() =>
               void commit((settingsRevision) =>
-                window.prmonitor!.savePolicy({
+                window.prmonitor!.saveOperationalPreferences({
                   expectedSettingsRevision: settingsRevision,
-                  preset: policy,
+                  maxAiWorkTurns: Number(maxAiWorkTurns),
+                  worktreeRoot:
+                    worktreeRoot.trim().length === 0 ? null : worktreeRoot,
+                  pollingIntervalMs: Number(pollingIntervalMs),
+                  quietPeriodMs: Number(quietPeriodMs),
                 }),
               )
             }
           >
-            Save execution policy
-          </button>
-        </section>
-      ) : null}
-
-      {category === undefined || category === "operational" ? (
-        <section
-          className="preference-section"
-          aria-labelledby="operational-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">monitoring / worktree handoff</p>
-              <h3 id="operational-heading">Operational Preferences</h3>
-            </div>
+            Save operational preferences
+          </HelpButton>
+          <HelpButton
+            type="button"
+            disabled={busy || !operationalDirty}
+            onClick={() => {
+              setMaxAiWorkTurns(String(preferences.operational.maxAiWorkTurns));
+              setWorktreeRoot(
+                preferences.operational.worktreeRoot?.configuredPath ?? "",
+              );
+              setPollingIntervalMs(
+                String(preferences.operational.pollingIntervalMs),
+              );
+              setQuietPeriodMs(String(preferences.operational.quietPeriodMs));
+            }}
+          >
+            Discard changes
+          </HelpButton>
+        </div>
+        <dl className="profile-details">
+          <div>
+            <dt>Current root revision</dt>
+            <dd>
+              {preferences.operational.worktreeRoot?.rootRevision ??
+                "not configured"}
+            </dd>
           </div>
-          <p className="section-help">
-            Timing values are validated by monitoring. The isolated-worktree
-            root is validated by worktree and must already exist; Preferences
-            never creates or removes it.
-          </p>
-          <div className="preferences-form">
-            <label>
-              Maximum AI Work Turns
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={maxAiWorkTurns}
-                onChange={(event) => setMaxAiWorkTurns(event.target.value)}
-              />
-            </label>
-            <label>
-              Isolated-worktree root
-              <input
-                value={worktreeRoot}
-                onChange={(event) => setWorktreeRoot(event.target.value)}
-                maxLength={32767}
-                placeholder="Blank clears the saved root"
-              />
-            </label>
-            <label>
-              Polling interval (ms)
-              <input
-                type="number"
-                min={60000}
-                max={86400000}
-                value={pollingIntervalMs}
-                onChange={(event) => setPollingIntervalMs(event.target.value)}
-              />
-            </label>
-            <label>
-              Quiet period (ms)
-              <input
-                type="number"
-                min={60000}
-                max={86400000}
-                value={quietPeriodMs}
-                onChange={(event) => setQuietPeriodMs(event.target.value)}
-              />
-            </label>
-            <button
+          <div>
+            <dt>AI can publish changes</dt>
+            <dd>{String(preferences.policy.publicationAuthority)}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section
+        hidden={category !== undefined && category !== "instructions"}
+        className="preference-section"
+        aria-labelledby="common-instructions-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Shared task instructions</p>
+            <h3 id="common-instructions-heading">Common Instructions</h3>
+          </div>
+          <span className="store-state">
+            {preferences.commonInstructionProfiles.length} profiles
+          </span>
+        </div>
+        <p className="section-help">
+          PRMonitor saves each instruction version and uses the selected order.
+          Instruction text does not change the permissions for an operation.
+        </p>
+        <div className="preferences-form">
+          <label>
+            Profile name
+            <HelpInput
+              value={instructionName}
+              onChange={(event) => setInstructionName(event.target.value)}
+              maxLength={128}
+            />
+          </label>
+          <label>
+            Instruction text
+            <HelpTextarea
+              value={instructionText}
+              onChange={(event) => setInstructionText(event.target.value)}
+              maxLength={32768}
+              rows={5}
+            />
+          </label>
+          <label className="checkbox-label">
+            <HelpInput
+              type="checkbox"
+              checked={instructionEnabled}
+              onChange={(event) => setInstructionEnabled(event.target.checked)}
+            />{" "}
+            Enabled
+          </label>
+          <label className="checkbox-label">
+            <HelpInput
+              type="checkbox"
+              checked={instructionSelected}
+              onChange={(event) => setInstructionSelected(event.target.checked)}
+            />{" "}
+            Use for new tasks
+          </label>
+          <div className="profile-actions">
+            <HelpButton
               type="button"
-              disabled={busy}
-              onClick={() =>
-                void commit((settingsRevision) =>
-                  window.prmonitor!.saveOperationalPreferences({
-                    expectedSettingsRevision: settingsRevision,
-                    maxAiWorkTurns: Number(maxAiWorkTurns),
-                    worktreeRoot:
-                      worktreeRoot.trim().length === 0 ? null : worktreeRoot,
-                    pollingIntervalMs: Number(pollingIntervalMs),
-                    quietPeriodMs: Number(quietPeriodMs),
-                  }),
-                )
+              disabled={
+                busy ||
+                !instructionDirty ||
+                instructionName.trim().length === 0 ||
+                instructionText.trim().length === 0
               }
-            >
-              Save operational preferences
-            </button>
-          </div>
-          <dl className="profile-details">
-            <div>
-              <dt>Current root revision</dt>
-              <dd>
-                {preferences.operational.worktreeRoot?.rootRevision ??
-                  "not configured"}
-              </dd>
-            </div>
-            <div>
-              <dt>AI can publish changes</dt>
-              <dd>{String(preferences.policy.publicationAuthority)}</dd>
-            </div>
-          </dl>
-        </section>
-      ) : null}
-
-      {category === undefined || category === "instructions" ? (
-        <section
-          className="preference-section"
-          aria-labelledby="common-instructions-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Shared task instructions</p>
-              <h3 id="common-instructions-heading">Common Instructions</h3>
-            </div>
-            <span className="store-state">
-              {preferences.commonInstructionProfiles.length} profiles
-            </span>
-          </div>
-          <p className="section-help">
-            PRMonitor saves each instruction version and uses the selected
-            order. Instruction text does not change the permissions for an
-            operation.
-          </p>
-          <div className="preferences-form">
-            <label>
-              Profile name
-              <input
-                value={instructionName}
-                onChange={(event) => setInstructionName(event.target.value)}
-                maxLength={128}
-              />
-            </label>
-            <label>
-              Instruction text
-              <textarea
-                value={instructionText}
-                onChange={(event) => setInstructionText(event.target.value)}
-                maxLength={32768}
-                rows={5}
-              />
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={instructionEnabled}
-                onChange={(event) =>
-                  setInstructionEnabled(event.target.checked)
-                }
-              />{" "}
-              Enabled
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={instructionSelected}
-                onChange={(event) =>
-                  setInstructionSelected(event.target.checked)
-                }
-              />{" "}
-              Use for new tasks
-            </label>
-            <div className="profile-actions">
-              <button
-                type="button"
-                disabled={
-                  busy ||
-                  instructionName.trim().length === 0 ||
-                  instructionText.trim().length === 0
-                }
-                onClick={() =>
-                  void commit((settingsRevision) =>
+              onClick={() =>
+                void (async () => {
+                  const generation = instructionEditorGeneration.current;
+                  const knownIds = new Set(
+                    preferences.commonInstructionProfiles.map(
+                      (profile) => profile.profileId,
+                    ),
+                  );
+                  const committed = await commit((settingsRevision) =>
                     window.prmonitor!.saveCommonInstruction({
                       expectedSettingsRevision: settingsRevision,
                       ...(instructionId === undefined
@@ -765,288 +897,331 @@ export function Preferences({
                       enabled: instructionEnabled,
                       selected: instructionSelected,
                     }),
-                  )
-                }
-              >
-                {instructionId === undefined
-                  ? "Create instruction"
-                  : "Save instruction revision"}
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  setInstructionId(undefined);
-                  setInstructionName("");
-                  setInstructionText("");
-                  setInstructionEnabled(true);
-                  setInstructionSelected(false);
-                }}
-              >
-                New
-              </button>
-            </div>
-          </div>
-          {preferences.commonInstructionProfiles.length === 0 ? (
-            <p className="empty-state">
-              No Common Instruction profiles are configured.
-            </p>
-          ) : (
-            <div
-              className="instruction-list"
-              aria-label="Common Instruction profiles"
+                  );
+                  if (
+                    instructionId === undefined &&
+                    committed &&
+                    generation === instructionEditorGeneration.current
+                  ) {
+                    const created = committed.commonInstructionProfiles.find(
+                      (profile) => !knownIds.has(profile.profileId),
+                    );
+                    if (created) setInstructionId(created.profileId);
+                  }
+                })()
+              }
             >
-              {instructionOrder.flatMap((profileId, index) => {
-                const profile = preferences.commonInstructionProfiles.find(
-                  (p) => p.profileId === profileId,
+              {instructionId === undefined
+                ? "Create instruction"
+                : "Save instruction revision"}
+            </HelpButton>
+            <HelpButton
+              type="button"
+              disabled={busy || !instructionDirty}
+              onClick={() => {
+                ++instructionEditorGeneration.current;
+                setInstructionName(instructionBaseline?.name ?? "");
+                setInstructionText(instructionBaseline?.instructionText ?? "");
+                setInstructionEnabled(instructionBaseline?.enabled ?? true);
+                setInstructionSelected(
+                  instructionId
+                    ? preferences.selectedCommonInstructionIds.includes(
+                        instructionId,
+                      )
+                    : false,
                 );
-                if (profile === undefined) return [];
-                return (
-                  <article className="preference-card" key={profile.profileId}>
-                    <div className="profile-card-heading">
-                      <div>
-                        <h4>{profile.name}</h4>
-                        <p>
-                          revision {profile.revision} ·{" "}
-                          {profile.enabled ? "enabled" : "disabled"}
-                        </p>
-                      </div>
-                      <span className="status-pill">
-                        {preferences.selectedCommonInstructionIds.includes(
-                          profile.profileId,
+              }}
+            >
+              Discard changes
+            </HelpButton>
+            <HelpButton
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                ++instructionEditorGeneration.current;
+                setInstructionId(undefined);
+                setInstructionName("");
+                setInstructionText("");
+                setInstructionEnabled(true);
+                setInstructionSelected(false);
+              }}
+            >
+              New
+            </HelpButton>
+          </div>
+        </div>
+        {preferences.commonInstructionProfiles.length === 0 ? (
+          <p className="empty-state">
+            No Common Instruction profiles are configured.
+          </p>
+        ) : (
+          <div
+            className="instruction-list"
+            aria-label="Common Instruction profiles"
+          >
+            {instructionOrder.flatMap((profileId, index) => {
+              const profile = preferences.commonInstructionProfiles.find(
+                (p) => p.profileId === profileId,
+              );
+              if (profile === undefined) return [];
+              return (
+                <article className="preference-card" key={profile.profileId}>
+                  <div className="profile-card-heading">
+                    <div>
+                      <h4>{profile.name}</h4>
+                      <p>
+                        revision {profile.revision} ·{" "}
+                        {profile.enabled ? "enabled" : "disabled"}
+                      </p>
+                    </div>
+                    <span className="status-pill">
+                      {preferences.selectedCommonInstructionIds.includes(
+                        profile.profileId,
+                      )
+                        ? `selected ${preferences.selectedCommonInstructionIds.indexOf(profile.profileId) + 1}`
+                        : "not selected"}
+                    </span>
+                  </div>
+                  <p className="instruction-preview">
+                    {profile.instructionText}
+                  </p>
+                  <div className="profile-actions">
+                    <HelpButton
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => editInstruction(profile)}
+                    >
+                      Edit
+                    </HelpButton>
+                    <HelpButton
+                      type="button"
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void commit((settingsRevision) =>
+                          window.prmonitor!.deleteCommonInstruction({
+                            expectedSettingsRevision: settingsRevision,
+                            profileId: profile.profileId,
+                          }),
                         )
-                          ? `selected ${preferences.selectedCommonInstructionIds.indexOf(profile.profileId) + 1}`
-                          : "not selected"}
-                      </span>
-                    </div>
-                    <p className="instruction-preview">
-                      {profile.instructionText}
-                    </p>
-                    <div className="profile-actions">
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => editInstruction(profile)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={busy}
-                        onClick={() =>
-                          void commit((settingsRevision) =>
-                            window.prmonitor!.deleteCommonInstruction({
-                              expectedSettingsRevision: settingsRevision,
-                              profileId: profile.profileId,
-                            }),
-                          )
-                        }
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={index === 0}
-                        onClick={() => moveInstruction(profile.profileId, -1)}
-                      >
-                        Move up
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={index === instructionOrder.length - 1}
-                        onClick={() => moveInstruction(profile.profileId, 1)}
-                      >
-                        Move down
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-          <button
+                      }
+                    >
+                      Delete
+                    </HelpButton>
+                    <HelpButton
+                      type="button"
+                      className="secondary-button"
+                      disabled={index === 0}
+                      onClick={() => moveInstruction(profile.profileId, -1)}
+                    >
+                      Move up
+                    </HelpButton>
+                    <HelpButton
+                      type="button"
+                      className="secondary-button"
+                      disabled={index === instructionOrder.length - 1}
+                      onClick={() => moveInstruction(profile.profileId, 1)}
+                    >
+                      Move down
+                    </HelpButton>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+        <HelpButton
+          type="button"
+          disabled={busy || !orderDirty}
+          onClick={() =>
+            void commit((settingsRevision) =>
+              window.prmonitor!.saveCommonInstructionSelection({
+                expectedSettingsRevision: settingsRevision,
+                selectedProfileIds: instructionOrder.filter((profileId) =>
+                  preferences.commonInstructionProfiles.some(
+                    (profile) =>
+                      profile.profileId === profileId &&
+                      profile.enabled &&
+                      preferences.selectedCommonInstructionIds.includes(
+                        profileId,
+                      ),
+                  ),
+                ),
+              }),
+            )
+          }
+        >
+          Save selected order
+        </HelpButton>
+        <HelpButton
+          type="button"
+          disabled={busy || !orderDirty}
+          onClick={() => setInstructionOrder(selectedOrder(preferences))}
+        >
+          Discard order changes
+        </HelpButton>
+      </section>
+
+      <section
+        hidden={category !== undefined && category !== "repository"}
+        className="preference-section"
+        aria-labelledby="repository-guidance-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">
+              validation settings / pull request configuration context
+            </p>
+            <h3 id="repository-guidance-heading">
+              Repository Build &amp; Validation
+            </h3>
+          </div>
+        </div>
+        <p className="section-help">
+          This is human guidance and a read-only validation summary. It does not
+          execute commands, grant approval, or publish results.
+        </p>
+        <div className="preferences-form">
+          <label>
+            GitHub server ID
+            <HelpInput
+              value={repository.serverId}
+              onChange={(event) =>
+                setRepository((current) => ({
+                  ...current,
+                  serverId: event.target.value,
+                }))
+              }
+              maxLength={256}
+            />
+          </label>
+          <label>
+            Repository owner
+            <HelpInput
+              value={repository.owner}
+              onChange={(event) =>
+                setRepository((current) => ({
+                  ...current,
+                  owner: event.target.value,
+                }))
+              }
+              maxLength={256}
+            />
+          </label>
+          <label>
+            Repository name
+            <HelpInput
+              value={repository.name}
+              onChange={(event) =>
+                setRepository((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+              maxLength={256}
+            />
+          </label>
+          <label>
+            Repository key
+            <HelpInput
+              value={repository.key}
+              onChange={(event) =>
+                setRepository((current) => ({
+                  ...current,
+                  key: event.target.value,
+                }))
+              }
+              maxLength={512}
+              placeholder="server/owner/name"
+            />
+          </label>
+          <label>
+            Build guidance
+            <HelpTextarea
+              value={repository.buildInstructions}
+              onChange={(event) =>
+                setRepository((current) => ({
+                  ...current,
+                  buildInstructions: event.target.value,
+                }))
+              }
+              maxLength={16384}
+              rows={4}
+              aria-describedby="build-guidance-help"
+            />
+          </label>
+          <p id="build-guidance-help" className="field-help">
+            Describe the repository’s build expectations in prose. validation
+            settings owns structured validation profiles and execution.
+          </p>
+          <HelpButton
             type="button"
-            disabled={busy}
+            disabled={busy || !repositoryDirty}
             onClick={() =>
               void commit((settingsRevision) =>
-                window.prmonitor!.saveCommonInstructionSelection({
+                window.prmonitor!.saveRepositoryPreferences({
                   expectedSettingsRevision: settingsRevision,
-                  selectedProfileIds: instructionOrder.filter((profileId) =>
-                    preferences.commonInstructionProfiles.some(
-                      (profile) =>
-                        profile.profileId === profileId &&
-                        profile.enabled &&
-                        preferences.selectedCommonInstructionIds.includes(
-                          profileId,
-                        ),
-                    ),
-                  ),
+                  repository: {
+                    serverId: repository.serverId,
+                    owner: repository.owner,
+                    name: repository.name,
+                    key: repository.key,
+                  },
+                  buildInstructions: repository.buildInstructions,
                 }),
               )
             }
           >
-            Save selected order
-          </button>
-        </section>
-      ) : null}
-
-      {category === undefined || category === "repository" ? (
-        <section
-          className="preference-section"
-          aria-labelledby="repository-guidance-heading"
-        >
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">
-                validation settings / pull request configuration context
+            Save repository guidance
+          </HelpButton>
+          <HelpButton
+            type="button"
+            disabled={busy || !repositoryDirty}
+            onClick={() => setRepository(repositoryForm(preferences))}
+          >
+            Discard changes
+          </HelpButton>
+        </div>
+        {preferences.repositories.map((settings) => (
+          <article className="preference-card" key={settings.repository.key}>
+            <h4>
+              {settings.repository.owner}/{settings.repository.name}
+            </h4>
+            <dl className="profile-details">
+              <div>
+                <dt>Validation status</dt>
+                <dd>
+                  {validationSummaryLabel(settings.validationSummary?.status)}
+                </dd>
+              </div>
+              <div>
+                <dt>Validation source</dt>
+                <dd>{settings.validationSummary?.source ?? "none"}</dd>
+              </div>
+              <div>
+                <dt>Commands / manual checks</dt>
+                <dd>
+                  {settings.validationSummary === undefined
+                    ? "not resolved"
+                    : `${settings.validationSummary.commandCount ?? 0} / ${settings.validationSummary.manualCheckCount ?? 0}`}
+                </dd>
+              </div>
+            </dl>
+            {settings.validationSummary?.warningCode !== undefined ? (
+              <p className="profile-reason" role="status">
+                Check the validation profile for this repository before running
+                validation.
               </p>
-              <h3 id="repository-guidance-heading">
-                Repository Build &amp; Validation
-              </h3>
-            </div>
-          </div>
-          <p className="section-help">
-            This is human guidance and a read-only validation summary. It does
-            not execute commands, grant approval, or publish results.
-          </p>
-          <div className="preferences-form">
-            <label>
-              GitHub server ID
-              <input
-                value={repository.serverId}
-                onChange={(event) =>
-                  setRepository((current) => ({
-                    ...current,
-                    serverId: event.target.value,
-                  }))
-                }
-                maxLength={256}
-              />
-            </label>
-            <label>
-              Repository owner
-              <input
-                value={repository.owner}
-                onChange={(event) =>
-                  setRepository((current) => ({
-                    ...current,
-                    owner: event.target.value,
-                  }))
-                }
-                maxLength={256}
-              />
-            </label>
-            <label>
-              Repository name
-              <input
-                value={repository.name}
-                onChange={(event) =>
-                  setRepository((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                maxLength={256}
-              />
-            </label>
-            <label>
-              Repository key
-              <input
-                value={repository.key}
-                onChange={(event) =>
-                  setRepository((current) => ({
-                    ...current,
-                    key: event.target.value,
-                  }))
-                }
-                maxLength={512}
-                placeholder="server/owner/name"
-              />
-            </label>
-            <label>
-              Build guidance
-              <textarea
-                value={repository.buildInstructions}
-                onChange={(event) =>
-                  setRepository((current) => ({
-                    ...current,
-                    buildInstructions: event.target.value,
-                  }))
-                }
-                maxLength={16384}
-                rows={4}
-                aria-describedby="build-guidance-help"
-              />
-            </label>
-            <p id="build-guidance-help" className="field-help">
-              Describe the repository’s build expectations in prose. validation
-              settings owns structured validation profiles and execution.
-            </p>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void commit((settingsRevision) =>
-                  window.prmonitor!.saveRepositoryPreferences({
-                    expectedSettingsRevision: settingsRevision,
-                    repository: {
-                      serverId: repository.serverId,
-                      owner: repository.owner,
-                      name: repository.name,
-                      key: repository.key,
-                    },
-                    buildInstructions: repository.buildInstructions,
-                  }),
-                )
-              }
-            >
-              Save repository guidance
-            </button>
-          </div>
-          {preferences.repositories.map((settings) => (
-            <article className="preference-card" key={settings.repository.key}>
-              <h4>
-                {settings.repository.owner}/{settings.repository.name}
-              </h4>
-              <dl className="profile-details">
-                <div>
-                  <dt>Validation status</dt>
-                  <dd>
-                    {validationSummaryLabel(settings.validationSummary?.status)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Validation source</dt>
-                  <dd>{settings.validationSummary?.source ?? "none"}</dd>
-                </div>
-                <div>
-                  <dt>Commands / manual checks</dt>
-                  <dd>
-                    {settings.validationSummary === undefined
-                      ? "not resolved"
-                      : `${settings.validationSummary.commandCount ?? 0} / ${settings.validationSummary.manualCheckCount ?? 0}`}
-                  </dd>
-                </div>
-              </dl>
-              {settings.validationSummary?.warningCode !== undefined ? (
-                <p className="profile-reason" role="status">
-                  Check the validation profile for this repository before
-                  running validation.
-                </p>
-              ) : null}
-              <details>
-                <summary>Raw support data</summary>
-                <pre tabIndex={0}>
-                  {JSON.stringify(settings.validationSummary ?? {}, null, 2)}
-                </pre>
-              </details>
-            </article>
-          ))}
-        </section>
-      ) : null}
+            ) : null}
+            <details>
+              <HelpSummary>Raw support data</HelpSummary>
+              <pre tabIndex={0}>
+                {JSON.stringify(settings.validationSummary ?? {}, null, 2)}
+              </pre>
+            </details>
+          </article>
+        ))}
+      </section>
     </section>
   );
 }

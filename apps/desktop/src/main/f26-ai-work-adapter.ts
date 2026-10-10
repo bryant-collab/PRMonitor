@@ -223,6 +223,9 @@ function profileSnapshot(
     schemaVersion: 1,
     profileId: snapshot.profile.profileId,
     profileRevision: snapshot.profile.revision,
+    ...(snapshot.profile.connection
+      ? { connection: snapshot.profile.connection }
+      : {}),
     providerId: snapshot.profile.providerId,
     modelId: snapshot.profile.modelId,
     taskType: snapshot.taskType,

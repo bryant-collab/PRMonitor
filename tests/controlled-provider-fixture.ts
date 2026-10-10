@@ -97,6 +97,18 @@ export function createCodexProvider(): AIProvider {
     get capabilities() {
       return {
         ...provider.capabilities,
+        modelCatalog: [
+          ...(provider.capabilities.modelCatalog ?? []),
+          {
+            modelId: "gpt-6-astra",
+            supportedOptionKeys: [],
+            reasoningEfforts: [
+              "low" as const,
+              "medium" as const,
+              "high" as const,
+            ],
+          },
+        ],
         enabled:
           (globalThis as { __controlledProviderUnavailable?: boolean })
             .__controlledProviderUnavailable !== true,
@@ -107,5 +119,40 @@ export function createCodexProvider(): AIProvider {
       authenticationAvailable: true,
     }),
     invoke: (request, options) => provider.invoke(request, options),
+  };
+}
+
+// Other tools are deliberately unavailable in the deterministic Windows journey.
+// Any attempted invocation proves an unintended provider effect.
+export function createClaudeProvider(): AIProvider {
+  return {
+    id: "claude",
+    capabilities: {
+      ...new FakeAIProvider().capabilities,
+      providerId: "claude",
+    },
+    readLocalReadiness: () => ({
+      runtimeAvailable: false,
+      authenticationAvailable: false,
+    }),
+    invoke: async () => {
+      throw new Error("CONTROLLED_UNEXPECTED_CLAUDE_INVOCATION");
+    },
+  };
+}
+export function createCopilotProvider(): AIProvider {
+  return {
+    id: "copilot",
+    capabilities: {
+      ...new FakeAIProvider().capabilities,
+      providerId: "copilot",
+    },
+    readLocalReadiness: () => ({
+      runtimeAvailable: false,
+      authenticationAvailable: false,
+    }),
+    invoke: async () => {
+      throw new Error("CONTROLLED_UNEXPECTED_COPILOT_INVOCATION");
+    },
   };
 }

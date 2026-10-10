@@ -1,3 +1,12 @@
+import {
+  aiProviderReasoningEffortSchema,
+  type AIProviderReasoningEffort,
+} from "./reasoning";
+export {
+  aiProviderReasoningEffortSchema,
+  type AIProviderReasoningEffort,
+} from "./reasoning";
+import { aiConnectionSchema } from "../ai-connections";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
@@ -42,20 +51,6 @@ export const aiProviderInteractionModeSchema = z.enum([
 ]);
 export type AIProviderInteractionMode = z.infer<
   typeof aiProviderInteractionModeSchema
->;
-
-export const aiProviderReasoningEffortSchema = z.enum([
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-  "persistent",
-]);
-export type AIProviderReasoningEffort = z.infer<
-  typeof aiProviderReasoningEffortSchema
 >;
 
 export const aiProviderSandboxModeSchema = z.enum([
@@ -175,6 +170,7 @@ export const aiProviderProfileSnapshotSchema = z
     schemaVersion: z.literal(AI_PROVIDER_SCHEMA_VERSION),
     profileId: identifierSchema,
     profileRevision: nonNegativeIntegerSchema,
+    connection: aiConnectionSchema.optional(),
     providerId: identifierSchema,
     modelId: identifierSchema,
     taskType: aiProviderTaskTypeSchema,
@@ -683,6 +679,7 @@ export type AIProviderRequest = z.infer<typeof aiProviderRequestSchema>;
 export const aiProviderModelDescriptorSchema = z
   .object({
     modelId: identifierSchema,
+    selectable: z.boolean().optional(),
     taskTypes: z.array(aiProviderTaskTypeSchema).max(16).optional(),
     reasoningEfforts: z
       .array(aiProviderReasoningEffortSchema)

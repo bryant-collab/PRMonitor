@@ -1,3 +1,4 @@
+import { checkAITool } from "./ai/tool-detection";
 import { recoveryActivityAttribution } from "../shared/recovery-attribution";
 import { projectManagedPrWork } from "./managed-pr-work";
 import {
@@ -100,7 +101,17 @@ import type {
   F16ValidationSummary,
 } from "../shared/f16-preferences";
 import { resolveValidationProfile } from "@prmonitor/validation-contract";
-import { AIProviderRegistry, createCodexProvider } from "./ai";
+import {
+  AIProviderRegistry,
+  createCodexProvider,
+  createClaudeProvider,
+  createCopilotProvider,
+} from "./ai";
+import { ConnectionAuthentication } from "./ai/connection-authentication";
+import {
+  hasCopilotWorkers,
+  shutdownCopilotWorkers,
+} from "./ai/copilot-supervisor";
 import { F13WorktreeService } from "./f13-service";
 import { ElectronF13OsPathAdapter } from "./f13-os-adapter";
 import { ValidationRunService } from "./f14-validation-runner";
@@ -223,6 +234,7 @@ let reviewScheduler: MainReviewScheduler | undefined;
 let f13WorktreeService: F13WorktreeService | undefined;
 let f14ValidationService: ValidationRunService | undefined;
 let f16PreferencesService: F16PreferencesService | undefined;
+let connectionAuthentication: ConnectionAuthentication | undefined;
 let automaticReviewCoordinator: F18AutomaticReviewBoundary | undefined;
 let f22Coordinator: F22Coordinator | undefined;
 let automaticReviewAiAdapter: F18AIWorkAdapter | undefined;
@@ -342,15 +354,18 @@ function configureRuntimePaths(): void {
 const accessibilityProbe = `(() => {
   const visible = (element) => {
     const style = window.getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden" && element.getAttribute("aria-hidden") !== "true";
+    return element.getClientRects().length > 0 && style.display !== "none" && style.visibility !== "hidden" && element.getAttribute("aria-hidden") !== "true";
   };
   const focusable = [...document.querySelectorAll("a[href], button, input, select, textarea, [tabindex]:not([tabindex=\\"-1\\"])" )]
     .filter((element) => visible(element) && !element.hasAttribute("disabled"));
   const skipLink = document.querySelector(".skip-link");
   const status = document.querySelector("#${STARTUP_STATUS_ID}");
   const heading = document.querySelectorAll("h1");
-  const managedPrForm = document.querySelector('form[aria-label="Add a pull request"]');
-  const managedPrHeading = document.querySelector("#managed-pr-heading");
+  const addForm = document.querySelector('form[aria-label="Add a pull request"]');
+  const githubForm = document.querySelector('form[aria-label="Add or update GitHub server"]');
+  const isAdd = addForm !== null && visible(addForm);
+  const managedPrForm = isAdd ? addForm : githubForm;
+  const managedPrHeading = document.querySelector(isAdd ? "#managed-pr-heading" : "#server-settings-heading");
   const managedPrControls = managedPrForm === null
     ? []
     : [...managedPrForm.querySelectorAll("input, textarea, select, button")];
@@ -367,9 +382,10 @@ const accessibilityProbe = `(() => {
       status.getAttribute("role") === "status" &&
       status.getAttribute("aria-live") === "polite" &&
       status.getAttribute("data-prmonitor-ready") === "true" &&
-      managedPrForm.getAttribute("aria-label") === "Add a pull request" &&
-      managedPrHeading.textContent?.trim() === "Add PR" &&
-      managedPrControls.length >= 7 &&
+      visible(managedPrForm) && visible(managedPrHeading) &&
+      managedPrForm.getAttribute("aria-label") === (isAdd ? "Add a pull request" : "Add or update GitHub server") &&
+      managedPrHeading.textContent?.trim() === (isAdd ? "Add PR" : "GitHub servers") &&
+      managedPrControls.length >= (isAdd ? 7 : 4) &&
       managedPrControls.every((element) => element.tagName === "BUTTON" || element.labels?.length > 0 || element.getAttribute("aria-label") !== null) &&
       skipIndex >= 0 && statusIndex > skipIndex && skipFocused && enterMovesFocus,
     forcedColors: window.matchMedia("(forced-colors: active)").matches,
@@ -402,12 +418,15 @@ function smokeFailure(reason: string, error?: unknown): void {
 async function runAccessibilityProbe(
   window: BrowserWindow,
 ): Promise<{ ok: boolean; forcedColors: boolean; reason?: string }> {
-  // Exercise the real focused Add PR route; settings and forms are absent from unrelated views.
+  // Fresh profiles start at GitHub setup. Probe its real visible form; ready
+  // profiles exercise the focused Add PR route. Keep native keyboard/semantics checks.
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     const opened = await window.webContents.executeJavaScript(
       `(() => {
-      const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === 'Add PR' && !item.disabled);
+      const setupForm = document.querySelector('form[aria-label="Add or update GitHub server"]');
+      if (setupForm?.getClientRects().length) return true;
+      const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === 'Add PR' && !item.disabled && item.getClientRects().length);
       if (!button) return false; button.click(); return true;
     })()`,
       true,
@@ -421,9 +440,12 @@ async function runAccessibilityProbe(
   while (Date.now() < deadline) {
     formReady = await window.webContents.executeJavaScript(
       `(() => {
-        const form = document.querySelector('form[aria-label="Add a pull request"]');
-        return Boolean(form && document.querySelector('#managed-pr-heading') &&
-          form.querySelectorAll('input, textarea, select, button').length >= 7);
+        const add = document.querySelector('form[aria-label="Add a pull request"]');
+        const github = document.querySelector('form[aria-label="Add or update GitHub server"]');
+        const isAdd = Boolean(add?.getClientRects().length);
+        const form = isAdd ? add : github;
+        return Boolean(form?.getClientRects().length && document.querySelector(isAdd ? '#managed-pr-heading' : '#server-settings-heading') &&
+          form.querySelectorAll('input, textarea, select, button').length >= (isAdd ? 7 : 4));
       })()`,
       true,
     );
@@ -777,7 +799,18 @@ async function initializeMainProcessPersistence(): Promise<void> {
   });
   prWatcher.reconcileStartup();
   const f15ProviderRegistry = new AIProviderRegistry();
-  f15ProviderRegistry.register(createCodexProvider());
+  connectionAuthentication = new ConnectionAuthentication(
+    path.join(userDataDirectory, "ai-connections"),
+  );
+  f15ProviderRegistry.register(
+    createCodexProvider({ connectionAuthentication }),
+  );
+  f15ProviderRegistry.register(
+    createClaudeProvider({ authentication: connectionAuthentication }),
+  );
+  f15ProviderRegistry.register(
+    createCopilotProvider({ authentication: connectionAuthentication }),
+  );
   f16PreferencesService = new F16PreferencesService({
     repositories: createF16PreferencesRepository(f03Repositories),
     capabilities: {
@@ -2475,6 +2508,85 @@ async function startMainProcess(): Promise<void> {
         throw new Error("PRMONITOR_SCHEDULER_SERVICE_NOT_READY");
       return reviewScheduler.resumeWatching(input);
     },
+    checkAITools: async (input) => {
+      if (!input.connectionId || input.detectOnly)
+        return { tools: [await checkAITool(input)] };
+      const connection = f16PreferencesService
+        ?.readPreferences()
+        .aiConnections?.find((value) => value.id === input.connectionId);
+      if (!connection || !connectionAuthentication)
+        throw new Error("Select a saved AI connection first.");
+      // A renderer may inspect a store only for its exact saved launch choices.
+      if (
+        connection.tool !== input.tool ||
+        connection.executable !== input.executable ||
+        connection.authMode !== input.authMode ||
+        JSON.stringify(connection.extraArgs) !== JSON.stringify(input.extraArgs)
+      )
+        throw new Error("Save these launch choices before checking sign-in.");
+      return { tools: [await connectionAuthentication.check(connection)] };
+    },
+    signInAIConnection: async (input) => {
+      const preferences = f16PreferencesService?.readPreferences();
+      const connection = preferences?.aiConnections?.find(
+        (value) => value.id === input.connectionId,
+      );
+      if (!connection || !connectionAuthentication)
+        throw new Error("Select a saved AI connection first.");
+      if (preferences?.settingsRevision !== input.expectedSettingsRevision)
+        throw new Error("AI settings changed. Reload before signing in.");
+      await connectionAuthentication.signIn(connection);
+      refreshSetupReadiness();
+      return { tools: [await connectionAuthentication.check(connection)] };
+    },
+    cancelAIConnectionSignIn: async (input) => {
+      const connection = f16PreferencesService
+        ?.readPreferences()
+        .aiConnections?.find((value) => value.id === input.connectionId);
+      if (!connection || !connectionAuthentication)
+        throw new Error("Select a saved AI connection first.");
+      connectionAuthentication.cancel(connection.id);
+      return { tools: [await connectionAuthentication.check(connection)] };
+    },
+    pickAIProgram: async () => {
+      const owner = windowManager?.visibleWindow as unknown as
+        BrowserWindow | undefined;
+      const options = {
+        title: "Browse for AI program",
+        properties: ["openFile", "dontAddToRecent"] as (
+          "openFile" | "dontAddToRecent"
+        )[],
+      };
+      const selection = owner
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options);
+      return selection.canceled ? undefined : selection.filePaths[0];
+    },
+    saveAIConnection: async (input) => {
+      if (!f16PreferencesService)
+        throw new Error("AI settings are unavailable.");
+      const status = await checkAITool({
+        tool: input.connection.tool,
+        executable: input.connection.executable,
+        extraArgs: input.connection.extraArgs,
+        authMode: input.connection.authMode,
+      });
+      if (!status.compatible || !status.executable)
+        throw new Error(status.message);
+      const executable = status.executable;
+      if (
+        input.connection.signInSource === "prmonitor" &&
+        connectionAuthentication
+      )
+        await connectionAuthentication.home(input.connection, true);
+      const preferences = setupChange(() =>
+        f16PreferencesService!.saveAIConnection({
+          ...input,
+          connection: { ...input.connection, executable },
+        }),
+      );
+      return preferences;
+    },
     readPreferences: () => {
       if (f16PreferencesService === undefined)
         throw new Error("PRMONITOR_PREFERENCES_SERVICE_NOT_READY");
@@ -3192,7 +3304,27 @@ if (primaryInstance.acquire(process.argv)) {
     .catch((error: unknown) => smokeFailure("APP_START_FAILED", error));
 }
 
+let copilotShutdownFinished = false;
+let copilotShutdownStarted = false;
+app.on("before-quit", (event) => {
+  if (copilotShutdownFinished) return;
+  if (!hasCopilotWorkers()) {
+    // Close admission even when metadata work is still resolving its home.
+    void shutdownCopilotWorkers();
+    copilotShutdownFinished = true;
+    return;
+  }
+  event.preventDefault();
+  if (copilotShutdownStarted) return;
+  copilotShutdownStarted = true;
+  void shutdownCopilotWorkers().finally(() => {
+    copilotShutdownFinished = true;
+    app.quit();
+  });
+});
 app.on("will-quit", () => {
+  connectionAuthentication?.dispose();
+  connectionAuthentication = undefined;
   if (setupReadinessTimer !== undefined) clearInterval(setupReadinessTimer);
   setupReadinessTimer = undefined;
   setupReadinessService = undefined;

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { log } from "builder-util/out/log.js";
 import { Packager } from "app-builder-lib/out/packager.js";
 import { WinPackager } from "app-builder-lib/out/winPackager.js";
 import { NtExecutable, NtExecutableResource, Resource } from "resedit";
@@ -36,6 +37,13 @@ function fixture(edit = () => {}) {
 }
 
 test("shipping config edits Electron metadata while leaving signing and installation identity unchanged", async (t) => {
+  // The pinned logger captures stdout before Node's test IPC replaces it.
+  // Keep diagnostic output off the serialized test-result stream.
+  const originalStream = log.stream;
+  log.stream = process.stderr;
+  t.after(() => {
+    log.stream = originalStream;
+  });
   const directory = await mkdtemp(path.join(os.tmpdir(), "prmonitor-pe-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const info = new Packager({

@@ -81,9 +81,27 @@ try {
       {
         name: "owned-controlled-provider",
         setup(build) {
-          build.onResolve({ filter: /(?:^|\/)codex-adapter$/ }, () => ({
-            path: path.join(repository, "tests/controlled-provider-fixture.ts"),
-          }));
+          // Keep the real native wrapper beside its installed binary. Bundling
+          // Koffi into this temporary acceptance entry changes its lookup root.
+          build.onResolve(
+            { filter: /^@prmonitor\/provider-runtimes\/native$/ },
+            () => ({
+              path: path.join(
+                repository,
+                "packages/provider-runtimes/native.mjs",
+              ),
+              external: true,
+            }),
+          );
+          build.onResolve(
+            { filter: /(?:^|\/)(?:codex|claude|copilot)-adapter$/ },
+            () => ({
+              path: path.join(
+                repository,
+                "tests/controlled-provider-fixture.ts",
+              ),
+            }),
+          );
           const observer = path.join(
             repository,
             "tests/controlled-conversation-observer.ts",
