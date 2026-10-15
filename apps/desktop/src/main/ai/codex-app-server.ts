@@ -52,6 +52,7 @@ const safeThreadId = (value: unknown): string => {
 
 const isolatedFeatures = [
   "apps",
+  "computer_use",
   "code_mode",
   "code_mode_only",
   "context_management",
@@ -99,6 +100,7 @@ export function codexApplicationConfig(
     "features.hooks": false,
     "features.plugins": false,
     "features.apps": false,
+    "features.computer_use": false,
     "features.shell_snapshot": false,
     "shell_environment_policy.inherit": "none",
     "shell_environment_policy.include_only": [],
@@ -132,7 +134,7 @@ export function assertCodexConfiguration(
     config.web_search !== "disabled" ||
     config.allow_login_shell !== false ||
     environment.inherit !== "none" ||
-    ["hooks", "plugins", "apps", "shell_snapshot"].some(
+    ["hooks", "plugins", "apps", "computer_use", "shell_snapshot"].some(
       (key) => features[key] !== false,
     )
   )
@@ -176,7 +178,7 @@ export function assertCodexRequirements(
     if (
       (fileTools
         ? isolatedFeatures
-        : ["hooks", "plugins", "apps", "shell_snapshot"]
+        : ["hooks", "plugins", "apps", "computer_use", "shell_snapshot"]
       ).some((key) => features[key] === true)
     )
       throw new Error(
@@ -513,6 +515,7 @@ export function codexServerArguments(
   connection: AIConnection,
   options: CodexThreadOptions,
   fileTools = false,
+  strictConfig = true,
 ): string[] {
   const args = [...connection.extraArgs];
   // Never impose a login restriction on the terminal's shared sign-in store.
@@ -525,8 +528,29 @@ export function codexServerArguments(
     codexApplicationConfig(options, fileTools),
   ))
     args.push("--config", `${key}=${JSON.stringify(value)}`);
-  args.push("app-server", "--strict-config");
+  args.push("app-server");
+  if (strictConfig) args.push("--strict-config");
   return args;
+}
+
+export function assertOnlyLegacyComputerUseConfigWarning(
+  stderr: string,
+  truncated: boolean,
+): void {
+  const lines = stderr.trim().split(/\r?\n/u).filter(Boolean);
+  const ignored = lines.filter((line) => line.includes(" is ignored."));
+  if (
+    truncated ||
+    lines.length !== 2 ||
+    ignored.length !== 1 ||
+    !lines.some((line) =>
+      /Codex is ignoring 1 unrecognized configuration setting\./u.test(line),
+    ) ||
+    !ignored[0]?.includes("computer_use.windows.always_allowed_app_ids")
+  )
+    throw new Error(
+      "Codex reported additional configuration warnings. PRMonitor stopped before work started.",
+    );
 }
 
 /** Empty environments are the supported file-only path, never native setup. */
@@ -563,12 +587,19 @@ export async function openCodexProtocol(
   signal?: AbortSignal,
   start: typeof spawn = spawn,
   fileTools = false,
+  strictConfig = true,
+  allowLegacyConfigFallback = true,
 ): Promise<CodexProtocol> {
   signal?.throwIfAborted();
   if (!environment.CODEX_HOME || !path.isAbsolute(environment.CODEX_HOME))
     throw new Error("Connect this connection's PRMonitor sign-in first.");
   if (fileTools) await assertCodexFileEnvironment(environment);
-  const args = codexServerArguments(connection, options, fileTools);
+  const args = codexServerArguments(
+    connection,
+    options,
+    fileTools,
+    strictConfig,
+  );
   const child = start(connection.executable, args, {
     shell: false,
     windowsHide: true,
@@ -579,7 +610,16 @@ export async function openCodexProtocol(
     detached: process.platform !== "win32",
     stdio: ["pipe", "pipe", "pipe"],
   });
-  child.stderr.resume();
+  let stderr = "";
+  let stderrTruncated = false;
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+    if (stderr.length > 16_384) {
+      stderr = stderr.slice(-16_384);
+      stderrTruncated = true;
+    }
+  });
   child.stdin.on("error", () => {
     /* close/error settles all waiters */
   });
@@ -767,9 +807,30 @@ export async function openCodexProtocol(
       capabilities: { experimentalApi: fileTools },
     });
     send({ method: "initialized", params: {} });
+    if (!strictConfig)
+      assertOnlyLegacyComputerUseConfigWarning(stderr, stderrTruncated);
     return protocol;
   } catch (error) {
     await protocol.close();
+    if (
+      strictConfig &&
+      allowLegacyConfigFallback &&
+      !signal?.aborted &&
+      !stderrTruncated &&
+      /unknown configuration field `computer_use\.windows\.always_allowed_app_ids`/u.test(
+        stderr,
+      )
+    )
+      return await openCodexProtocol(
+        connection,
+        environment,
+        options,
+        signal,
+        start,
+        fileTools,
+        false,
+        false,
+      );
     throw error;
   }
 }

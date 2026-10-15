@@ -1,4 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import {
+  spawn,
+  type ChildProcess,
+  type SpawnOptions,
+} from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -14,7 +18,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertCodexFileEnvironment,
+  assertCodexConfiguration,
+  assertOnlyLegacyComputerUseConfigWarning,
   codexApplicationConfig,
+  codexServerArguments,
   openCodexProtocol,
   createCodexAppServerClient,
   type CodexProtocol,
@@ -57,6 +64,7 @@ const configuration = {
       hooks: false,
       plugins: false,
       apps: false,
+      computer_use: false,
       shell_snapshot: false,
     },
     shell_environment_policy: { inherit: "none", set: {}, include_only: [] },
@@ -141,11 +149,149 @@ async function collect(protocol: CodexProtocol, resume = false) {
   return events;
 }
 const roots: string[] = [];
+function waitForChildClose(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return Promise.resolve();
+  return new Promise((resolve) => child.once("close", () => resolve()));
+}
 afterEach(async () => {
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
 });
 describe("Codex public app-server contract", () => {
+  it("keeps Computer Use explicitly disabled and verifies the effective value", () => {
+    expect(codexApplicationConfig(options)["features.computer_use"]).toBe(
+      false,
+    );
+    expect(() => assertCodexConfiguration(configuration)).not.toThrow();
+    expect(() =>
+      assertCodexConfiguration({
+        config: {
+          ...configuration.config,
+          features: { ...configuration.config.features, computer_use: true },
+        },
+      }),
+    ).toThrow("policy does not match");
+  });
+  it("keeps strict config as the default and supports an explicit compatibility argument", () => {
+    expect(codexServerArguments(connection, options).slice(-2)).toEqual([
+      "app-server",
+      "--strict-config",
+    ]);
+    expect(
+      codexServerArguments(connection, options, false, false).slice(-1),
+    ).toEqual(["app-server"]);
+  });
+  it("permits only the exact legacy Computer Use allowlist warning", () => {
+    expect(() =>
+      assertOnlyLegacyComputerUseConfigWarning(
+        "ERROR Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n  user (<CODEX_HOME>\\config.toml): `computer_use.windows.always_allowed_app_ids` is ignored.\n",
+        false,
+      ),
+    ).not.toThrow();
+    for (const warning of [
+      "ERROR Codex is ignoring 1 unrecognized configuration setting.\n  user (<CODEX_HOME>\\config.toml): `mcp_servers.extra` is ignored.\n",
+      "ERROR Codex is ignoring 2 unrecognized configuration settings.\n  user (<CODEX_HOME>\\config.toml): `computer_use.windows.always_allowed_app_ids` is ignored.\n  user (<CODEX_HOME>\\config.toml): `hooks` is ignored.\n",
+      "ERROR Codex is ignoring 1 unrecognized configuration setting.\n  user (<CODEX_HOME>\\config.toml): `computer_use.windows.always_allowed_app_ids` is ignored.\nextra warning\n",
+    ])
+      expect(() =>
+        assertOnlyLegacyComputerUseConfigWarning(warning, false),
+      ).toThrow("additional configuration warnings");
+    expect(() =>
+      assertOnlyLegacyComputerUseConfigWarning(
+        "ERROR Codex is ignoring 1 unrecognized configuration setting.\n  user (<CODEX_HOME>\\config.toml): `computer_use.windows.always_allowed_app_ids` is ignored.\n",
+        true,
+      ),
+    ).toThrow("additional configuration warnings");
+  });
+  it("retries the exact legacy strict-config failure once and closes the failed child", async () => {
+    const launched: ChildProcess[] = [];
+    const start = ((
+      _program: string,
+      args: readonly string[] = [],
+      spawnOptions?: SpawnOptions,
+    ) => {
+      const isStrict = args.includes("--strict-config");
+      const script = isStrict
+        ? String.raw`process.stderr.write("Error: <CODEX_HOME>\\config.toml:191:23: unknown configuration field \`computer_use.windows.always_allowed_app_ids\`\n");process.stdin.on("data",()=>{process.stdout.write(JSON.stringify({id:1,error:{code:-1,message:"strict config rejected"}})+"\n");setTimeout(()=>process.exit(1),10)})`
+        : String.raw`process.stderr.write("ERROR Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n  user (<CODEX_HOME>\\config.toml): \`computer_use.windows.always_allowed_app_ids\` is ignored.\n");process.stdin.on("data",()=>setTimeout(()=>process.stdout.write(JSON.stringify({id:1,result:{}})+"\n"),40))`;
+      const child = spawn(process.execPath, ["-e", script], spawnOptions ?? {});
+      launched.push(child);
+      return child;
+    }) as unknown as typeof spawn;
+
+    const protocol = await openCodexProtocol(
+      connection,
+      { CODEX_HOME: process.cwd() },
+      options,
+      undefined,
+      start,
+    );
+    expect(launched).toHaveLength(2);
+    await waitForChildClose(launched[0]!);
+    expect(
+      launched[0]?.exitCode !== null || launched[0]?.signalCode !== null,
+    ).toBe(true);
+    await protocol.close();
+    await waitForChildClose(launched[1]!);
+    expect(
+      launched[1]?.exitCode !== null || launched[1]?.signalCode !== null,
+    ).toBe(true);
+  });
+  it("closes the compatibility child and rejects additional config warnings", async () => {
+    const launched: ChildProcess[] = [];
+    const start = ((
+      _program: string,
+      args: readonly string[] = [],
+      spawnOptions?: SpawnOptions,
+    ) => {
+      const strict = args.includes("--strict-config");
+      const script = strict
+        ? String.raw`process.stderr.write("Error: <CODEX_HOME>\\config.toml:191:23: unknown configuration field \`computer_use.windows.always_allowed_app_ids\`\n");process.stdin.on("data",()=>{process.stdout.write(JSON.stringify({id:1,error:{code:-1,message:"strict config rejected"}})+"\n");setTimeout(()=>process.exit(1),10)})`
+        : String.raw`process.stderr.write("ERROR Codex is ignoring 2 unrecognized configuration settings.\n  user (<CODEX_HOME>\\config.toml): \`computer_use.windows.always_allowed_app_ids\` is ignored.\n  user (<CODEX_HOME>\\config.toml): \`hooks\` is ignored.\n");process.stdin.on("data",()=>setTimeout(()=>process.stdout.write(JSON.stringify({id:1,result:{}})+"\n"),40))`;
+      const child = spawn(process.execPath, ["-e", script], spawnOptions ?? {});
+      launched.push(child);
+      return child;
+    }) as unknown as typeof spawn;
+
+    await expect(
+      openCodexProtocol(
+        connection,
+        { CODEX_HOME: process.cwd() },
+        options,
+        undefined,
+        start,
+      ),
+    ).rejects.toThrow("additional configuration warnings");
+    expect(launched).toHaveLength(2);
+    await waitForChildClose(launched[1]!);
+  });
+  it("cancels a strict startup without launching the compatibility child", async () => {
+    const launched: ChildProcess[] = [];
+    const start = ((
+      _program: string,
+      _args: readonly string[] = [],
+      spawnOptions?: SpawnOptions,
+    ) => {
+      const script = String.raw`process.stderr.write("Error: <CODEX_HOME>\\config.toml:191:23: unknown configuration field \`computer_use.windows.always_allowed_app_ids\`\n");process.stdin.resume()`;
+      const child = spawn(process.execPath, ["-e", script], spawnOptions ?? {});
+      launched.push(child);
+      return child;
+    }) as unknown as typeof spawn;
+    const controller = new AbortController();
+    const pending = openCodexProtocol(
+      connection,
+      { CODEX_HOME: process.cwd() },
+      options,
+      controller.signal,
+      start,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    controller.abort();
+    await expect(pending).rejects.toThrow("cancelled");
+    expect(launched).toHaveLength(1);
+    await waitForChildClose(launched[0]!);
+  });
   it("checks billing and effective policy before applying explicit resumed permissions and structured output", async () => {
     const f = fixture();
     expect(await collect(f.protocol, true)).toEqual([

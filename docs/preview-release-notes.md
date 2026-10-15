@@ -5,67 +5,57 @@ preview, not a supported or release-certified build. Windows SmartScreen and
 workplace security policy may block it. Follow your organization's approval
 process; do not disable security controls to install it.
 
-## Changes in preview.3
+## Changes in preview.4
 
-- Windows installers repair a missing PRMonitor Start menu shortcut during
-  reinstall or upgrade, preserving existing shortcuts and desktop-shortcut
-  deletion preferences.
-- Resumable startup setup checks Git, storage, connection and all four task
-  profiles, preserves committed progress across restart, and keeps explicit
-  saved-work targets available with setup attention.
-- Activity defaults to PR work, with application diagnostics and raw redacted
-  evidence separately labeled and historical ownership preserved.
-- The Inbox and detail workspace provide isolated selection/drafts, saved
-  review and synchronization history, foreground cancellation, and explicit
-  guarded publication/recovery controls.
+- Windows executable version resources identify PRMonitor while the installer
+  remains unsigned.
+- The shared setup flow adds named machine-local AI connections for Codex,
+  Claude Code, and GitHub Copilot. Choose a default connection and configure
+  task-specific overrides through the same setup and settings controls.
+- Setup guides users through GitHub, AI, permissions, and completion, and
+  preserves committed setup progress across restart.
+- Provider selection and optional launch arguments are checked against each
+  detected program's supported options; setup does not silently switch
+  authentication or billing methods.
 
 The desktop package version remains `0.1.0`; the distinct GitHub preview tag
-identifies this source revision. This preview does not establish a tested
-shipping-identity upgrade path from preview.1.
+identifies the source revision. This preview remains unsigned and manually
+updated. It is not generally supported or release-certified.
 
 ## Download and install
 
 1. Install the Git 2.55.0 prerequisite from the official Git for Windows site.
 2. Download `PRMonitor-0.1.0-x64.exe`, `release-manifest.json`, and
    `checksums.sha256` into the same directory.
-3. In PowerShell, run `Get-FileHash .\PRMonitor-0.1.0-x64.exe -Algorithm SHA256`
-   and compare it with the installer row in `checksums.sha256`. Verify the
-   manifest the same way before installing.
-4. Run the per-user installer only if your workplace policy permits it.
-   Start PRMonitor from the Start menu. Normal window close keeps it in the
-   tray; use **Shutdown PRMonitor** to exit.
+3. Verify the installer and manifest against `checksums.sha256` before
+   installation.
+4. Run the per-user installer only if workplace policy permits it. Start
+   PRMonitor from the Start menu. Normal window close keeps it in the tray; use
+   **Shutdown PRMonitor** to exit.
 
 There is no automatic updater. Ordinary uninstall preserves application data.
-See the attached `windows-release.md` for data locations, upgrade/uninstall
-procedure, and support diagnostics. Start with a disposable test repository
-and back up any existing PRMonitor data before trying a new build.
-
-Git is an external prerequisite. Configure a supported provider, model and
-authentication through the application's setup flow before starting AI work.
-The build pins Electron `44.4.3` and Codex SDK `0.155.1`.
-`release-manifest.json` records the exact source commit and build runtimes;
-the source `package-lock.json` at that commit records the complete dependency
-versions.
+See `windows-release.md` for data locations, upgrade/uninstall procedure, and
+support diagnostics. Start with a disposable test repository and back up any
+existing PRMonitor data before trying a new build.
 
 ## Verification scope
 
-This workflow requires the repository checks (including packaged smoke), the
-F29 static security gate, the production dependency audit at the high severity
-threshold, installer packaging, payload scan, and exact-file SHA-256 checks.
-Its Actions run records their results for the source commit below.
+The upstream PR10 head `77f9574` has passing GitHub foundation checks and
+Windows installer acceptance. This isolated preview candidate is based on
+`77f9574334f2aa6261272c7d98439b2efb742f3a` with a narrow Codex app-server
+configuration-compatibility fallback. Local verification on Node.js 24.19.0
+and npm 11.17.0 passed `npm ci`, `npm run check` (571 desktop tests passed,
+one skipped; 25 release tests, 43 validation-contract tests, and 17 spec-linter
+tests passed), `npm run security:gate`, and
+`npm audit --omit=dev --audit-level=high` (zero vulnerabilities). A bounded
+ordinary Codex CLI request using the connected ChatGPT sign-in returned the
+expected response in an ephemeral read-only session. A disposable app-server
+profile verified startup, the legacy configuration compatibility retry, and
+clean shutdown without running a model prompt.
 
-Hosted Windows [CI for the shortcut fix](https://github.com/bryant-collab/PRMonitor/actions/runs/37363499549)
-verified shipping-identity default-path fresh install, preview.2 missing-link
-reinstall and repair, a test-only version upgrade, shortcut target and application
-identity, desktop deletion preferences, and SQLite saved-review/settings retention
-through ordinary uninstall. These are hosted-runner file/registry checks; they do
-not verify Start menu visibility or launching through the link on Windows 11.
-
-A GitHub-hosted Windows build is not clean-machine Windows 11 acceptance.
-Physical clean-machine install/upgrade/uninstall and shortcut use, physical
-125/150/200% display DPI and independent Windows text scaling, spoken
-Narrator/NVDA interaction, actual taskbar/tray and folder/file/export dialogs,
-Windows 11 virtual desktops, credentialed GitHub/GHES workflows, and performance
-acceptance remain unverified. Automated accessibility and process-local native
-input do not establish those physical checks. No passing 77-criterion F30 acceptance trace or
-final release-eligibility decision is claimed by this prerelease.
+The local candidate has not been merged, published, or installed. Physical
+clean-machine Windows 11 install/upgrade/uninstall and shortcut use, physical
+DPI and text-scaling checks, Narrator/NVDA interaction, actual taskbar/tray and
+file dialogs, virtual desktops, credentialed GitHub/GHES workflows, and
+performance acceptance remain unverified. No final 77-criterion F30
+acceptance trace or release-eligibility decision is claimed.
