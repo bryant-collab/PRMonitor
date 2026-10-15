@@ -53,7 +53,7 @@ describe("F01 workspace contract", () => {
       "typescript-eslint": "8.70.0",
       prettier: "3.9.8",
       "eslint-config-prettier": "10.1.8",
-      vitest: "5.0.1",
+      vitest: "5.0.4",
       "@types/node": "24.13.6",
       "@types/react": "19.3.0",
       "@types/react-dom": "19.3.0",

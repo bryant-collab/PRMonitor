@@ -30,13 +30,13 @@
   },
   "dependencies": {
     "@openai/codex-sdk": "0.155.1",
+    "@prmonitor/provider-runtimes": "0.1.0",
     "@prmonitor/validation-contract": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tabbable": "6.5.0",
     "zod": "3.25.76",
-    "zod-to-json-schema": "3.25.2",
-    "@prmonitor/provider-runtimes": "0.1.0"
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -55,6 +55,6 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0",
     "vite": "7.3.6",
-    "vitest": "5.0.1"
+    "vitest": "5.0.4"
   }
 }
