@@ -328,7 +328,7 @@ try {
       `setup-e2e: ${stage}: ${result.ok ? "PASS" : "FAIL"}\n`,
     );
     process.stdout.write(
-      `setup-e2e diagnostics: ${JSON.stringify({ stage, startup: result.startupDiagnostics, io: result.ioDiagnostics, closedProcessTree: result.closedProcessTree })}\n`,
+      `setup-e2e diagnostics: ${JSON.stringify({ stage, startup: result.startupDiagnostics, io: result.ioDiagnostics, reference: result.referenceDiagnostics, capture: result.ok ? undefined : { captures: result.captureDiagnostics?.captures.slice(-2), rendererEvents: result.captureDiagnostics?.rendererEvents }, closedProcessTree: result.closedProcessTree })}\n`,
     );
     if (code !== 0 || !result.ok)
       throw new Error(result.error || "E2E_CHILD_FAILED");

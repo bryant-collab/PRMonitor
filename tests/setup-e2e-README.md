@@ -47,6 +47,13 @@ existing PRMonitor installation. It installs/upgrades an owned Temp prefix,
 preserves a real SQLite record, runs installed sandboxed smoke, uninstalls its
 own identity, and validates ownership/path boundaries before temporary cleanup.
 
+Initial window discovery has a separate 30-second startup budget for Windows
+cold-start variability; subsequent UI assertions retain their 15-second waits.
+The existing 55-second child and 65-second parent stage watchdogs still apply.
+Startup diagnostics record wait start, completion or failure, with the configured
+budget and elapsed timestamps. This harness allowance is not a product startup
+performance target or evidence explaining slow SQLite commits.
+
 Every run creates a marked temporary directory and isolates Electron user data,
 session data and home before importing main. Windows bootstrap keeps its required
 account path environment entries; the app never opens that account's PRMonitor
@@ -67,6 +74,19 @@ The runner resolves Windows short-path Temp aliases before marking or persisting
 owned paths. Its children receive canonical Temp inputs, and cleanup checks the
 same canonical temporary root. This retains production path-movement guards;
 an actual 8.3 Temp alias is included in local Windows acceptance.
+
+The shell stage records timestamped reference-window substeps and bounded
+console/load/crash diagnostics in its scenario result. Reference loading, frame
+evaluation, double animation frame, page capture, PNG encoding and screenshot
+writing each report their own failure label. The approved HTML hash, isolated
+session, sandbox and network guard are unchanged.
+
+Every screenshot records its stage/name, window visibility and minimized state,
+the renderer responsiveness events, background-throttling state and both
+animation-frame callbacks before capture. When an owned test window is hidden,
+the harness disables background throttling only for that capture and restores
+its previous setting in `finally`. A timed-out frame or capture step fails
+without writing the screenshot; no production window preference is changed.
 
 The installer also canonicalizes Temp and propagates that path to every owned
 child. Its bounded smoke reader requires the nonce-bearing ready marker after

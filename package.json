@@ -41,5 +41,8 @@
   },
   "allowScripts": {
     "electron@44.4.3": true
+  },
+  "devDependencies": {
+    "vite": "7.3.6"
   }
 }

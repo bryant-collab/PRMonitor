@@ -13,6 +13,11 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const childProcess = require("node:child_process");
 const { syncBuiltinESMExports } = require("node:module");
+const {
+  waitForCondition,
+  withDeadline,
+  STARTUP_WINDOW_TIMEOUT_MS,
+} = require("./setup-wait.cjs");
 
 const root = process.env.PRMONITOR_E2E_ROOT;
 const stage = process.env.PRMONITOR_E2E_STAGE;
@@ -55,7 +60,67 @@ ipcMain.handle = (channel, handler) =>
 const realExit = app.exit.bind(app);
 let retryRelaunches = 0;
 let retryExits = 0;
+const stageStartedAt = Date.now();
 let currentStep = "startup";
+const referenceDiagnostics = { entryElapsedMs: null, events: [], errors: [] };
+const captureDiagnostics = { captures: [], rendererEvents: [] };
+let rendererResponsiveness = "NO_UNRESPONSIVE_EVENT";
+function captureNote(capture, phase, details = {}) {
+  capture.events.push({
+    phase,
+    at: new Date().toISOString(),
+    elapsedMs: Date.now() - stageStartedAt,
+    ...details,
+  });
+}
+function referenceNote(step, details = {}) {
+  referenceDiagnostics.events.push({
+    step,
+    at: new Date().toISOString(),
+    elapsedMs: Date.now() - stageStartedAt,
+    ...details,
+  });
+  if (referenceDiagnostics.events.length > 80)
+    referenceDiagnostics.events.shift();
+}
+function referenceError(kind, details = {}) {
+  if (referenceDiagnostics.errors.length < 20)
+    referenceDiagnostics.errors.push({
+      kind,
+      at: new Date().toISOString(),
+      elapsedMs: Date.now() - stageStartedAt,
+      ...details,
+    });
+}
+function safeReferenceMessage(message) {
+  return String(message)
+    .replace(/(?:file|https?):\/\/[^\s)]+/gi, "[url]")
+    .replace(/[A-Za-z]:\\[^\s)]+/g, "[path]")
+    .slice(0, 240);
+}
+async function referenceStep(label, operation, timeoutMs = 3000) {
+  const previousStep = currentStep;
+  currentStep = label;
+  referenceNote(`${label}:start`);
+  try {
+    const result = await withDeadline(operation, label, timeoutMs);
+    referenceNote(`${label}:complete`);
+    currentStep = previousStep;
+    return result;
+  } catch (error) {
+    const timedOut = error.message === `E2E_STEP_TIMEOUT:${label}`;
+    referenceNote(`${label}:failed`, {
+      reason: timedOut ? "TIMEOUT" : "ERROR",
+    });
+    referenceError("STEP_FAILURE", {
+      step: label,
+      message: safeReferenceMessage(error.message),
+    });
+    throw new Error(
+      timedOut ? `E2E_STEP_TIMEOUT:${label}` : `E2E_REFERENCE_FAILURE:${label}`,
+    );
+  }
+}
 const timeout = setTimeout(
   () => finish(new Error(`E2E_STAGE_TIMEOUT:${currentStep}`)),
   55000,
@@ -85,6 +150,8 @@ async function finish(error, assertions = []) {
         forbiddenEffects: forbidden.length,
         startupDiagnostics: startupDiagnostics.snapshot(),
         ioDiagnostics: ioDiagnostics?.snapshot(),
+        ...(stage === "shell" ? { referenceDiagnostics } : {}),
+        captureDiagnostics,
         error:
           error === undefined ? undefined : `${currentStep}: ${error.message}`,
       },
@@ -95,15 +162,9 @@ async function finish(error, assertions = []) {
   realExit(error ? 1 : 0);
 }
 
-async function waitFor(operation, label) {
+async function waitFor(operation, label, timeoutMs) {
   currentStep = label;
-  const end = Date.now() + 15000;
-  while (Date.now() < end) {
-    const value = await operation();
-    if (value) return value;
-    await new Promise((resolve) => setTimeout(resolve, 80));
-  }
-  throw new Error(`E2E_WAIT:${label}`);
+  return waitForCondition(operation, label, { timeoutMs });
 }
 
 async function start() {
@@ -255,10 +316,56 @@ async function start() {
         : path.join(__dirname, "../apps/desktop/out/main/index.js"),
     ).href
   );
-  let window = await waitFor(
-    () => BrowserWindow.getAllWindows().find((item) => !item.isDestroyed()),
-    "window",
-  );
+  startupDiagnostics.note("WINDOW_WAIT_STARTED", {
+    timeoutMs: STARTUP_WINDOW_TIMEOUT_MS,
+  });
+  let window;
+  try {
+    window = await waitFor(
+      () => BrowserWindow.getAllWindows().find((item) => !item.isDestroyed()),
+      "window",
+      STARTUP_WINDOW_TIMEOUT_MS,
+    );
+    startupDiagnostics.note("WINDOW_WAIT_COMPLETED");
+  } catch (error) {
+    startupDiagnostics.note("WINDOW_WAIT_FAILED");
+    throw error;
+  }
+  const captureWindowState = () => {
+    const liveWindow = !window.isDestroyed();
+    const liveRenderer = liveWindow && !window.webContents.isDestroyed();
+    return {
+      visible: liveWindow ? window.isVisible() : false,
+      minimized: liveWindow ? window.isMinimized() : false,
+      focused: liveWindow ? window.isFocused() : false,
+      backgroundThrottling: liveRenderer
+        ? window.webContents.getBackgroundThrottling()
+        : null,
+      rendererResponsiveness,
+      rendererCrashed: liveRenderer ? window.webContents.isCrashed() : null,
+    };
+  };
+  for (const [event, state] of [
+    ["unresponsive", "UNRESPONSIVE"],
+    ["responsive", "RESPONSIVE"],
+  ])
+    window.webContents.on(event, () => {
+      rendererResponsiveness = state;
+      captureDiagnostics.rendererEvents.push({
+        event,
+        at: new Date().toISOString(),
+        elapsedMs: Date.now() - stageStartedAt,
+      });
+    });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    rendererResponsiveness = "GONE";
+    captureDiagnostics.rendererEvents.push({
+      event: "render-process-gone",
+      reason: details.reason,
+      at: new Date().toISOString(),
+      elapsedMs: Date.now() - stageStartedAt,
+    });
+  });
   if (["retained-restart", "conditional-settings"].includes(stage)) {
     assert.ok(
       startupDiagnostics.snapshot().git.started < 30,
@@ -324,14 +431,90 @@ async function start() {
     );
   };
   const capture = async (name) => {
-    await evaluate(
-      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
-    );
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    await fs.writeFile(
-      path.join(evidence, `${name}.png`),
-      (await window.webContents.capturePage()).toPNG(),
-    );
+    const record = { name, events: [] };
+    captureDiagnostics.captures.push(record);
+    const state = () => captureWindowState();
+    const originalBackgroundThrottling =
+      window.webContents.getBackgroundThrottling();
+    const temporarilyDisableThrottling =
+      !window.isVisible() && originalBackgroundThrottling;
+    captureNote(record, "capture-entry", state());
+    const step = async (phase, operation, timeoutMs = 3000) => {
+      const label = `capture:${stage}:${name}:${phase}`;
+      const previousStep = currentStep;
+      currentStep = label;
+      captureNote(record, `${phase}:start`, state());
+      try {
+        const result = await withDeadline(operation, label, timeoutMs);
+        captureNote(record, `${phase}:complete`, state());
+        currentStep = previousStep;
+        return result;
+      } catch (error) {
+        captureNote(record, `${phase}:failed`, {
+          ...state(),
+          reason:
+            error.message === `E2E_STEP_TIMEOUT:${label}` ? "TIMEOUT" : "ERROR",
+        });
+        throw new Error(
+          error.message === `E2E_STEP_TIMEOUT:${label}`
+            ? error.message
+            : `E2E_CAPTURE_FAILURE:${label}`,
+        );
+      }
+    };
+    try {
+      if (temporarilyDisableThrottling) {
+        window.webContents.setBackgroundThrottling(false);
+        captureNote(record, "background-throttling-disabled", state());
+      }
+      await step("animation-frames", () =>
+        window.webContents.executeJavaScript(
+          "new Promise(resolve=>{const state=window.__setupCaptureFrameState={first:false,second:false};requestAnimationFrame(()=>{state.first=true;requestAnimationFrame(()=>{state.second=true;resolve()})})})",
+          true,
+        ),
+      );
+      const frames = await step("animation-frame-state", () =>
+        window.webContents.executeJavaScript(
+          "window.__setupCaptureFrameState",
+          true,
+        ),
+      );
+      captureNote(record, "animation-frame-callbacks", {
+        first: frames?.first === true,
+        second: frames?.second === true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const image = await step("capture-page", () =>
+        window.webContents.capturePage(),
+      );
+      const png = await step("png-encode", () => image.toPNG());
+      await step("screenshot-write", () =>
+        fs.writeFile(path.join(evidence, `${name}.png`), png),
+      );
+    } catch (error) {
+      const frameState = await withDeadline(
+        () =>
+          window.webContents.executeJavaScript(
+            "window.__setupCaptureFrameState ?? null",
+            true,
+          ),
+        `capture:${stage}:${name}:failure-frame-state`,
+        1000,
+      ).catch(() => null);
+      captureNote(record, "failure-state", {
+        ...state(),
+        firstAnimationFrame: frameState?.first === true,
+        secondAnimationFrame: frameState?.second === true,
+      });
+      throw error;
+    } finally {
+      if (temporarilyDisableThrottling && !window.webContents.isDestroyed()) {
+        window.webContents.setBackgroundThrottling(
+          originalBackgroundThrottling,
+        );
+        captureNote(record, "background-throttling-restored", state());
+      }
+    }
   };
   const setField = (selector, value) =>
     evaluate(
@@ -730,6 +913,13 @@ async function start() {
     // The public prototype uses inline iframe scripts. Keep it out of the
     // production session, whose file-response CSP correctly rejects them.
     // This nonpersistent session still belongs to the owned session-data root.
+    referenceDiagnostics.entryElapsedMs = Date.now() - stageStartedAt;
+    referenceNote("reference:entry", {
+      remainingStageMs: Math.max(
+        0,
+        55000 - referenceDiagnostics.entryElapsedMs,
+      ),
+    });
     const referenceSession = session.fromPartition("approved-reference");
     const optionalReferenceScripts = new Set([
       "https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js",
@@ -756,28 +946,96 @@ async function start() {
         session: referenceSession,
       },
     });
-    await reference.loadFile(path.join(root, "approved-preview.html"));
+    reference.webContents.on("console-message", (...args) => {
+      const event = args[0];
+      const level =
+        typeof event === "object" && event?.level !== undefined
+          ? event.level
+          : args[1];
+      const message =
+        typeof event === "object" && event?.message !== undefined
+          ? event.message
+          : args[2];
+      if (
+        level === 2 ||
+        level === 3 ||
+        level === "error" ||
+        level === "warning"
+      )
+        referenceError("CONSOLE", {
+          level: String(level),
+          message: safeReferenceMessage(message),
+        });
+    });
+    reference.webContents.on(
+      "did-fail-load",
+      (_event, code, _description, _url, isMainFrame) =>
+        referenceError("LOAD_FAILED", { code, isMainFrame }),
+    );
+    reference.webContents.on("render-process-gone", (_event, details) =>
+      referenceError("RENDERER_GONE", { reason: details.reason }),
+    );
+    reference.webContents.on("unresponsive", () =>
+      referenceError("UNRESPONSIVE"),
+    );
+    reference.webContents.on("did-finish-load", () =>
+      referenceNote("reference:did-finish-load"),
+    );
+    await referenceStep(
+      "reference-load-file",
+      () => reference.loadFile(path.join(root, "approved-preview.html")),
+      15000,
+    );
+    let referencePolls = 0;
     const referenceFrame = await waitFor(async () => {
+      referencePolls++;
+      if (referencePolls === 1 || referencePolls % 25 === 0)
+        referenceNote("reference-content:poll", {
+          poll: referencePolls,
+          frameCount: reference.webContents.mainFrame.frames.length,
+        });
       for (const frame of reference.webContents.mainFrame.frames) {
-        if (
-          await frame
-            .executeJavaScript(
-              "document.readyState === 'complete' && document.body.innerText.includes('PR inbox')",
+        const state = await referenceStep("reference-frame-evaluation", () =>
+          frame.executeJavaScript(
+            "({ readyState: document.readyState, hasInbox: Boolean(document.body?.innerText.includes('PR inbox')) })",
+          ),
+        );
+        if (referencePolls === 1 || referencePolls % 25 === 0)
+          referenceNote("reference-content:state", {
+            poll: referencePolls,
+            frameKind: frame.url === "about:srcdoc" ? "SRCDOC" : "OTHER",
+            readyState: ["loading", "interactive", "complete"].includes(
+              state.readyState,
             )
-            .catch(() => false)
-        )
+              ? state.readyState
+              : "UNKNOWN",
+            hasInbox: state.hasInbox === true,
+          });
+        if (state.readyState === "complete" && state.hasInbox === true)
           return frame;
       }
       return null;
     }, "approved-reference-content");
-    await referenceFrame.executeJavaScript(
-      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+    referenceNote("reference-content:ready", { polls: referencePolls });
+    await referenceStep("reference-double-animation-frame", () =>
+      referenceFrame.executeJavaScript(
+        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+      ),
     );
     await new Promise((resolve) => setTimeout(resolve, 200));
-    await fs.writeFile(
-      path.join(evidence, "approved-reference-1280.png"),
-      (await reference.webContents.capturePage()).toPNG(),
+    const referenceImage = await referenceStep("reference-capture-page", () =>
+      reference.webContents.capturePage(),
     );
+    const referencePng = await referenceStep("reference-png-encode", () =>
+      referenceImage.toPNG(),
+    );
+    await referenceStep("reference-screenshot-write", () =>
+      fs.writeFile(
+        path.join(evidence, "approved-reference-1280.png"),
+        referencePng,
+      ),
+    );
+    referenceNote("reference:complete");
     reference.destroy();
     assertions.push(
       `exact approved reference painted in a separate nonpersistent session; ${blockedReferenceScripts} known optional public prototype scripts blocked before network; product CSP unchanged`,
