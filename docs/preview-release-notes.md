@@ -40,22 +40,27 @@ existing PRMonitor data before trying a new build.
 
 ## Verification scope
 
-The upstream PR10 head `77f9574` has passing GitHub foundation checks and
-Windows installer acceptance. This isolated preview candidate is based on
-`77f9574334f2aa6261272c7d98439b2efb742f3a` with a narrow Codex app-server
-configuration-compatibility fallback. Local verification on Node.js 24.19.0
-and npm 11.17.0 passed `npm ci`, `npm run check` (571 desktop tests passed,
-one skipped; 25 release tests, 43 validation-contract tests, and 17 spec-linter
-tests passed), `npm run security:gate`, and
-`npm audit --omit=dev --audit-level=high` (zero vulnerabilities). A bounded
-ordinary Codex CLI request using the connected ChatGPT sign-in returned the
-expected response in an ephemeral read-only session. A disposable app-server
-profile verified startup, the legacy configuration compatibility retry, and
-clean shutdown without running a model prompt.
+This isolated candidate builds on upstream PR10 head `77f9574` with a bounded
+Codex app-server configuration-compatibility fallback and setup acceptance
+harness reliability changes. The exact release source commit and build workflow
+are appended below by the preview workflow and recorded in the manifest. Local
+verification on Node.js 24.19.0 and npm 11.17.0 passed `npm ci`,
+`npm run check` (571 desktop tests passed, one skipped; 33 release tests,
+43 validation-contract tests, and 17 spec-linter tests passed),
+`npm run security:gate`, and `npm audit --omit=dev --audit-level=high`
+(zero vulnerabilities). The full isolated Electron setup journey passed all
+21 stages with zero forbidden effects; its 43 screenshot captures completed.
+The candidate's Windows foundation, Windows shipping installer acceptance,
+and Ubuntu foundation CI jobs passed before this notes update. The preview
+workflow repeats source checks, security and production audit, packaging, and
+artifact hash verification on the final release commit before publication.
+A bounded ordinary Codex CLI request using the connected ChatGPT sign-in
+returned the expected response in an ephemeral read-only session. A disposable
+app-server profile verified startup, the legacy configuration compatibility
+retry, and clean shutdown without running a model prompt.
 
-The local candidate has not been merged, published, or installed. Physical
-clean-machine Windows 11 install/upgrade/uninstall and shortcut use, physical
-DPI and text-scaling checks, Narrator/NVDA interaction, actual taskbar/tray and
-file dialogs, virtual desktops, credentialed GitHub/GHES workflows, and
+Physical clean-machine Windows 11 install/upgrade/uninstall and shortcut use,
+physical DPI and text-scaling checks, Narrator/NVDA interaction, actual taskbar/tray
+and file dialogs, virtual desktops, credentialed GitHub/GHES workflows, and
 performance acceptance remain unverified. No final 77-criterion F30
 acceptance trace or release-eligibility decision is claimed.
